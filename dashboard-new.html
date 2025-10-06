@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZoneTrain Dashboard | AI Running Coach</title>
+    <link rel="stylesheet" href="styles-modern.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="zt-nav">
+        <div class="zt-nav-brand">
+            <div class="zt-logo">ZoneTrain</div>
+            <div class="zt-tagline">AI Running Coach</div>
+        </div>
+        <div class="zt-nav-user">
+            <div class="user-info">
+                <span id="userName">Welcome!</span>
+                <div class="user-status" id="userStatus">FREE ACCOUNT</div>
+            </div>
+            <div class="user-avatar" id="userAvatar">Z</div>
+            <button class="settings-btn" onclick="openSettings()">
+                <i class="fas fa-cog"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Status Section -->
+    <section class="zt-hero-status">
+        <div class="status-content">
+            <h1>Your Training Command Center</h1>
+            <p>AI-powered insights from your running data, delivered instantly</p>
+            
+            <!-- Quick Stats -->
+            <div class="quick-stats" id="quickStats">
+                <div class="stat-item">
+                    <span class="stat-value" id="totalAnalyses">--</span>
+                    <span class="stat-label">Analyses</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="stravaStatus">Disconnected</span>
+                    <span class="stat-label">Strava</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="lastActivity">--</span>
+                    <span class="stat-label">Last Run</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Dashboard Grid -->
+    <main class="zt-dashboard">
+        <div class="dashboard-grid">
+            
+            <!-- Zone Analysis Card (Main Feature) -->
+            <div class="feature-card primary" id="zoneAnalysisCard">
+                <div class="card-header">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title-group">
+                        <h3>Zone Analysis</h3>
+                        <span class="feature-badge free">Free</span>
+                    </div>
+                </div>
+                
+                <!-- Dynamic Content States -->
+                <div class="card-content" id="analysisContent">
+                    <!-- Loading State -->
+                    <div id="loadingState" class="content-state">
+                        <div class="loading-spinner"></div>
+                        <p>Loading your analysis status...</p>
+                    </div>
+                    
+                    <!-- Connect Strava State -->
+                    <div id="connectState" class="content-state" style="display: none;">
+                        <div class="action-content">
+                            <h4>Connect Your Data</h4>
+                            <p>Link your Strava account to get AI-powered zone analysis instantly</p>
+                            <button class="zt-btn primary" onclick="connectStrava()">
+                                <i class="fab fa-strava"></i> Connect Strava
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Ready to Analyze State -->
+                    <div id="readyState" class="content-state" style="display: none;">
+                        <div class="action-content">
+                            <h4>Ready to Analyze</h4>
+                            <p>Your Strava is connected. Run your first zone analysis!</p>
+                            <button class="zt-btn primary" onclick="runFirstAnalysis()">
+                                <i class="fas fa-play"></i> Run Analysis
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Analysis Results State -->
+                    <div id="resultsState" class="content-state" style="display: none;">
+                        <div class="results-content">
+                            <div class="analysis-meta">
+                                <span id="analysisDate">Last analyzed: Loading...</span>
+                            </div>
+                            <div class="ai-insight" id="aiInsight">
+                                <i class="fas fa-brain"></i>
+                                <span>Loading insights...</span>
+                            </div>
+                            <div class="action-buttons">
+                                <button class="zt-btn primary" onclick="viewDetailedAnalysis()">
+                                    <i class="fas fa-chart-line"></i> View Details
+                                </button>
+                                <button class="zt-btn secondary" onclick="refreshAnalysis()">
+                                    <i class="fas fa-sync"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HRV Coaching Card (Premium) -->
+            <div class="feature-card premium locked" data-feature="hrv-coaching">
+                <div class="card-header">
+                    <div class="card-icon">💓</div>
+                    <div class="card-title-group">
+                        <h3>HRV Coaching</h3>
+                        <span class="feature-badge premium">Pro</span>
+                    </div>
+                    <div class="lock-indicator">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <p>Daily workout adjustments based on your heart rate variability readings</p>
+                    <div class="premium-preview">
+                        <div class="preview-stat">📊 Today's HRV: 45ms</div>
+                        <div class="preview-stat">✅ Recommended: Easy 30-min run</div>
+                    </div>
+                    <button class="zt-btn upgrade" onclick="viewPlans()">
+                        <i class="fas fa-crown"></i> Upgrade to Unlock
+                    </button>
+                </div>
+            </div>
+
+            <!-- WhatsApp Coaching Card (Premium) -->
+            <div class="feature-card premium locked" data-feature="whatsapp-coaching">
+                <div class="card-header">
+                    <div class="card-icon">📱</div>
+                    <div class="card-title-group">
+                        <h3>WhatsApp Reports</h3>
+                        <span class="feature-badge premium">Pro</span>
+                    </div>
+                    <div class="lock-indicator">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <p>Get personalized training tips and daily plans delivered to your phone</p>
+                    <div class="premium-preview">
+                        <div class="preview-stat">📲 Daily morning reports</div>
+                        <div class="preview-stat">🎯 Personalized guidance</div>
+                    </div>
+                    <button class="zt-btn upgrade" onclick="viewPlans()">
+                        <i class="fas fa-crown"></i> Upgrade to Unlock
+                    </button>
+                </div>
+            </div>
+
+            <!-- Advanced Analytics Card (Premium) -->
+            <div class="feature-card premium locked" data-feature="advanced-analytics">
+                <div class="card-header">
+                    <div class="card-icon">📈</div>
+                    <div class="card-title-group">
+                        <h3>Advanced Analytics</h3>
+                        <span class="feature-badge premium">Pro</span>
+                    </div>
+                    <div class="lock-indicator">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <p>Deep performance insights and trend analysis over time</p>
+                    <div class="premium-preview">
+                        <div class="preview-stat">📊 Performance trends</div>
+                        <div class="preview-stat">🎯 Goal tracking</div>
+                    </div>
+                    <button class="zt-btn upgrade" onclick="viewPlans()">
+                        <i class="fas fa-crown"></i> Upgrade to Unlock
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Upgrade CTA Section -->
+        <section class="upgrade-section">
+            <div class="upgrade-content">
+                <h2>Ready to Level Up Your Training?</h2>
+                <p>Unlock HRV coaching, WhatsApp reports, and advanced analytics</p>
+                <button class="zt-btn cta" onclick="viewPlans()">
+                    <i class="fas fa-rocket"></i> View Plans & Pricing
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button class="close-btn" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-item">
+                    <span>Account Status:</span>
+                    <span id="settingsStatus">Free</span>
+                </div>
+                <div class="setting-item">
+                    <span>Member Since:</span>
+                    <span id="memberSince">--</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="zt-btn danger" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard-modern.js"></script>
+</body>
+</html>
