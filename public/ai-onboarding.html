@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Race Coach Setup - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            margin: 20px 30px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: white;
+            transition: width 0.3s ease;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 30px;
+            background: #f8f9fa;
+        }
+
+        .step-dot {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #666;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .step-dot.active {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step-dot.completed {
+            background: #10b981;
+            color: white;
+        }
+
+        .form-content {
+            padding: 40px;
+        }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .required {
+            color: #ef4444;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="date"],
+        input[type="time"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group,
+        .radio-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .checkbox-option,
+        .radio-option {
+            flex: 0 0 calc(50% - 8px);
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .checkbox-option:hover,
+        .radio-option:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+        }
+
+        .checkbox-option input,
+        .radio-option input {
+            margin-right: 10px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-prev {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn-prev:hover {
+            background: #e5e7eb;
+        }
+
+        .btn-next {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-next:hover {
+            background: #5568d3;
+        }
+
+        .btn-submit {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-submit:hover {
+            background: #059669;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .hint {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .row .form-group {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏃 Race Coach Setup</h1>
+            <p>Let's build your personalized race training plan</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <div class="step-indicator">
+            <div class="step-dot active" data-step="1">1</div>
+            <div class="step-dot" data-step="2">2</div>
+            <div class="step-dot" data-step="3">3</div>
+            <div class="step-dot" data-step="4">4</div>
+            <div class="step-dot" data-step="5">5</div>
+        </div>
+
+        <form id="raceCoachForm" class="form-content">
+            
+            <!-- STEP 1: Personal Profile -->
+            <div class="step active" data-step="1">
+                <h2>📋 Personal Profile</h2>
+                <p class="hint" style="margin-bottom: 20px;">Basic information to personalize your training</p>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Age <span class="required">*</span></label>
+                        <input type="number" name="age" min="15" max="100" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Gender <span class="required">*</span></label>
+                        <select name="gender" required>
+                            <option value="">Select</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Height (cm) <span class="required">*</span></label>
+                        <input type="number" name="height" min="140" max="220" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Weight (kg) <span class="required">*</span></label>
+                        <input type="number" name="weight" min="40" max="150" step="0.1" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Any Injuries or Health Concerns?</label>
+                    <textarea name="injury_history" rows="3" placeholder="e.g., Previous knee injury, IT band issues..."></textarea>
+                </div>
+                <!-- Add this at the end of Step 1, before closing div -->
+<div class="form-group">
+    <label>Training Location <span class="required">*</span></label>
+    <p class="hint" style="margin-bottom: 10px;">
+        Share your location so we can tailor workouts based on local weather, elevation, and conditions. 
+        This will be your default training location (you can change it later).
+    </p>
+    <button type="button" onclick="getLocation()" id="locationBtn" style="width: 100%; background: #667eea; color: white; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+        📍 Share My Location
+    </button>
+    <input type="hidden" name="latitude" id="latitude" required>
+    <input type="hidden" name="longitude" id="longitude" required>
+    <div id="locationDisplay" style="margin-top: 10px; padding: 10px; background: #f3f4f6; border-radius: 6px; display: none;">
+        <span style="color: #10b981;">✓ Location captured:</span>
+        <span id="locationText"></span>
+    </div>
+</div>
+
+            </div>
+
+            <!-- STEP 2: Race Goals & History -->
+            <div class="step" data-step="2">
+                <h2>🎯 Your Race Goals</h2>
+                <p class="hint" style="margin-bottom: 20px;">Tell us about your recent performance and upcoming race</p>
+
+                <h3 style="margin-top: 0;">Recent Personal Best</h3>
+                
+                <div class="row">
+                    <div class="form-group">
+                        <label>Distance <span class="required">*</span></label>
+                        <select name="pb_distance" id="pb_distance" required>
+                            <option value="">Select</option>
+                            <option value="5k">5K</option>
+                            <option value="10k">10K</option>
+                            <option value="half_marathon">Half Marathon</option>
+                            <option value="marathon">Marathon</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="custom_pb_distance_group" style="display: none;">
+                        <label>Custom Distance (km)</label>
+                        <input type="number" name="custom_pb_distance" min="1" max="200" step="0.1">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Time <span class="required">*</span></label>
+                        <input type="text" name="pb_time" placeholder="HH:MM:SS (e.g., 1:45:30)" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" name="pb_date">
+                    </div>
+                </div>
+                 <div class="form-group">
+                    <label>Race Location</label>
+                    <input type="text" name="target_location" placeholder="e.g., Berlin Marathon">
+                </div>
+
+                
+                <hr style="margin: 30px 0; border: none; border-top: 2px solid #e5e7eb;">
+
+                <h3>Target Race</h3>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Distance <span class="required">*</span></label>
+                        <select name="target_distance" id="target_distance" required>
+                            <option value="">Select</option>
+                            <option value="5k">5K</option>
+                            <option value="10k">10K</option>
+                            <option value="half_marathon">Half Marathon</option>
+                            <option value="marathon">Marathon</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="custom_target_distance_group" style="display: none;">
+                        <label>Custom Distance (km)</label>
+                        <input type="number" name="custom_target_distance" min="1" max="200" step="0.1">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Target Time</label>
+                        <input type="text" name="target_time" placeholder="HH:MM:SS (e.g., 3:30:00)">
+                    </div>
+                    <div class="form-group">
+                        <label>Race Date <span class="required">*</span></label>
+                        <input type="date" name="target_date" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Race Location</label>
+                    <input type="text" name="target_location" placeholder="e.g., Berlin Marathon">
+                </div>
+            </div>
+
+            <!-- STEP 3: Current Training -->
+            <div class="step" data-step="3">
+                <h2>🏃 Current Training Status</h2>
+                <p class="hint" style="margin-bottom: 20px;">Help us understand your current training routine</p>
+
+                <div class="form-group">
+                    <label>Current Weekly Mileage (km) <span class="required">*</span></label>
+                    <input type="number" name="weekly_mileage" min="0" max="200" required>
+                    <span class="hint">How many kilometers do you run per week currently?</span>
+                </div>
+
+                <div class="form-group">
+                    <label>Typical Easy Run Pace (min/km)</label>
+                    <input type="text" name="easy_run_pace" placeholder="e.g., 6:00">
+                </div>
+
+                <div class="form-group">
+                    <label>Workout Types You're Comfortable With</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="easy" id="workout_easy">
+                            <label for="workout_easy">Easy Runs</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="long" id="workout_long">
+                            <label for="workout_long">Long Runs</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="interval" id="workout_interval">
+                            <label for="workout_interval">Intervals</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="tempo" id="workout_tempo">
+                            <label for="workout_tempo">Tempo Runs</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="threshold" id="workout_threshold">
+                            <label for="workout_threshold">Threshold Runs</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="workout_types" value="hills" id="workout_hills">
+                            <label for="workout_hills">Hill Workouts</label>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 40px; padding: 20px; background: linear-gradient(135deg, #FC4C02 0%, #D24202 100%); border-radius: 12px; text-align: center;">
+        <h3 style="color: white; margin-bottom: 10px;">🚴 Connect with Strava</h3>
+        <p style="color: rgba(255,255,255,0.9); margin-bottom: 15px; font-size: 14px;">
+            Automatically import your recent activities for more accurate training zones and personalized coaching
+        </p>
+        <button type="button" onclick="connectStrava()" style="background: white; color: #FC4C02; border: none; padding: 12px 30px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px;">
+            Connect Strava
+        </button>
+        <p style="color: rgba(255,255,255,0.7); margin-top: 10px; font-size: 12px;">
+            Optional but highly recommended
+        </p>
+    </div>
+            </div>
+
+            <!-- STEP 4: Recovery & Biometrics -->
+            <div class="step" data-step="4">
+                <h2>💤 Recovery & Health Metrics</h2>
+                <p class="hint" style="margin-bottom: 20px;">Optional but helpful for better coaching</p>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Resting Heart Rate (bpm)</label>
+                        <input type="number" name="resting_hr" min="30" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Heart Rate (bpm)</label>
+                        <input type="number" name="max_hr" min="140" max="220">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>HRV Baseline</label>
+                        <input type="number" name="baseline_hrv" min="10" max="200">
+                        <span class="hint">If tracked by watch/device</span>
+                    </div>
+                    <div class="form-group">
+                        <label>Average Sleep Quality (1-10)</label>
+                        <input type="number" name="sleep_quality" min="1" max="10" value="7">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Tracking Devices</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="device_capabilities" value="heart_rate" id="device_hr">
+                            <label for="device_hr">Heart Rate Monitor</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="device_capabilities" value="hrv" id="device_hrv">
+                            <label for="device_hrv">HRV Tracking</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="device_capabilities" value="power" id="device_power">
+                            <label for="device_power">Running Power</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="device_capabilities" value="sleep" id="device_sleep">
+                            <label for="device_sleep">Sleep Tracking</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Recovery Tools You Use</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="recovery_tools" value="foam_rolling" id="recovery_foam">
+                            <label for="recovery_foam">Foam Rolling</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="recovery_tools" value="massage" id="recovery_massage">
+                            <label for="recovery_massage">Massage</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="recovery_tools" value="stretching" id="recovery_stretch">
+                            <label for="recovery_stretch">Stretching</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="recovery_tools" value="yoga" id="recovery_yoga">
+                            <label for="recovery_yoga">Yoga</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 5: Training Schedule -->
+            <div class="step" data-step="5">
+                <h2>📅 Training Schedule</h2>
+                <p class="hint" style="margin-bottom: 20px;">When can you train?</p>
+
+                <div class="form-group">
+                    <label>Preferred Running Days <span class="required">*</span></label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="monday" id="day_mon">
+                            <label for="day_mon">Monday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="tuesday" id="day_tue">
+                            <label for="day_tue">Tuesday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="wednesday" id="day_wed">
+                            <label for="day_wed">Wednesday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="thursday" id="day_thu">
+                            <label for="day_thu">Thursday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="friday" id="day_fri">
+                            <label for="day_fri">Friday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="saturday" id="day_sat">
+                            <label for="day_sat">Saturday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="running_days" value="sunday" id="day_sun">
+                            <label for="day_sun">Sunday</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Training Intensity Preference <span class="required">*</span></label>
+                    <div class="radio-group">
+                        <div class="radio-option">
+                            <input type="radio" name="intensity_preference" value="conservative" id="intensity_conservative" required>
+                            <label for="intensity_conservative">Conservative (Gradual buildup)</label>
+                        </div>
+                        <div class="radio-option">
+                            <input type="radio" name="intensity_preference" value="moderate" id="intensity_moderate">
+                            <label for="intensity_moderate">Moderate (Balanced approach)</label>
+                        </div>
+                        <div class="radio-option">
+                            <input type="radio" name="intensity_preference" value="aggressive" id="intensity_aggressive">
+                            <label for="intensity_aggressive">Aggressive (Fast improvement)</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Training Constraints or Preferences</label>
+                    <textarea name="constraints" rows="3" placeholder="e.g., Can't run on Mondays, prefer morning runs, gym days on Wed/Fri..."></textarea>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="button-group">
+                <button type="button" class="btn-prev" id="prevBtn" style="display: none;">← Previous</button>
+                <button type="button" class="btn-next" id="nextBtn">Next →</button>
+                <button type="submit" class="btn-submit" id="submitBtn" style="display: none;">🚀 Generate My Race Plan</button>
+            </div>
+        </form>
+    </div>
+
+<script>
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('strava') === 'success') {
+        const stravaToken = urlParams.get('token');
+        if (stravaToken) {
+            claimStravaConnection(stravaToken);
+        }
+    } else if (urlParams.get('strava') === 'error') {
+        const errorMsg = urlParams.get('msg') || 'unknown';
+        alert('⚠️ Strava connection failed: ' + errorMsg);
+    }
+
+    // Location capture function
+window.getLocation = function() {
+    const btn = document.getElementById('locationBtn');
+    btn.innerHTML = '⏳ Getting location...';
+    btn.disabled = true;
+    
+    if (!navigator.geolocation) {
+        alert('Geolocation is not supported by your browser');
+        btn.innerHTML = '📍 Share My Location';
+        btn.disabled = false;
+        return;
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+        function(position) {
+            const lat = position.coords.latitude.toFixed(6);
+            const lon = position.coords.longitude.toFixed(6);
+            
+            document.getElementById('latitude').value = lat;
+            document.getElementById('longitude').value = lon;
+            
+            document.getElementById('locationText').textContent = `${lat}, ${lon}`;
+            document.getElementById('locationDisplay').style.display = 'block';
+            
+            btn.innerHTML = '✓ Location Saved';
+            btn.style.background = '#10b981';
+            
+            console.log('📍 Location captured:', lat, lon);
+        },
+        function(error) {
+            console.error('Location error:', error);
+            alert('Could not get your location. Please enable location services and try again.');
+            btn.innerHTML = '📍 Share My Location';
+            btn.disabled = false;
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+        }
+    );
+};
+
+
+    async function claimStravaConnection(stravaToken) {
+        const token = localStorage.getItem('userToken');
+        
+        try {
+            console.log('📡 Claiming Strava connection...');
+            
+            const response = await fetch('/api/claim-strava-connection', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ stravaToken })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                alert('🎉 Strava connected successfully! Athlete: ' + (result.athleteName || 'Connected'));
+                // Remove query params to clean URL
+                window.history.replaceState({}, '', window.location.pathname + '?plan=race');
+            } else {
+                alert('Failed to connect Strava: ' + result.message);
+            }
+        } catch (error) {
+            console.error('❌ Claim error:', error);
+            alert('Error connecting Strava. Please try again.');
+        }
+    }
+    let currentStep = 1;
+    const totalSteps = 5;
+
+  // Replace connectStrava function
+window.connectStrava = function() {
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+        alert('Please login first');
+        return;
+    }
+    // Store return URL in localStorage
+    localStorage.setItem('stravaReturnUrl', window.location.href);
+    // Redirect without token in URL
+    window.location.href = '/connect-strava';
+};
+
+    // Auto-format time inputs (HH:MM:SS)
+   function formatTimeInput(input) {
+    if (!input) return;
+    
+    let isDeleting = false;
+    
+    // Track if user is deleting
+    input.addEventListener('keydown', function(e) {
+        isDeleting = (e.key === 'Backspace' || e.key === 'Delete');
+    });
+    
+    input.addEventListener('input', function(e) {
+        let cursorPos = this.selectionStart;
+        let value = this.value.replace(/[^0-9]/g, ''); // Remove all non-digits
+        let formatted = '';
+        
+        // Add colons automatically as user types
+        if (value.length >= 1) {
+            formatted = value.substring(0, 2);
+        }
+        if (value.length >= 3) {
+            formatted += ':' + value.substring(2, 4);
+        }
+        if (value.length >= 5) {
+            formatted += ':' + value.substring(4, 6);
+        }
+        
+        // Limit to 6 digits (HH:MM:SS)
+        if (value.length > 6) {
+            formatted = formatted.substring(0, 8); // HH:MM:SS = 8 chars with colons
+        }
+        
+        this.value = formatted;
+        
+        // Fix cursor position after formatting
+        if (!isDeleting && formatted.length > cursorPos) {
+            // If we just added a colon, move cursor forward
+            if (formatted[cursorPos] === ':') {
+                this.setSelectionRange(cursorPos + 1, cursorPos + 1);
+            }
+        }
+    });
+    
+    // Handle paste
+    input.addEventListener('paste', function(e) {
+        e.preventDefault();
+        let paste = (e.clipboardData || window.clipboardData).getData('text');
+        let value = paste.replace(/[^0-9]/g, '');
+        
+        let formatted = '';
+        if (value.length >= 1) formatted = value.substring(0, 2);
+        if (value.length >= 3) formatted += ':' + value.substring(2, 4);
+        if (value.length >= 5) formatted += ':' + value.substring(4, 6);
+        
+        this.value = formatted;
+    });
+    
+    // Also add placeholder and maxlength
+    input.placeholder = 'HH:MM:SS';
+    input.maxLength = 8;
+}
+
+    // Apply formatting to time inputs
+    formatTimeInput(document.getElementById('pb_time'));
+    formatTimeInput(document.getElementById('target_time'));
+
+    // Show/hide custom distance inputs
+    const pbDistanceSelect = document.getElementById('pb_distance');
+    const targetDistanceSelect = document.getElementById('target_distance');
+
+    if (pbDistanceSelect) {
+        pbDistanceSelect.addEventListener('change', function() {
+            const customGroup = document.getElementById('custom_pb_distance_group');
+            if (this.value === 'other') {
+                customGroup.style.display = 'block';
+                customGroup.querySelector('input').required = true;
+            } else {
+                customGroup.style.display = 'none';
+                customGroup.querySelector('input').required = false;
+            }
+        });
+    }
+
+    if (targetDistanceSelect) {
+        targetDistanceSelect.addEventListener('change', function() {
+            const customGroup = document.getElementById('custom_target_distance_group');
+            if (this.value === 'other') {
+                customGroup.style.display = 'block';
+                customGroup.querySelector('input').required = true;
+            } else {
+                customGroup.style.display = 'none';
+                customGroup.querySelector('input').required = false;
+            }
+        });
+    }
+
+    function showStep(step) {
+        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+        document.querySelector(`.step[data-step="${step}"]`).classList.add('active');
+
+        document.querySelectorAll('.step-dot').forEach((dot, index) => {
+            dot.classList.remove('active', 'completed');
+            if (index + 1 < step) {
+                dot.classList.add('completed');
+            } else if (index + 1 === step) {
+                dot.classList.add('active');
+            }
+        });
+
+        const progress = ((step - 1) / (totalSteps - 1)) * 100;
+        document.getElementById('progressFill').style.width = progress + '%';
+
+        document.getElementById('prevBtn').style.display = step === 1 ? 'none' : 'block';
+        document.getElementById('nextBtn').style.display = step === totalSteps ? 'none' : 'block';
+        document.getElementById('submitBtn').style.display = step === totalSteps ? 'block' : 'none';
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function validateStep(step) {
+        const currentStepEl = document.querySelector(`.step[data-step="${step}"]`);
+        const required = currentStepEl.querySelectorAll('[required]');
+        
+        for (let field of required) {
+            if (field.type === 'checkbox') {
+                const checkboxName = field.getAttribute('name');
+                const checkboxGroup = currentStepEl.querySelectorAll(`input[name="${checkboxName}"]`);
+                const checkedCount = Array.from(checkboxGroup).filter(cb => cb.checked).length;
+                if (checkedCount === 0) {
+                    alert('Please select at least one option for: ' + field.closest('.form-group').querySelector('label').textContent);
+                    return false;
+                }
+            } else if (field.type === 'radio') {
+                const radioName = field.getAttribute('name');
+                const radioGroup = currentStepEl.querySelectorAll(`input[name="${radioName}"]`);
+                const isChecked = Array.from(radioGroup).some(radio => radio.checked);
+                if (!isChecked) {
+                    alert('Please select an option for: ' + field.closest('.form-group').querySelector('label').textContent);
+                    return false;
+                }
+            } else if (!field.value.trim()) {
+                field.focus();
+                const label = field.closest('.form-group')?.querySelector('label')?.textContent || 'required field';
+                alert('Please fill in: ' + label);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    document.getElementById('nextBtn').addEventListener('click', function() {
+        if (validateStep(currentStep)) {
+            currentStep++;
+            showStep(currentStep);
+        }
+    });
+
+    document.getElementById('prevBtn').addEventListener('click', function() {
+        currentStep--;
+        showStep(currentStep);
+    });
+
+    document.getElementById('raceCoachForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        if (!validateStep(currentStep)) return;
+
+        const formData = {};
+        const inputs = document.querySelectorAll('#raceCoachForm input, #raceCoachForm select, #raceCoachForm textarea');
+
+        inputs.forEach(input => {
+            if (input.name) {
+                if (input.type === 'checkbox') {
+                    if (!formData[input.name]) formData[input.name] = [];
+                    if (input.checked) formData[input.name].push(input.value);
+                } else if (input.type === 'radio') {
+                    if (input.checked) formData[input.name] = input.value;
+                } else if (input.value) {
+                    formData[input.name] = input.value;
+                }
+            }
+        });
+
+        console.log('📋 Submitting:', formData);
+
+        const token = localStorage.getItem('userToken');
+        if (!token) {
+            alert('Please login first');
+            window.location.href = '/login';
+            return;
+        }
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.innerHTML = '⏳ Generating Plan...';
+        submitBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/ai-onboarding', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(formData)
+            });
+
+            const result = await response.json();
+            console.log('📡 Response:', result);
+
+            if (result.success) {
+                alert('🎉 Your race plan is ready!');
+                window.location.href = '/dashboard';
+            } else {
+                throw new Error(result.message || 'Failed to create plan');
+            }
+        } catch (error) {
+            console.error('❌ Error:', error);
+            alert('Failed to submit: ' + error.message);
+            submitBtn.innerHTML = '🚀 Generate My Race Plan';
+            submitBtn.disabled = false;
+        }
+    });
+
+    // Initialize
+    showStep(1);
+
+}); // End of DOMContentLoaded
+</script>
+<script src="/components/nav-header.js"></script>
+</body>
+</html>

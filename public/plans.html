@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZoneTrain - Choose Your Training Plan</title>
+    <style>
+        :root {
+            --deep-purple: #6B46C1;
+            --light-purple: #A78BFA;
+            --accent-purple: #8B5CF6;
+            --white: #FFFFFF;
+            --dark-gray: #1F2937;
+            --success-green: #10B981;
+            --warning-orange: #F59E0B;
+            --error-red: #EF4444;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container { max-width: 1000px; margin: 0 auto; }
+
+        .header {
+            text-align: center;
+            color: var(--white);
+            margin-bottom: 50px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .promo-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 40px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .promo-title {
+            color: var(--white);
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .promo-input-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .promo-input {
+            padding: 12px 20px;
+            border: 2px solid var(--light-purple);
+            border-radius: 25px;
+            font-size: 1rem;
+            text-align: center;
+            background: var(--white);
+            color: var(--dark-gray);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            min-width: 180px;
+        }
+
+        .promo-input:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+        }
+
+        .apply-btn {
+            background: var(--success-green);
+            color: var(--white);
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .apply-btn:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+        }
+
+        .promo-message {
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-weight: 500;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .promo-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success-green);
+            border: 1px solid var(--success-green);
+        }
+
+        .promo-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error-red);
+            border: 1px solid var(--error-red);
+        }
+
+        .promo-info {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+
+        .plans-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .plan-card {
+            background: var(--white);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+            text-align: center;
+            position: relative;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            color: var(--dark-gray);
+        }
+
+        .plan-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .plan-card.featured {
+            border: 3px solid var(--accent-purple);
+            transform: scale(1.05);
+        }
+
+        .plan-header { margin-bottom: 20px; }
+
+        .plan-title {
+            font-size: 1.8rem;
+            color: var(--deep-purple);
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .plan-pricing {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .plan-price {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--accent-purple);
+            transition: all 0.3s ease;
+        }
+
+        .original-price {
+            font-size: 1.8rem;
+            color: var(--dark-gray);
+            text-decoration: line-through;
+            opacity: 0.6;
+            margin-bottom: 5px;
+        }
+
+        .discount-badge {
+            background: var(--warning-orange);
+            color: var(--white);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 10px;
+            position: absolute;
+            top: -10px;
+            right: 20px;
+            transform: rotate(-10deg);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: rotate(-10deg) scale(1); }
+            50% { transform: rotate(-10deg) scale(1.05); }
+        }
+
+        .plan-period {
+            color: var(--dark-gray);
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .plan-promise {
+            background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
+            color: var(--white);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .features-list {
+            list-style: none;
+            text-align: left;
+            margin: 25px 0;
+        }
+
+        .features-list li {
+            padding: 8px 0;
+            color: var(--dark-gray);
+            position: relative;
+            padding-left: 25px;
+        }
+
+        .features-list li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--success-green);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .trial-badge {
+            background: var(--success-green);
+            color: var(--white);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin: 15px 0;
+            display: inline-block;
+        }
+
+        /* Button Styles */
+        /* Back Button for Plans Page */
+.back-btn-plans {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    text-decoration: none;
+    border-radius: 25px;
+    font-size: 14px;
+    font-weight: 600;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.back-btn-plans:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateX(-3px);
+}
+
+.back-btn-plans svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Mobile Responsive */
+@media screen and (max-width: 576px) {
+    .back-btn-plans {
+        top: 15px;
+        left: 15px;
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+    
+    .back-btn-plans svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+        
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-trial {
+            background: var(--deep-purple);
+            color: var(--white);
+            border: 2px solid var(--deep-purple);
+        }
+
+        .btn-trial:hover {
+            background: var(--accent-purple);
+            border-color: var(--accent-purple);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(107, 70, 193, 0.3);
+        }
+
+        .btn-subscribe {
+            background: var(--success-green);
+            color: var(--white);
+            border: 2px solid var(--success-green);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-subscribe:hover {
+            background: #059669;
+            border-color: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-subscribe::before {
+            content: "💳";
+            margin-right: 8px;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--deep-purple);
+            border: 2px solid var(--light-purple);
+        }
+
+        .btn-outline:hover {
+            background: var(--light-purple);
+            color: var(--white);
+            border-color: var(--light-purple);
+        }
+
+        .button-separator {
+            text-align: center;
+            color: var(--dark-gray);
+            font-size: 0.85rem;
+            margin: 8px 0;
+            opacity: 0.7;
+        }
+
+        .guarantee {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--white);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .guarantee h3 { margin-bottom: 10px; }
+
+        .popular-badge {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--warning-orange);
+            color: var(--white);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .savings-highlight {
+            background: var(--success-green);
+            color: var(--white);
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+
+        .payment-info {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--white);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 30px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .payment-methods {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .payment-method {
+            background: var(--white);
+            color: var(--dark-gray);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .plan-card.featured { transform: none; }
+            .plans-container { grid-template-columns: 1fr; }
+            .promo-input-group { flex-direction: column; }
+            .promo-input { min-width: 250px; }
+        }
+
+        /* Add this to your existing CSS in plans.html */
+
+/* Loading animation for mock payment */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Modal styling */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: linear-gradient(135deg, var(--deep-purple), var(--accent-purple));
+    border-radius: 20px;
+    border: 2px solid rgba(167, 139, 250, 0.3);
+    padding: 30px;
+    color: white;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+    </style>
+    <link rel="stylesheet" href="css/cookies.css">
+</head>
+<body>
+    <a href="#" class="back-btn-plans" onclick="smartBack(event)">
+    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Back
+</a>
+
+<script>
+function smartBack(e) {
+    e.preventDefault();
+    
+    // Check if user is logged in
+    const userToken = localStorage.getItem('userToken');
+    
+    // Check if there's a previous page in history
+    if (document.referrer && document.referrer.includes(window.location.host)) {
+        // Go back to previous page if it's from same site
+        window.history.back();
+    } else if (userToken) {
+        // Logged in user with no history → dashboard
+        window.location.href = '/dashboard';
+    } else {
+        // Not logged in → homepage
+        window.location.href = '/';
+    }
+}
+</script>
+    <div class="container">
+        <div class="header">
+            <h1>Choose Your Training Plan</h1>
+            <p>Personalized training plans tailored to your HRV and fitness goals</p>
+        </div>
+
+        <!-- Promo Code Section -->
+        <div class="promo-section">
+            <h3 class="promo-title">🎉 Have a Promo Code?</h3>
+            <div class="promo-input-group">
+                <input type="text" id="promoCode" class="promo-input" placeholder="Enter promo code" maxlength="20">
+                <button onclick="applyPromoCode()" class="apply-btn">Apply Code</button>
+            </div>
+            <div id="promoMessage" class="promo-message" style="display: none;"></div>
+            <p class="promo-info">Launch special: Use code LAUNCH50 for 50% off your first month!</p>
+        </div>
+
+        <div class="plans-container">
+            <!-- Tier 1: Fitness Coach -->
+            <div class="plan-card" id="fitness-plan">
+                <div class="plan-header">
+                    <h2 class="plan-title">Fitness Coach</h2>
+                    <div class="plan-pricing">
+                        <div class="original-price" id="fitness-original" style="display: none;">₹199</div>
+                        <div class="plan-price" id="fitness-price">₹199</div>
+                        <div class="discount-badge" id="fitness-badge" style="display: none;">50% OFF</div>
+                    </div>
+                    <div class="plan-period">per month</div>
+                    <div class="savings-highlight" id="fitness-savings" style="display: none;">
+                        Save ₹100/month with LAUNCH50!
+                    </div>
+                </div>
+                
+                <div class="plan-promise">
+                    Build running fitness and consistency
+                </div>
+
+                <ul class="features-list">
+                    <li>Progressive running plans for beginners/maintainers</li>
+                    <li>Habit formation (3x/week running routine)</li>
+                    <li>Basic performance improvement (run longer/feel better)</li>
+                    <li>HRV-based daily adjustments</li>
+                    <li>WhatsApp coaching integration</li>
+                </ul>
+
+                <div class="trial-badge">14 Days Free Trial</div>
+                
+                <!-- Updated Button Group -->
+                <div class="button-group">
+                    <button class="btn btn-trial" onclick="selectPlan('fitness', 'trial')">
+                        🆓 Start Free Trial
+                    </button>
+                    <div class="button-separator">or</div>
+                    <button class="btn btn-subscribe" onclick="selectPlan('fitness', 'subscribe')">
+                        Subscribe Now
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tier 2: Race Coach -->
+            <div class="plan-card featured" id="race-plan">
+                <div class="popular-badge">Most Popular</div>
+                <div class="plan-header">
+                    <h2 class="plan-title">Race Coach</h2>
+                    <div class="plan-pricing">
+                        <div class="original-price" id="race-original" style="display: none;">₹399</div>
+                        <div class="plan-price" id="race-price">₹399</div>
+                        <div class="discount-badge" id="race-badge" style="display: none;">50% OFF</div>
+                    </div>
+                    <div class="plan-period">per month</div>
+                    <div class="savings-highlight" id="race-savings" style="display: none;">
+                        Save ₹200/month with LAUNCH50!
+                    </div>
+                </div>
+                
+                <div class="plan-promise">
+                    Train effectively for specific race goals
+                </div>
+
+                <ul class="features-list">
+                    <li>Everything in Fitness Coach</li>
+                    <li>Periodization for target races</li>
+                    <li>Performance optimization</li>
+                    <li>Training load management</li>
+                    <li>Race strategy planning</li>
+                    <li>Advanced analytics dashboard</li>
+                </ul>
+
+                <div class="trial-badge">14 Days Free Trial</div>
+                
+                <!-- Updated Button Group -->
+                <div class="button-group">
+                    <button class="btn btn-trial" onclick="selectPlan('race', 'trial')">
+                        🆓 Start Free Trial
+                    </button>
+                    <div class="button-separator">or</div>
+                    <button class="btn btn-subscribe" onclick="selectPlan('race', 'subscribe')">
+                        Subscribe Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Info -->
+        <div class="payment-info">
+            <h4>💳 Secure Payment Options</h4>
+            <div class="payment-methods">
+                <div class="payment-method">💳 Card</div>
+                <div class="payment-method">🏦 UPI</div>
+                <div class="payment-method">🏪 Net Banking</div>
+                <div class="payment-method">📱 Wallets</div>
+            </div>
+            <p style="margin-top: 10px; font-size: 0.85rem; opacity: 0.8;">
+                Powered by Razorpay • SSL Secured • Cancel Anytime
+            </p>
+        </div>
+
+        <div class="guarantee">
+            <p>Try any plan risk-free. If you're not satisfied, you can cancel your subscription at any time.</p>
+        </div>
+    </div>
+
+
+   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+    let promoApplied = false;
+    const originalPrices = {
+        fitness: 199,
+        race: 399
+    };
+    const discountedPrices = {
+        fitness: 99,
+        race: 199
+    };
+
+    async function applyPromoCode() {
+        const promoInput = document.getElementById('promoCode');
+        const promoMessage = document.getElementById('promoMessage');
+        const promoCode = promoInput.value.trim();
+
+        if (!promoCode) {
+            showPromoMessage('Please enter a promo code', 'error');
+            return;
+        }
+
+        showPromoMessage('Validating promo code...', 'info');
+
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            if (promoCode.toUpperCase() === 'LAUNCH50') {
+                if (promoApplied) {
+                    showPromoMessage('Promo code already applied!', 'info');
+                    return;
+                }
+
+                promoApplied = true;
+                applyDiscountToUI();
+                showPromoMessage('🎉 LAUNCH50 applied! 50% off your first month!', 'success');
+                
+                sessionStorage.setItem('promoApplied', 'true');
+                sessionStorage.setItem('promoCode', 'LAUNCH50');
+            } else {
+                showPromoMessage('Invalid promo code. Try LAUNCH50!', 'error');
+            }
+        } catch (error) {
+            console.error('Error validating promo:', error);
+            showPromoMessage('Error validating promo code. Please try again.', 'error');
+        }
+    }
+
+    function applyDiscountToUI() {
+        document.getElementById('fitness-original').style.display = 'block';
+        document.getElementById('fitness-price').textContent = '₹99';
+        document.getElementById('fitness-badge').style.display = 'block';
+        document.getElementById('fitness-savings').style.display = 'block';
+
+        document.getElementById('race-original').style.display = 'block';
+        document.getElementById('race-price').textContent = '₹199';
+        document.getElementById('race-badge').style.display = 'block';
+        document.getElementById('race-savings').style.display = 'block';
+
+        const priceElements = document.querySelectorAll('.plan-price');
+        priceElements.forEach(el => {
+            el.style.animation = 'pulse 0.5s ease-in-out';
+        });
+    }
+
+    function showPromoMessage(message, type) {
+        const promoMessage = document.getElementById('promoMessage');
+        promoMessage.textContent = message;
+        promoMessage.className = `promo-message promo-${type}`;
+        promoMessage.style.display = 'block';
+
+        if (type !== 'info') {
+            setTimeout(() => {
+                if (type === 'error') {
+                    promoMessage.style.display = 'none';
+                }
+            }, 5000);
+        }
+    }
+
+    // ============================================
+    // ✅ REAL RAZORPAY PAYMENT INTEGRATION
+    // ============================================
+    
+    async function selectPlan(planType, actionType) {
+        const userToken = localStorage.getItem('userToken');
+        
+        // Check if user is logged in
+        if (!userToken) {
+            showLoginPrompt(planType, actionType);
+            return;
+        }
+
+        const promoCode = sessionStorage.getItem('promoCode');
+        const currentPrice = promoApplied ? discountedPrices[planType] : originalPrices[planType];
+        
+        const planData = {
+            planType: planType,
+            actionType: actionType,
+            price: currentPrice,
+            originalPrice: originalPrices[planType],
+            promoCode: promoCode,
+            promoApplied: promoApplied
+        };
+
+        if (actionType === 'trial') {
+            // For trial, skip payment and go to onboarding
+            console.log('Starting free trial for', planType);
+            
+            const button = event.target;
+            const originalText = button.textContent;
+            button.innerHTML = '🔄 Activating Trial...';
+            button.disabled = true;
+            
+            try {
+                // Activate trial on server
+                const response = await fetch('/api/activate-trial', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + userToken
+                    },
+                    body: JSON.stringify({ planType })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Redirect to onboarding
+                    const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
+                    window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
+                } else {
+                    alert('Trial activation failed. Please try again.');
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }
+            } catch (error) {
+                console.error('Trial activation error:', error);
+                alert('Error activating trial');
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+            
+        } else if (actionType === 'subscribe') {
+            // Real Razorpay payment
+            await initializeRazorpayPayment(planData);
+        }
+    }
+
+    async function initializeRazorpayPayment(planData) {
+        try {
+            console.log('💳 Initializing Razorpay payment for', planData.planType);
+            
+            // Show loading
+            showPaymentModal('loading');
+            
+            // Get Razorpay config
+            const configRes = await fetch('/api/payment/config', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
+                }
+            });
+            const config = await configRes.json();
+            
+            if (config.testMode) {
+                console.log('⚠️ Running in TEST MODE - Use test cards');
+            }
+            
+            // Create order
+            const orderRes = await fetch('/api/payment/create-order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
+                },
+                body: JSON.stringify({
+                    planType: planData.planType,
+                    amount: planData.price
+                })
+            });
+            
+            const orderData = await orderRes.json();
+            
+            if (!orderData.success) {
+                closePaymentModal();
+                alert('Failed to create order. Please try again.');
+                return;
+            }
+            
+            // Close loading modal
+            closePaymentModal();
+            
+            // Initialize Razorpay checkout
+            const options = {
+                key: config.key,
+                amount: orderData.order.amount,
+                currency: orderData.order.currency,
+                name: 'ZoneTrain',
+                description: `${planData.planType.charAt(0).toUpperCase() + planData.planType.slice(1)} Coach Subscription`,
+                order_id: orderData.order.id,
+                handler: async function (response) {
+                    // Payment successful - verify on server
+                    await verifyPayment(response, planData.planType);
+                },
+                prefill: {
+                    name: localStorage.getItem('userName') || '',
+                    email: localStorage.getItem('userEmail') || ''
+                },
+                notes: {
+                    planType: planData.planType,
+                    promoCode: planData.promoCode || ''
+                },
+                theme: {
+                    color: '#667eea'
+                },
+                modal: {
+                    ondismiss: function() {
+                        console.log('Payment cancelled by user');
+                        showPromoMessage('Payment cancelled', 'error');
+                    }
+                }
+            };
+            
+            const razorpay = new Razorpay(options);
+            razorpay.open();
+            
+        } catch (error) {
+            console.error('Payment initialization error:', error);
+            closePaymentModal();
+            alert('Payment failed. Please try again.');
+        }
+    }
+
+    async function verifyPayment(paymentResponse, planType) {
+        try {
+            showPaymentModal('verifying');
+            
+            const res = await fetch('/api/payment/verify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
+                },
+                body: JSON.stringify({
+                    razorpay_order_id: paymentResponse.razorpay_order_id,
+                    razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                    razorpay_signature: paymentResponse.razorpay_signature,
+                    planType: planType
+                })
+            });
+            
+            const data = await res.json();
+            
+            closePaymentModal();
+            
+            if (data.success) {
+                showSuccessModal(planType);
+            } else {
+                alert('Payment verification failed. Please contact support.');
+            }
+        } catch (error) {
+            console.error('Payment verification error:', error);
+            closePaymentModal();
+            alert('Payment verification failed. Please contact support.');
+        }
+    }
+
+    function showPaymentModal(type) {
+        let content = '';
+        
+        if (type === 'loading') {
+            content = `
+                <div class="modal-content" style="text-align: center;">
+                    <div style="width: 40px; height: 40px; border: 4px solid rgba(107, 70, 193, 0.3); border-radius: 50%; border-top: 4px solid var(--deep-purple); animation: spin 1s linear infinite; margin: 20px auto;"></div>
+                    <h3 style="margin-bottom: 10px;">Preparing payment...</h3>
+                    <p style="opacity: 0.8;">Please wait</p>
+                </div>
+            `;
+        } else if (type === 'verifying') {
+            content = `
+                <div class="modal-content" style="text-align: center;">
+                    <div style="width: 40px; height: 40px; border: 4px solid rgba(107, 70, 193, 0.3); border-radius: 50%; border-top: 4px solid var(--deep-purple); animation: spin 1s linear infinite; margin: 20px auto;"></div>
+                    <h3 style="margin-bottom: 10px;">Verifying payment...</h3>
+                    <p style="opacity: 0.8;">Please wait while we confirm your payment</p>
+                </div>
+            `;
+        }
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.id = 'paymentModal';
+        modal.innerHTML = content;
+        document.body.appendChild(modal);
+    }
+
+    function closePaymentModal() {
+        const modal = document.getElementById('paymentModal');
+        if (modal) {
+            modal.remove();
+        }
+    }
+
+    function showSuccessModal(planType) {
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content" style="text-align: center;">
+                <h2 style="color: var(--success-green); margin-bottom: 15px;">🎉 Payment Successful!</h2>
+                <div style="background: rgba(16, 185, 129, 0.1); border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+                    <p style="margin: 0 0 5px 0;"><strong>Plan:</strong> ${planType.charAt(0).toUpperCase() + planType.slice(1)} Coach</p>
+                    <p style="margin: 0;"><strong>Status:</strong> Active</p>
+                </div>
+                <p style="margin-bottom: 20px;">Your subscription has been activated!</p>
+                <button class="btn btn-primary" onclick="proceedToAIOnboarding('${planType}')">
+                    🚀 Continue to Setup
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Auto-redirect after 3 seconds
+        setTimeout(() => {
+            proceedToAIOnboarding(planType);
+        }, 3000);
+    }
+
+    function proceedToAIOnboarding(planType) {
+        document.querySelectorAll('.modal').forEach(modal => modal.remove());
+        
+        const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
+        window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
+    }
+
+    function showLoginPrompt(planType, actionType) {
+        // Store intent for after login
+        sessionStorage.setItem('planIntent', JSON.stringify({ planType, actionType }));
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content" style="text-align: center; max-width: 450px;">
+                <h2 style="color: var(--deep-purple); margin-bottom: 20px;">
+                    🔐 Account Required
+                </h2>
+                <p style="margin-bottom: 20px; line-height: 1.6;">
+                    To subscribe to this plan, you need to create an account or log in first.
+                </p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button class="btn btn-secondary" onclick="closeLoginPrompt()" style="flex: 1;">
+                        Cancel
+                    </button>
+                    <button class="btn btn-primary" onclick="goToLogin()" style="flex: 1;">
+                        Log In
+                    </button>
+                    <button class="btn btn-primary" onclick="goToSignup()" style="flex: 1;">
+                        Sign Up
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+
+    function closeLoginPrompt() {
+        document.querySelector('.modal').remove();
+    }
+
+    function goToSignup() {
+        window.location.href = '/signup?redirect=plans';
+    }
+
+    function goToLogin() {
+        window.location.href = '/login?redirect=plans';
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check for existing promo
+        if (sessionStorage.getItem('promoApplied') === 'true') {
+            const storedPromo = sessionStorage.getItem('promoCode');
+            
+            if (storedPromo) {
+                promoApplied = true;
+                document.getElementById('promoCode').value = storedPromo;
+                applyDiscountToUI();
+                showPromoMessage(`${storedPromo} discount active!`, 'info');
+            }
+        }
+
+        // Enter key support for promo code
+        document.getElementById('promoCode').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                applyPromoCode();
+            }
+        });
+
+        // Card hover animations
+        const cards = document.querySelectorAll('.plan-card');
+        cards.forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                if (!this.classList.contains('featured')) {
+                    this.style.transform = 'translateY(-10px) scale(1.02)';
+                }
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                if (this.classList.contains('featured')) {
+                    this.style.transform = 'scale(1.05)';
+                } else {
+                    this.style.transform = 'translateY(0) scale(1)';
+                }
+            });
+        });
+
+        // Check if user just logged in with plan intent
+        const planIntent = sessionStorage.getItem('planIntent');
+        if (planIntent) {
+            const { planType, actionType } = JSON.parse(planIntent);
+            sessionStorage.removeItem('planIntent');
+            
+            // Re-trigger plan selection
+            setTimeout(() => {
+                selectPlan(planType, actionType);
+            }, 500);
+        }
+    });
+</script>
+    
+    <!-- ZoneTrain Cookie Banner (only shows if no consent) -->
+    <div id="ztCookieBanner" class="zt-cookie-banner">
+        <div class="zt-cookie-container">
+            <div class="zt-cookie-content">
+                <div class="zt-cookie-title">🍪 Cookie Preferences</div>
+                <div class="zt-cookie-text">
+                    Update your cookie preferences to enhance your ZoneTrain dashboard experience.
+                </div>
+            </div>
+            <div class="zt-cookie-actions">
+                <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
+                    Cookie Settings
+                </button>
+                <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
+                    Accept All
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/cookies.js"></script>
+    <!-- Before </body> -->
+
+
+</body>
+</html>

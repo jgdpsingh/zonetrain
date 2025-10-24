@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Dashboard - ZoneTrain</title>
+    <link rel="stylesheet" href="/css/widgets.css">
+    <link rel="stylesheet" href="css/responsive.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 90px;
+        }
+
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .dashboard-header {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+
+        .dashboard-header h1 {
+            font-size: 32px;
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+
+        .plan-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            background: #fee2e2;
+            color: #991b1b;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            border: 2px solid #fca5a5;
+        }
+
+        /* ✅ NEW: Enhanced Upgrade Section */
+        .upgrade-cta-large {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            padding: 40px;
+            margin: 30px 0;
+            color: white;
+            box-shadow: 0 10px 30px rgba(107, 70, 193, 0.3);
+        }
+
+        .cta-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .cta-header h2 {
+            color: white;
+            font-size: 36px;
+            margin-bottom: 12px;
+        }
+
+        .cta-header p {
+            font-size: 18px;
+            opacity: 0.95;
+        }
+
+        .plans-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .plan-card {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            position: relative;
+            transition: transform 0.3s;
+        }
+
+        .plan-card:hover {
+            transform: translateY(-8px);
+        }
+
+        .plan-card.featured {
+            border: 3px solid #fbbf24;
+            box-shadow: 0 8px 24px rgba(251, 191, 36, 0.3);
+        }
+
+        .badge-popular {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #fbbf24;
+            color: #78350f;
+            padding: 6px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
+        }
+
+        .plan-name {
+            color: #1f2937;
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .plan-price {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin-bottom: 24px;
+        }
+
+        .plan-price .amount {
+            color: #667eea;
+            font-size: 42px;
+            font-weight: 700;
+        }
+
+        .plan-price .period {
+            color: #6b7280;
+            font-size: 16px;
+        }
+
+        .plan-savings {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .plan-features {
+            list-style: none;
+            margin: 24px 0;
+            padding: 0;
+        }
+
+        .plan-features li {
+            color: #4b5563;
+            padding: 10px 0;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .plan-features li::before {
+            content: '✓';
+            color: #10b981;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .plan-features li.premium {
+            color: #6d28d9;
+            font-weight: 600;
+        }
+
+        .plan-features li.premium::before {
+            content: '⭐';
+        }
+
+        .btn-select-plan {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 16px;
+        }
+
+        .btn-select-plan:hover {
+            background: #f3f4f6;
+            transform: translateY(-2px);
+        }
+
+        .btn-select-plan.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-select-plan.primary:hover {
+            box-shadow: 0 8px 20px rgba(107, 70, 193, 0.5);
+        }
+
+        .widgets-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            margin-top: 30px;
+        }
+
+        .free-features {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+
+        .feature-icon {
+            font-size: 24px;
+        }
+
+        .feature-locked {
+            opacity: 0.5;
+        }
+
+        .lock-icon {
+            margin-left: auto;
+            color: #ef4444;
+            font-weight: 700;
+        }
+
+        .widget {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .widget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .widget-header h3 {
+            font-size: 18px;
+            color: #1f2937;
+        }
+
+        /* ✅ Responsive Design */
+        @media (max-width: 768px) {
+            .dashboard-header h1 {
+                font-size: 24px;
+            }
+
+            .upgrade-cta-large {
+                padding: 25px 20px;
+            }
+
+            .cta-header h2 {
+                font-size: 26px;
+            }
+
+            .cta-header p {
+                font-size: 16px;
+            }
+
+            .plans-comparison {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .plan-card.featured {
+                order: -1; /* Show featured plan first on mobile */
+            }
+
+            .plan-name {
+                font-size: 22px;
+            }
+
+            .plan-price .amount {
+                font-size: 36px;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .dashboard-container {
+                padding: 20px 15px;
+            }
+
+            .dashboard-header {
+                padding: 20px;
+            }
+
+            .plan-card {
+                padding: 24px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>Welcome to ZoneTrain 👋</h1>
+            <p style="color: #6b7280; margin: 10px 0 15px 0;">You're on the <span class="plan-badge">FREE PLAN</span></p>
+            <p style="color: #6b7280; font-size: 15px;">Connect your Strava account to get started with basic training insights.</p>
+        </div>
+
+        <!-- Add this section after the welcome message in dashboard-free.html -->
+
+<div class="strava-connect-section">
+    <div class="strava-card">
+        <div class="strava-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="#FC4C02">
+                <path d="M24 0L15 18h6l3-6 3 6h6L24 0z"/>
+                <path d="M24 18l-6 12h4l2-4 2 4h4l-6-12z"/>
+            </svg>
+        </div>
+        <h3>Connect Your Strava Account</h3>
+        <p>Sync your workouts automatically and get AI-powered training insights</p>
+        
+        <button id="connect-strava-btn" class="btn-connect-strava" onclick="connectStrava()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/>
+            </svg>
+            Connect with Strava
+        </button>
+
+        <div id="strava-status" class="strava-status" style="display: none;"></div>
+    </div>
+</div>
+
+<style>
+.strava-connect-section {
+    margin: 30px 0;
+}
+
+.strava-card {
+    background: white;
+    border: 2px solid #FC4C02;
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(252, 76, 2, 0.1);
+}
+
+.strava-icon {
+    margin-bottom: 20px;
+}
+
+.strava-card h3 {
+    color: #1f2937;
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.strava-card p {
+    color: #6b7280;
+    font-size: 16px;
+    margin-bottom: 25px;
+}
+
+.btn-connect-strava {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 28px;
+    background: #FC4C02;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-connect-strava:hover {
+    background: #E34402;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(252, 76, 2, 0.3);
+}
+
+.strava-status {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.strava-status.success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.strava-status.error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+</style>
+
+<script>
+function connectStrava() {
+    const token = localStorage.getItem('userToken');
+    
+    if (!token) {
+        alert('Please log in first');
+        window.location.href = '/login';
+        return;
+    }
+
+    // Redirect to Strava OAuth
+    window.location.href = '/auth/strava';
+}
+
+// Check if Strava is already connected
+async function checkStravaConnection() {
+    const token = localStorage.getItem('userToken');
+    
+    try {
+        const response = await fetch('/api/strava/status', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.connected) {
+            const statusDiv = document.getElementById('strava-status');
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'strava-status success';
+            statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
+            
+            document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
+        }
+    } catch (error) {
+        console.error('Failed to check Strava status:', error);
+    }
+}
+
+// Check on page load
+document.addEventListener('DOMContentLoaded', checkStravaConnection);
+</script>
+
+
+        <!-- ✅ NEW: Enhanced Upgrade Section -->
+        <div class="upgrade-cta-large">
+            <div class="cta-header">
+                <h2>🚀 Unlock Your Full Potential</h2>
+                <p>Choose the perfect plan for your running journey</p>
+            </div>
+
+            <div class="plans-comparison">
+                <!-- Basic Coach Plan -->
+                <div class="plan-card">
+                    <h3 class="plan-name">Basic Coach</h3>
+                    <div class="plan-price">
+                        <span class="amount">₹199</span>
+                        <span class="period">/month</span>
+                    </div>
+                    <div class="plan-savings">Save ₹389 with Annual</div>
+                    
+                    <ul class="plan-features">
+                        <li>Unlimited Strava sync</li>
+                        <li>HRV-based training</li>
+                        <li>Recovery tracking</li>
+                        <li>Weekly progress reports</li>
+                        <li>Habit building workouts</li>
+                        <li>Daily workout suggestions</li>
+                    </ul>
+
+                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                        Choose Basic Coach
+                    </button>
+                </div>
+
+                <!-- Race Coach Plan (Featured) -->
+                <div class="plan-card featured">
+                    <div class="badge-popular">⭐ Most Popular</div>
+                    <h3 class="plan-name">Race Coach</h3>
+                    <div class="plan-price">
+                        <span class="amount">₹399</span>
+                        <span class="period">/month</span>
+                    </div>
+                    <div class="plan-savings">Save ₹789 with Annual</div>
+                    
+                    <ul class="plan-features">
+                        <li>Everything in Basic Coach</li>
+                        <li class="premium">Personalized race plans</li>
+                        <li class="premium">Advanced analytics</li>
+                        <li class="premium">Pace optimization</li>
+                        <li class="premium">Race day strategy</li>
+                        <li class="premium">Goal-specific training</li>
+                        <li class="premium">Priority support</li>
+                    </ul>
+
+                    <button class="btn-select-plan primary" onclick="selectPlan('race')">
+                        Choose Race Coach
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Free Plan Features -->
+        <div class="free-features">
+            <h3 style="margin-bottom: 20px; color: #1f2937;">What You Can Do on Free Plan</h3>
+            <div class="feature-item">
+                <span class="feature-icon">✅</span>
+                <span style="font-weight: 600; color: #1f2937;">Connect Strava Account</span>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">✅</span>
+                <span style="font-weight: 600; color: #1f2937;">View Last 30 Days of Activities</span>
+            </div>
+            <div class="feature-item">
+                <span class="feature-icon">✅</span>
+                <span style="font-weight: 600; color: #1f2937;">1 Free AI Analysis per Month</span>
+            </div>
+            <div class="feature-item feature-locked">
+                <span class="feature-icon">🔒</span>
+                <span style="font-weight: 600; color: #6b7280;">HRV-Based Training Recommendations</span>
+                <span class="lock-icon">UPGRADE</span>
+            </div>
+            <div class="feature-item feature-locked">
+                <span class="feature-icon">🔒</span>
+                <span style="font-weight: 600; color: #6b7280;">Personalized Weekly Plans</span>
+                <span class="lock-icon">UPGRADE</span>
+            </div>
+            <div class="feature-item feature-locked">
+                <span class="feature-icon">🔒</span>
+                <span style="font-weight: 600; color: #6b7280;">Advanced Performance Analytics</span>
+                <span class="lock-icon">UPGRADE</span>
+            </div>
+            <div class="feature-item feature-locked">
+                <span class="feature-icon">🔒</span>
+                <span style="font-weight: 600; color: #6b7280;">Race Day Strategy & Pacing</span>
+                <span class="lock-icon">UPGRADE</span>
+            </div>
+        </div>
+
+        <div class="widgets-grid">
+            <!-- Weather Widget (Available for free users) -->
+            <div id="weather-widget-container"></div>
+            
+            <!-- Locked Training Widget -->
+            <div class="widget">
+                <div class="widget-header">
+                    <h3>📅 Weekly Training Plan</h3>
+                    <span class="plan-badge">UPGRADE TO UNLOCK</span>
+                </div>
+                <div style="filter: blur(5px); opacity: 0.4; pointer-events: none;">
+                    <div style="height: 200px; background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                        <p style="color: #9ca3af; font-size: 18px; font-weight: 600;">7-Day Training Schedule</p>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; text-align: center;">
+                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                        Unlock with Basic Coach - ₹199/mo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Locked HRV Widget -->
+            <div class="widget">
+                <div class="widget-header">
+                    <h3>❤️ HRV-Adaptive Training</h3>
+                    <span class="plan-badge">UPGRADE TO UNLOCK</span>
+                </div>
+                <div style="filter: blur(5px); opacity: 0.4; pointer-events: none;">
+                    <div style="height: 250px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;">
+                        <p style="color: #92400e; font-size: 48px; font-weight: 700;">45</p>
+                        <p style="color: #92400e; font-size: 16px; font-weight: 600;">HRV Score</p>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; text-align: center;">
+                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                        Unlock with Basic Coach - ₹199/mo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/components/nav-header.js"></script>
+    <script src="/components/dashboard-widgets.js"></script>
+    <script>
+        // Plan selection function
+        function selectPlan(plan) {
+            // Store selected plan and redirect to plans page
+            sessionStorage.setItem('selectedPlan', plan);
+            sessionStorage.setItem('selectedBilling', 'monthly');
+            window.location.href = '/plans';
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show weather widget for free users
+            if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
+                window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
+            }
+
+            // Check if user came from a specific plan recommendation
+            const recommendedPlan = sessionStorage.getItem('recommendedPlan');
+            if (recommendedPlan) {
+                // Highlight the recommended plan
+                const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
+                if (planCard) {
+                    planCard.style.animation = 'pulse 2s ease-in-out 3';
+                }
+                sessionStorage.removeItem('recommendedPlan');
+            }
+        });
+    </script>
+
+    <style>
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+    }
+    </style>
+</body>
+</html>

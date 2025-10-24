@@ -1,0 +1,415 @@
+/* ===================================
+   RESPONSIVE DESIGN - MOBILE & TABLET
+   =================================== */
+
+/* Base Responsive Settings */
+* {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+}
+
+/* Viewport Meta Tag Already in HTML */
+/* <meta name="viewport" content="width=device-width, initial-scale=1.0"> */
+
+/* ===================================
+   TABLET LANDSCAPE (1024px and below)
+   =================================== */
+@media screen and (max-width: 1024px) {
+    .dashboard-container {
+        padding: 20px 15px;
+    }
+    
+    .widgets-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+    }
+    
+    .dashboard-header {
+        padding: 30px 20px;
+    }
+    
+    .plan-badge {
+        font-size: 12px;
+        padding: 8px 16px;
+    }
+}
+
+/* ===================================
+   TABLET PORTRAIT (768px and below)
+   =================================== */
+@media screen and (max-width: 768px) {
+    body {
+        padding-top: 70px; /* Reduce top padding for smaller header */
+    }
+    
+    /* Header Adjustments */
+    .dashboard-header {
+        padding: 20px 15px;
+    }
+    
+    .dashboard-header h1 {
+        font-size: 24px !important;
+        margin-bottom: 8px;
+    }
+    
+    .dashboard-header p {
+        font-size: 14px !important;
+    }
+    
+    /* Single Column Layout */
+    .widgets-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .stat-card {
+        padding: 15px;
+    }
+    
+    .stat-value {
+        font-size: 24px !important;
+    }
+    
+    .stat-label {
+        font-size: 12px !important;
+    }
+    
+    /* Weekly Plan Grid - 3 columns on tablet */
+    .weekly-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+    
+    .week-day {
+        padding: 12px 8px;
+    }
+    
+    .day-name {
+        font-size: 12px;
+        margin-bottom: 6px;
+    }
+    
+    .workout-type {
+        font-size: 11px;
+        margin-bottom: 4px;
+    }
+    
+    .workout-duration {
+        font-size: 10px;
+    }
+    
+    /* Weather Widget */
+    .weather-main {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .weather-icon {
+        font-size: 48px !important;
+    }
+    
+    .weather-temp {
+        font-size: 36px !important;
+    }
+    
+    .weather-details {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+    
+    /* Today's Workout */
+    .workout-title {
+        font-size: 20px !important;
+    }
+    
+    .workout-meta {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .workout-meta span {
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* Buttons */
+    .btn-start-workout,
+    .btn-log-hrv {
+        padding: 12px;
+        font-size: 14px;
+    }
+    
+    /* Modal Adjustments */
+    .modal-content {
+        padding: 25px;
+        max-width: 95%;
+    }
+    
+    .detailed-day {
+        padding: 15px;
+    }
+}
+
+/* ===================================
+   MOBILE (576px and below)
+   =================================== */
+@media screen and (max-width: 576px) {
+    body {
+        padding-top: 60px;
+    }
+    
+    .dashboard-container {
+        padding: 15px 10px;
+    }
+    
+    /* Header - Compact */
+    .dashboard-header {
+        padding: 15px 12px;
+        margin-bottom: 20px;
+    }
+    
+    .dashboard-header h1 {
+        font-size: 20px !important;
+    }
+    
+    .dashboard-header p {
+        font-size: 12px !important;
+        display: none; /* Hide subtitle on very small screens */
+    }
+    
+    /* Stats - 2 columns */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    
+    .stat-card {
+        padding: 12px 10px;
+    }
+    
+    .stat-value {
+        font-size: 20px !important;
+        margin: 5px 0;
+    }
+    
+    .stat-label {
+        font-size: 11px !important;
+    }
+    
+    /* Weekly Plan - 2 columns on mobile */
+    .weekly-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .week-day {
+        padding: 10px 6px;
+    }
+    
+    .day-name {
+        font-size: 11px;
+        margin-bottom: 5px;
+    }
+    
+    .workout-type {
+        font-size: 10px;
+        margin-bottom: 3px;
+    }
+    
+    .workout-duration {
+        font-size: 9px;
+    }
+    
+    .today-badge {
+        margin-top: 5px;
+        padding: 3px 6px;
+        font-size: 9px;
+    }
+    
+    /* Widget Spacing */
+    .widget {
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .widget-header h3 {
+        font-size: 16px;
+    }
+    
+    .btn-view-details {
+        font-size: 12px;
+        padding: 6px 12px;
+    }
+    
+    /* Weather Widget - Stack */
+    .weather-details {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .weather-icon {
+        font-size: 40px !important;
+    }
+    
+    .weather-temp {
+        font-size: 30px !important;
+    }
+    
+    .weather-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px;
+        background: #f9fafb;
+        border-radius: 6px;
+    }
+    
+    /* Today's Workout - Compact */
+    .workout-title {
+        font-size: 18px !important;
+    }
+    
+    .hrv-indicator {
+        font-size: 12px;
+        padding: 6px 12px;
+    }
+    
+    .workout-description {
+        font-size: 13px;
+        padding: 12px;
+    }
+    
+    /* Buttons - Full Width */
+    .btn-start-workout,
+    .btn-log-hrv {
+        width: 100%;
+        padding: 14px;
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+    
+    /* Modal - Full Screen on Mobile */
+    .modal {
+        padding: 10px;
+    }
+    
+    .modal-content {
+        padding: 20px;
+        max-width: 100%;
+        max-height: 90vh;
+    }
+    
+    .modal-close {
+        font-size: 28px;
+        top: 15px;
+        right: 15px;
+    }
+    
+    .detailed-day {
+        padding: 12px;
+        margin-bottom: 10px;
+    }
+    
+    .day-header h3 {
+        font-size: 16px;
+    }
+    
+    /* Navigation */
+    .navigation {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* ===================================
+   EXTRA SMALL MOBILE (400px and below)
+   =================================== */
+@media screen and (max-width: 400px) {
+    .dashboard-header h1 {
+        font-size: 18px !important;
+    }
+    
+    .plan-badge {
+        font-size: 10px;
+        padding: 6px 12px;
+    }
+    
+    .stat-value {
+        font-size: 18px !important;
+    }
+    
+    .weekly-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .week-day {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+        text-align: left;
+    }
+    
+    .widget {
+        padding: 12px;
+    }
+}
+
+/* ===================================
+   TOUCH-FRIENDLY ADJUSTMENTS
+   =================================== */
+@media (hover: none) and (pointer: coarse) {
+    /* Increase touch targets */
+    .btn,
+    .week-day,
+    button {
+        min-height: 44px; /* iOS minimum touch target */
+        min-width: 44px;
+    }
+    
+    /* Remove hover effects on touch devices */
+    .week-day:hover {
+        transform: none;
+    }
+    
+    .btn:hover {
+        transform: none;
+    }
+}
+
+/* ===================================
+   LANDSCAPE ORIENTATION
+   =================================== */
+@media screen and (max-height: 600px) and (orientation: landscape) {
+    body {
+        padding-top: 50px;
+    }
+    
+    .dashboard-header {
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .modal-content {
+        max-height: 85vh;
+    }
+}

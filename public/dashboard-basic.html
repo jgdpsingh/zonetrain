@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Basic Coach - ZoneTrain</title>
+    <link rel="stylesheet" href="/css/widgets.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 90px;
+        }
+
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .dashboard-header {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .plan-badge {
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+            color: white;
+            border-radius: 24px;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .widgets-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .upgrade-prompt-banner {
+            background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 24px rgba(139, 92, 246, 0.3);
+        }
+
+        .upgrade-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .upgrade-text h3 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .upgrade-text p {
+            opacity: 0.95;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .upgrade-features {
+            margin-top: 15px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .upgrade-feature {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .upgrade-feature::before {
+            content: "✓";
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .btn-upgrade-race {
+            background: white;
+            color: #6d28d9;
+            padding: 14px 36px;
+            border-radius: 10px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .btn-upgrade-race:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .widgets-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .dashboard-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .upgrade-content {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .upgrade-features {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <div>
+                <h1 style="font-size: 32px; color: #1f2937; margin-bottom: 8px;">Your Training Dashboard 🏃</h1>
+                <p style="color: #6b7280;">Basic Coach Plan • HRV-Adaptive Training</p>
+            </div>
+            <span class="plan-badge">BASIC COACH</span>
+        </div>
+
+        <!-- Upgrade Banner -->
+        <div class="upgrade-prompt-banner">
+            <div class="upgrade-content">
+                <div class="upgrade-text">
+                    <h3>🏆 Ready to Train for a Race?</h3>
+                    <p>Upgrade to Race Coach and unlock advanced race training plans, performance analytics, and race day strategies</p>
+                    <div class="upgrade-features">
+                        <div class="upgrade-feature">Personalized race plans</div>
+                        <div class="upgrade-feature">Advanced analytics</div>
+                        <div class="upgrade-feature">Pace optimization</div>
+                        <div class="upgrade-feature">Race day strategy</div>
+                    </div>
+                </div>
+                <button class="btn-upgrade-race" onclick="openUpgradeModal()">
+                    Upgrade Now →
+                </button>
+            </div>
+        </div>
+
+        <!-- Widgets Grid -->
+        <div class="widgets-grid">
+            <div id="weather-widget-container"></div>
+            <div id="today-workout-container"></div>
+        </div>
+
+        <!-- Weekly Plan -->
+        <div style="margin-top: 24px;">
+            <div id="weekly-plan-container"></div>
+        </div>
+    </div>
+
+    <!-- ✅ Modal will be loaded here -->
+    <div id="modal-container"></div>
+
+    <!-- Scripts -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="/components/nav-header.js"></script>
+    <script src="/components/dashboard-widgets.js"></script>
+    
+    <script>
+        // Initialize dashboard widgets
+        window.dashboardWidgets = new DashboardWidgets();
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Loading Basic Coach dashboard widgets...');
+            
+            // Render all widgets
+            window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
+            window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
+            window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
+        });
+    </script>
+
+    <!-- ✅ Load upgrade modal component - SINGLE CLEAN LOADER -->
+    <!-- ✅ WORKING SOLUTION: Proper script execution -->
+<script>
+(function() {
+    console.log('🔄 Loading upgrade modal component...');
+    
+    fetch('/components/upgrade-modal.html')
+        .then(response => response.text())
+        .then(html => {
+            // Create a temporary container
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            
+            // Extract and append all elements
+            const modalContainer = document.getElementById('modal-container');
+            while (temp.firstChild) {
+                modalContainer.appendChild(temp.firstChild);
+            }
+            
+            // Find and execute scripts manually
+            const scripts = modalContainer.querySelectorAll('script');
+            scripts.forEach(oldScript => {
+                const newScript = document.createElement('script');
+                newScript.textContent = oldScript.textContent;
+                oldScript.parentNode.replaceChild(newScript, oldScript);
+            });
+            
+            console.log('✅ Modal loaded and scripts executed');
+            
+            // Verify the function exists
+            setTimeout(() => {
+                if (typeof window.openUpgradeModal === 'function') {
+                    console.log('✅ openUpgradeModal is ready!');
+                } else {
+                    console.error('❌ openUpgradeModal not found after load');
+                }
+            }, 100);
+        })
+        .catch(error => {
+            console.error('❌ Failed to load modal:', error);
+        });
+})();
+</script>
+
+</body>
+</html>
+

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 100px;
+            padding-bottom: 40px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .profile-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 30px;
+        }
+
+        .profile-section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        input:disabled {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .readonly-field {
+            background: #f9fafb;
+            color: #6b7280;
+        }
+
+        .btn-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn-save:hover {
+            transform: translateY(-2px);
+        }
+
+        .info-banner {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #1e40af;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="profile-card">
+            <h1>My Profile</h1>
+            
+            <div id="profile-content">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/components/nav-header.js"></script>
+    <script>
+    let userData = {};
+    let fullData = {}; // ✅ Store complete API response
+
+    document.addEventListener('DOMContentLoaded', async function() {
+        const token = localStorage.getItem('userToken');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/profile', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                fullData = data; // ✅ Store complete response
+                userData = data.user; // ✅ Store user object
+                displayProfile(fullData); // ✅ Pass complete data
+            } else {
+                throw new Error(data.message);
+            }
+        } catch (error) {
+            document.getElementById('profile-content').innerHTML = `
+                <p style="color: #ef4444;">Error loading profile: ${error.message}</p>
+            `;
+        }
+    });
+
+    function displayProfile(data) {
+        const content = document.getElementById('profile-content');
+        const user = data.user; // ✅ Extract user from data
+        const isPaidUser = user.subscriptionStatus !== 'free';
+        const hasAIProfile = data.aiOnboardingCompleted; // ✅ Use the boolean flag from API
+
+        let infoMessage = '';
+        if (!isPaidUser) {
+            infoMessage = `
+                <div class="info-banner">
+                    <strong>📝 Complete Your Profile:</strong> Upgrade to a paid plan and complete AI onboarding to unlock personalized training features.
+                </div>
+            `;
+        } else if (!hasAIProfile) {
+            // ✅ Determine correct onboarding URL based on plan
+            let onboardingUrl = '/ai-onboarding-basic'; // Default
+            
+            if (user.currentPlan === 'race' || user.currentPlan === 'premium') {
+                onboardingUrl = '/ai-onboarding-race';
+            } else if (user.currentPlan === 'basic') {
+                onboardingUrl = '/ai-onboarding-basic';
+            }
+            
+            infoMessage = `
+                <div class="info-banner">
+                    <strong>⚠️ Profile Incomplete:</strong> Please complete your AI onboarding to access personalized training.
+                    <a href="${onboardingUrl}" style="color: #1e40af; font-weight: 600; margin-left: 8px;">Complete Now →</a>
+                </div>
+            `;
+        }
+
+        content.innerHTML = `
+            ${infoMessage}
+
+            <!-- Basic Info (Always Visible) -->
+            <div class="profile-section">
+                <div class="section-title">Basic Information</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" value="${user.email || ''}" class="readonly-field" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="name" value="${user.name || ''}" ${!isPaidUser ? 'disabled' : ''}>
+                    </div>
+                    <div class="form-group">
+                        <label>Current Plan</label>
+                        <input type="text" value="${(user.currentPlan || 'free').toUpperCase()}" class="readonly-field" disabled>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Details (For Paid Users with AI Profile) -->
+            ${isPaidUser && hasAIProfile ? `
+            <div class="profile-section">
+                <div class="section-title">Training Profile</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Age</label>
+                        <input type="number" id="age" value="${data.aiProfile?.personalInfo?.age || ''}" placeholder="Not set">
+                    </div>
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <select id="gender">
+                            <option value="">Select</option>
+                            <option value="male" ${data.aiProfile?.personalInfo?.gender === 'male' ? 'selected' : ''}>Male</option>
+                            <option value="female" ${data.aiProfile?.personalInfo?.gender === 'female' ? 'selected' : ''}>Female</option>
+                            <option value="other" ${data.aiProfile?.personalInfo?.gender === 'other' ? 'selected' : ''}>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Height (cm)</label>
+                        <input type="number" id="height" value="${data.aiProfile?.personalInfo?.height || ''}" placeholder="e.g., 170">
+                    </div>
+                    <div class="form-group">
+                        <label>Weight (kg)</label>
+                        <input type="number" id="weight" value="${data.aiProfile?.personalInfo?.weight || ''}" placeholder="e.g., 70" step="0.1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-section">
+                <div class="section-title">Health & Recovery</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Resting Heart Rate (bpm)</label>
+                        <input type="number" id="restingHR" value="${data.aiProfile?.recovery?.restingHR || ''}" placeholder="e.g., 60">
+                    </div>
+                    <div class="form-group">
+                        <label>HRV Baseline</label>
+                        <input type="number" id="baselineHRV" value="${data.aiProfile?.recovery?.baselineHRV || ''}" placeholder="e.g., 45">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Injury History</label>
+                    <textarea id="injuryHistory" rows="3" placeholder="Any past injuries or conditions...">${data.aiProfile?.personalInfo?.injuryHistory || ''}</textarea>
+                </div>
+            </div>
+            ` : ''}
+
+            <button class="btn-save" onclick="saveProfile()" ${!isPaidUser ? 'disabled' : ''}>
+                💾 Save Changes
+            </button>
+        `;
+    }
+
+    async function saveProfile() {
+        const token = localStorage.getItem('userToken');
+        const isPaidUser = userData.subscriptionStatus !== 'free';
+
+        if (!isPaidUser) {
+            alert('Please upgrade to a paid plan to edit your profile.');
+            return;
+        }
+
+        const profileData = {
+            name: document.getElementById('name')?.value,
+            personalInfo: {
+                age: parseInt(document.getElementById('age')?.value) || null,
+                gender: document.getElementById('gender')?.value || null,
+                height: parseInt(document.getElementById('height')?.value) || null,
+                weight: parseFloat(document.getElementById('weight')?.value) || null,
+                injuryHistory: document.getElementById('injuryHistory')?.value || ''
+            },
+            recovery: {
+                restingHR: parseInt(document.getElementById('restingHR')?.value) || null,
+                baselineHRV: parseInt(document.getElementById('baselineHRV')?.value) || null
+            }
+        };
+
+        try {
+            const response = await fetch('/api/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(profileData)
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert('✅ Profile updated successfully!');
+                location.reload();
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            alert('Error saving profile: ' + error.message);
+        }
+    }
+</script>
+<script src="/components/nav-header.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,98 @@
+:root {
+  --zt-primary: #7b2ff2;
+  --zt-secondary: #f357a8;
+  --zt-bg: #20123a;
+  --zt-bg-alt: #3c2566;
+  --zt-glass: rgba(123,47,242,0.07);
+  --zt-text: #fff;
+  --zt-card-shadow: 0 8px 32px 0 rgba(123,47,242,0.15);
+  --zt-grad: linear-gradient(90deg, #7b2ff2 0%, #f357a8 100%);
+  --zt-premium: #ffd700;
+}
+
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  background: var(--zt-bg);
+  color: var(--zt-text);
+  margin: 0;
+}
+.zt-nav {
+  background: var(--zt-grad);
+  padding: 18px 5vw;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.zt-logo {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: white;
+}
+.zt-nav-buttons a,
+.zt-nav-buttons button {
+  background: none; border: none; color: white; margin-left: 32px; font-size: 1.2rem; cursor: pointer;
+}
+.zt-cta, .zt-cta-hero, .zt-cta-secondary, .zt-cta-plan, .zt-cta-upgrade {
+  background: var(--zt-grad);
+  border: none; color: white; padding: 12px 32px; border-radius: 35px;
+  font-weight: 600; font-size: 1.15rem; box-shadow: var(--zt-card-shadow);
+  margin-left: 18px; cursor: pointer; transition: opacity 0.2s;
+}
+.zt-cta-hero { font-size: 1.35rem; padding: 20px 48px; margin: 32px 0;}
+.zt-cta-secondary { background: var(--zt-bg-alt); color: var(--zt-primary);}
+.zt-cta-upgrade { background: var(--zt-premium); color: #333;}
+.zt-cta-plan { margin: 30px 0 0 0; width: 85%;}
+
+.zt-hero {
+  padding: 7vw 5vw 0 5vw; text-align: center;
+}
+.zt-hero h1 {
+  font-size: 2.5rem;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.zt-hero h1 span { color: var(--zt-secondary);}
+.zt-hero p { font-size: 1.4rem; margin-top: 24px;}
+.zt-hero-img { max-width: 440px; margin: 40px auto 0; display: block; }
+
+.zt-features { padding: 90px 0 10px 0; background: var(--zt-bg-alt);}
+.zt-features h2 { text-align: center; font-size: 2rem; margin-bottom: 48px;}
+.zt-feature-grid {
+  display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 36px; padding: 0 5vw;
+}
+.zt-feature-card {
+  background: var(--zt-glass); border-radius: 20px;
+  box-shadow: var(--zt-card-shadow); padding: 44px 32px;
+  text-align: center; display: flex; flex-direction: column; align-items: center;
+}
+.zt-feature-card.premium { border: 2px solid var(--zt-premium);}
+.badge { background: var(--zt-premium); color: #333; margin-left: 8px; font-size: .87rem; border-radius: 12px; padding: 0 8px;}
+.icon-circle { font-size:2rem; border-radius:50%; background:var(--zt-bg); padding:18px 22px; margin-bottom:24px;}
+
+.zt-summary-dashboard { padding: 70px 0 40px 0;}
+.zt-summary-cards { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center;}
+.zt-summary-card { background: var(--zt-glass); padding: 34px 28px; border-radius: 16px; min-width: 260px; max-width: 370px; box-shadow: var(--zt-card-shadow);}
+.zt-summary-card.locked { opacity: .55; filter: grayscale(70%);}
+.zt-summary-card h3 { margin: 0 0 12px 0;}
+.zt-summary-card .locked, .zt-cta-upgrade { filter: grayscale(85%);}
+
+.zt-plans { background: var(--zt-bg-alt); padding: 80px 0;}
+.zt-plan-grid { display: flex; justify-content: center; gap: 55px; }
+.zt-plan-box { background: var(--zt-glass); padding: 38px 36px; border-radius: 16px; min-width: 240px; box-shadow: var(--zt-card-shadow);}
+.zt-plan-box.highlighted { border: 2.5px solid var(--zt-premium);}
+.zt-plan-box h3 { color: var(--zt-primary);}
+.zt-plan-box ul { list-style:none;line-height:2;margin-top:24px;margin-bottom:0;padding-left:0;}
+.zt-plan-box li::before { content: '✔️ '; color:var(--zt-primary);}
+.zt-plan-box.highlighted h3 { color: var(--zt-secondary);}
+.zt-plan-box .zt-cta-plan { margin-top: 16px; }
+
+.zt-testimonials { text-align:center; background: var(--zt-bg); color: var(--zt-secondary); padding:55px 0 25px;}
+.zt-testimonials blockquote { font-size:1.3rem; font-style:italic; margin: 18px 0 0 0;}
+
+.zt-footer { padding: 24px 0; text-align:center; background:var(--zt-bg);}
+.zt-footer-inner { color: #d0c4f1;}
+
+@media (max-width: 900px){
+  .zt-feature-grid, .zt-summary-cards, .zt-plan-grid { grid-template-columns:1fr !important; flex-direction: column; align-items: center;}
+}
