@@ -1,0 +1,475 @@
+<!-- Upgrade Modal Component - Complete with Features -->
+<div id="upgrade-modal-component" style="display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); overflow-y: auto;">
+    <div style="background: white; margin: 30px auto; padding: 30px; border-radius: 16px; max-width: 800px; max-height: 90vh; overflow-y: auto;">
+        <div style="text-align: right;">
+            <span id="close-modal-btn" style="font-size: 32px; cursor: pointer; color: #999; line-height: 1;">&times;</span>
+        </div>
+        
+        <h2 style="text-align: center; margin-bottom: 10px; clear: both; padding-top: 10px;">🚀 Upgrade to Race Coach</h2>
+        <p style="text-align: center; color: #6b7280; margin-bottom: 25px;">Unlock advanced race training features</p>
+
+        <!-- ✅ FEATURES COMPARISON -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+            <div style="padding: 15px; background: #f9fafb; border-radius: 12px;">
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1f2937;">Current: Basic Coach</h3>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: white; border-radius: 4px;">✓ Unlimited Strava sync</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: white; border-radius: 4px;">✓ HRV training</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: white; border-radius: 4px;">✓ Recovery tracking</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: #f3f4f6; border-radius: 4px; color: #9ca3af;">✗ Race plans</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: #f3f4f6; border-radius: 4px; color: #9ca3af;">✗ Analytics</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: #f3f4f6; border-radius: 4px; color: #9ca3af;">✗ Race strategy</div>
+            </div>
+
+            <div style="padding: 15px; background: linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%); border: 2px solid #8b5cf6; border-radius: 12px;">
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #6d28d9;">Race Coach ⭐</h3>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px; background: white; border-radius: 4px;">✓ Everything in Basic</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px 8px; background: #fef3c7; border-radius: 4px; font-weight: 600;">✓ Personalized race plans</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px 8px; background: #fef3c7; border-radius: 4px; font-weight: 600;">✓ Advanced analytics</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px 8px; background: #fef3c7; border-radius: 4px; font-weight: 600;">✓ Pace optimization</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px 8px; background: #fef3c7; border-radius: 4px; font-weight: 600;">✓ Race day strategy</div>
+                <div style="font-size: 14px; margin: 6px 0; padding: 6px 8px; background: #fef3c7; border-radius: 4px; font-weight: 600;">✓ Priority support</div>
+            </div>
+        </div>
+
+        <!-- BRIGHT YELLOW PROMO BOX -->
+        <div style="background: #FEF3C7; border: 4px solid #F59E0B; padding: 20px; border-radius: 12px; margin-bottom: 25px;">
+            <h3 style="margin: 0 0 8px 0; color: #92400E; font-size: 20px;">💰 Promo Code</h3>
+            <p style="margin: 0 0 12px 0; color: #78350F; font-size: 15px;">Enter <strong>UPGRADE50</strong> for 50% off!</p>
+            <div style="display: flex; gap: 10px;">
+                <input 
+                    type="text" 
+                    id="promo-input-component" 
+                    placeholder="UPGRADE50" 
+                    style="flex: 1; padding: 14px; border: 3px solid #F59E0B; border-radius: 8px; font-size: 18px; font-weight: 700; text-transform: uppercase;"
+                >
+                <button 
+                    id="promo-btn-component" 
+                    style="padding: 14px 28px; background: #F59E0B; color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 16px;"
+                >
+                    Apply
+                </button>
+            </div>
+            <div id="promo-msg-component" style="margin-top: 10px; padding: 10px; border-radius: 6px; font-weight: 600; min-height: 20px;"></div>
+        </div>
+
+        <div id="breakdown-component" style="background: #eff6ff; padding: 18px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #3b82f6;">
+            Loading...
+        </div>
+
+        <h3 style="margin-bottom: 15px;">Choose Billing Cycle</h3>
+        
+        <label style="display: block; padding: 12px; margin: 8px 0; border: 2px solid #e5e7eb; border-radius: 10px; cursor: pointer;">
+            <input type="radio" name="billing-component" value="monthly" checked style="margin-right: 8px;">
+            <span>Monthly - ₹399/month</span>
+        </label>
+
+        <label style="display: block; padding: 12px; margin: 8px 0; border: 2px solid #F59E0B; border-radius: 10px; cursor: pointer;">
+            <input type="radio" name="billing-component" value="quarterly" style="margin-right: 8px;">
+            <span>Quarterly - ₹1,077 <strong>(Save ₹120)</strong></span>
+        </label>
+
+        <label style="display: block; padding: 12px; margin: 8px 0; border: 2px solid #10b981; border-radius: 10px; cursor: pointer;">
+            <input type="radio" name="billing-component" value="annual" style="margin-right: 8px;">
+            <span>Annual - ₹3,999 <strong>(Save ₹789)</strong></span>
+        </label>
+
+        <button 
+            id="proceed-btn-component" 
+            style="width: 100%; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; margin-top: 20px;"
+        >
+            Proceed to Payment
+        </button>
+
+        <p style="text-align: center; color: #6b7280; font-size: 13px; margin-top: 15px;">* Pro-rata charges apply for remaining period</p>
+    </div>
+</div>
+
+<script>
+(function() {
+    console.log('✅ [MODAL] Component script started');
+    
+    try {
+        let currentCalcComponent = null;
+        let appliedPromoComponent = null;
+
+        const modal = document.getElementById('upgrade-modal-component');
+        const closeBtn = document.getElementById('close-modal-btn');
+        const promoBtn = document.getElementById('promo-btn-component');
+        const proceedBtn = document.getElementById('proceed-btn-component');
+
+        if (!modal) {
+            console.error('❌ [MODAL] Modal element not found!');
+            return;
+        }
+
+        // Close handlers
+        closeBtn.onclick = function() {
+            console.log('[MODAL] Close button clicked');
+            modal.style.display = 'none';
+        };
+
+        window.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // Main open function
+        window.openUpgradeModal = async function() {
+            console.log('🚀 [MODAL] openUpgradeModal called');
+            
+            const token = localStorage.getItem('userToken');
+            
+            if (!token) {
+                alert('Please log in first');
+                return;
+            }
+            
+            try {
+                console.log('[MODAL] Fetching upgrade calculation...');
+                
+                const response = await fetch('/api/subscription/calculate-upgrade', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        newPlan: 'race',
+                        billingCycle: 'monthly'
+                    })
+                });
+
+                const data = await response.json();
+                console.log('[MODAL] API Response:', data);
+                
+                if (data.success) {
+                    currentCalcComponent = data.calculation;
+                    displayBreakdown(data.calculation);
+                    modal.style.display = 'block';
+                    console.log('✅ [MODAL] Modal displayed');
+                    
+                    // Reset promo
+                    document.getElementById('promo-input-component').value = '';
+                    document.getElementById('promo-input-component').disabled = false;
+                    document.getElementById('promo-msg-component').textContent = '';
+                    document.getElementById('promo-msg-component').style.background = '';
+                    promoBtn.textContent = 'Apply';
+                    promoBtn.disabled = false;
+                    appliedPromoComponent = null;
+                } else {
+                    console.error('[MODAL] API error:', data.message);
+                    alert('Failed to load: ' + (data.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('❌ [MODAL] Error:', error);
+                alert('Failed to load upgrade details');
+            }
+        };
+
+        function displayBreakdown(calc) {
+    const promoInfo = calc.promoApplied ? `
+        <div style="background: #d1fae5; padding: 12px; margin-top: 10px; border-radius: 8px; border: 2px solid #10b981;">
+            <strong style="color: #065f46;">🎉 ${calc.promoApplied.code} Applied - Save ₹${calc.promoApplied.discountAmount} today + ${calc.promoApplied.discount}% off future billing!</strong>
+        </div>
+    ` : '';
+
+    document.getElementById('breakdown-component').innerHTML = `
+        <h4 style="margin-bottom: 12px; font-size: 16px;">📊 Upgrade Breakdown</h4>
+        <div style="font-size: 14px;">
+            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                <span>Days remaining:</span>
+                <strong>${calc.daysRemaining} days</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                <span>Unused credit:</span>
+                <strong style="color: #10b981;">-₹${calc.unusedCredit}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                <span>Pro-rata charge:</span>
+                <strong>₹${calc.proRataCharge}</strong>
+            </div>
+            ${calc.promoApplied ? `
+            <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #10b981;">
+                <span>Promo discount (${calc.promoApplied.discount}%):</span>
+                <strong>-₹${calc.promoApplied.discountAmount}</strong>
+            </div>
+            ` : ''}
+            <hr style="margin: 12px 0;">
+            <div style="display: flex; justify-content: space-between; font-size: 20px;">
+                <span><strong>Pay Today:</strong></span>
+                <strong style="color: #10b981;">₹${calc.amountToPay}</strong>
+            </div>
+        </div>
+        ${promoInfo}
+    `;
+    
+    // ✅ Update billing cycle prices with promo
+    updateBillingCycleDisplay(calc.promoApplied);
+}
+
+
+// ✅ NEW: Update billing cycle prices with promo discount
+function updateBillingCycleDisplay(promoApplied) {
+    const pricing = {
+        monthly: 399,
+        quarterly: 1077,
+        annual: 3999
+    };
+
+    const savings = {
+        quarterly: 120,
+        annual: 789
+    };
+
+    const labels = document.querySelectorAll('input[name="billing-component"]');
+    
+    labels.forEach(input => {
+        const cycle = input.value;
+        const label = input.parentElement;
+        const spanElement = label.querySelector('span');
+        
+        if (promoApplied) {
+            // Calculate discounted price
+            const originalPrice = pricing[cycle];
+            const discountAmount = Math.floor((originalPrice * promoApplied.discount) / 100);
+            const discountedPrice = originalPrice - discountAmount;
+            
+            let displayText = '';
+            if (cycle === 'monthly') {
+                displayText = `Monthly - <span style="color: #10b981; font-weight: 700;">₹${discountedPrice}</span> <span style="text-decoration: line-through; color: #9ca3af; font-size: 14px;">₹${originalPrice}</span>/month <span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: 600;">${promoApplied.discount}% OFF</span>`;
+            } else if (cycle === 'quarterly') {
+                const totalSavings = savings.quarterly + discountAmount;
+                displayText = `Quarterly - <span style="color: #10b981; font-weight: 700;">₹${discountedPrice}</span> <span style="text-decoration: line-through; color: #9ca3af; font-size: 14px;">₹${originalPrice}</span> <strong>(Save ₹${totalSavings}!)</strong>`;
+            } else {
+                const totalSavings = savings.annual + discountAmount;
+                displayText = `Annual - <span style="color: #10b981; font-weight: 700;">₹${discountedPrice}</span> <span style="text-decoration: line-through; color: #9ca3af; font-size: 14px;">₹${originalPrice}</span> <strong>(Save ₹${totalSavings}!)</strong>`;
+            }
+            spanElement.innerHTML = displayText;
+        } else {
+            // Reset to original prices
+            let displayText = '';
+            if (cycle === 'monthly') {
+                displayText = `Monthly - ₹${pricing.monthly}/month`;
+            } else if (cycle === 'quarterly') {
+                displayText = `Quarterly - ₹${pricing.quarterly} <strong>(Save ₹${savings.quarterly})</strong>`;
+            } else {
+                displayText = `Annual - ₹${pricing.annual} <strong>(Save ₹${savings.annual})</strong>`;
+            }
+            spanElement.innerHTML = displayText;
+        }
+    });
+}
+
+
+        // Promo button
+        promoBtn.addEventListener('click', async function() {
+            const promoInput = document.getElementById('promo-input-component');
+            const promoCode = promoInput.value.trim().toUpperCase();
+            const msgDiv = document.getElementById('promo-msg-component');
+
+            console.log('[MODAL] Applying promo:', promoCode);
+
+            if (!promoCode) {
+                msgDiv.style.background = '#fee2e2';
+                msgDiv.style.color = '#dc2626';
+                msgDiv.textContent = '❌ Enter a promo code';
+                return;
+            }
+
+            promoBtn.disabled = true;
+            promoBtn.textContent = 'Applying...';
+
+            try {
+                const token = localStorage.getItem('userToken');
+                const billingCycle = document.querySelector('input[name="billing-component"]:checked').value;
+
+                console.log('[MODAL] Sending promo request:', { promoCode, billingCycle });
+
+                const response = await fetch('/api/subscription/calculate-upgrade', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        newPlan: 'race',
+                        billingCycle,
+                        promoCode
+                    })
+                });
+
+                const data = await response.json();
+                console.log('[MODAL] Promo response:', data);
+
+                if (data.success && data.calculation.promoApplied) {
+                    appliedPromoComponent = promoCode;
+                    currentCalcComponent = data.calculation;
+                    msgDiv.style.background = '#d1fae5';
+                    msgDiv.style.color = '#065f46';
+                    msgDiv.style.border = '2px solid #10b981';
+                    msgDiv.style.padding = '12px';
+                    msgDiv.textContent = `✅ ${data.calculation.promoApplied.description}!`;
+                    displayBreakdown(data.calculation);
+                    promoInput.disabled = true;
+                    promoBtn.textContent = 'Applied ✓';
+                    console.log('✅ [MODAL] Promo applied successfully');
+                } else {
+                    msgDiv.style.background = '#fee2e2';
+                    msgDiv.style.color = '#dc2626';
+                    msgDiv.style.border = '2px solid #ef4444';
+                    msgDiv.style.padding = '12px';
+                    msgDiv.textContent = '❌ Invalid or expired promo code';
+                    promoBtn.textContent = 'Apply';
+                    promoBtn.disabled = false;
+                    console.log('❌ [MODAL] Invalid promo code');
+                }
+            } catch (error) {
+                console.error('[MODAL] Promo error:', error);
+                msgDiv.style.background = '#fee2e2';
+                msgDiv.style.color = '#dc2626';
+                msgDiv.textContent = '❌ Failed to apply';
+                promoBtn.textContent = 'Apply';
+                promoBtn.disabled = false;
+            }
+        });
+
+        // ✅ PROCEED BUTTON - Complete Handler
+        proceedBtn.addEventListener('click', async function() {
+            const token = localStorage.getItem('userToken');
+            const billingCycle = document.querySelector('input[name="billing-component"]:checked').value;
+            
+            proceedBtn.disabled = true;
+            proceedBtn.textContent = 'Processing...';
+
+            try {
+                const response = await fetch('/api/subscription/upgrade', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        newPlan: 'race',
+                        billingCycle,
+                        promoCode: appliedPromoComponent
+                    })
+                });
+
+                const data = await response.json();
+                console.log('[MODAL] Upgrade response:', data);
+
+                if (data.success) {
+                    const options = {
+                        key: data.paymentOrder.razorpayKeyId,
+                        amount: data.paymentOrder.amount,
+                        currency: 'INR',
+                        name: 'ZoneTrain',
+                        description: 'Upgrade to Race Coach',
+                        order_id: data.paymentOrder.orderId,
+                        handler: async function(payment) {
+                            console.log('[MODAL] Payment successful, verifying...');
+                            const verifyResponse = await fetch('/api/subscription/verify-upgrade', {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    paymentId: payment.razorpay_payment_id,
+                                    orderId: payment.razorpay_order_id,
+                                    signature: payment.razorpay_signature
+                                })
+                            });
+
+                            const verifyData = await verifyResponse.json();
+                            console.log('[MODAL] Verification response:', verifyData);
+
+                            if (verifyData.success) {
+                                modal.style.display = 'none';
+                                alert('🎉 Upgrade successful! Welcome to Race Coach!');
+                                window.location.href = '/dashboard-race';
+                            } else {
+                                alert('Payment verification failed');
+                            }
+                        },
+                        modal: {
+                            ondismiss: function() {
+                                proceedBtn.disabled = false;
+                                proceedBtn.textContent = 'Proceed to Payment';
+                            }
+                        },
+                        theme: { color: '#667eea' }
+                    };
+
+                    const rzp = new Razorpay(options);
+                    rzp.open();
+                } else {
+                    alert(data.message || 'Payment initiation failed');
+                    proceedBtn.disabled = false;
+                    proceedBtn.textContent = 'Proceed to Payment';
+                }
+            } catch (error) {
+                console.error('[MODAL] Payment error:', error);
+                alert('Payment failed');
+                proceedBtn.disabled = false;
+                proceedBtn.textContent = 'Proceed to Payment';
+            }
+        });
+
+        // ✅ BILLING CYCLE CHANGE HANDLER
+        // ✅ BILLING CYCLE CHANGE HANDLER (Update this section)
+document.querySelectorAll('input[name="billing-component"]').forEach(radio => {
+    radio.addEventListener('change', async function(e) {
+        console.log('[MODAL] Billing cycle changed to:', e.target.value);
+        
+        // Reset promo if applied
+        if (appliedPromoComponent) {
+            document.getElementById('promo-input-component').value = '';
+            document.getElementById('promo-input-component').disabled = false;
+            document.getElementById('promo-msg-component').textContent = '';
+            document.getElementById('promo-msg-component').style.background = '';
+            promoBtn.textContent = 'Apply';
+            promoBtn.disabled = false;
+            appliedPromoComponent = null;
+            
+            // ✅ Reset billing cycle prices to original
+            updateBillingCycleDisplay(null);
+        }
+        
+        const token = localStorage.getItem('userToken');
+        const billingCycle = e.target.value;
+        
+        try {
+            const response = await fetch('/api/subscription/calculate-upgrade', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    newPlan: 'race', 
+                    billingCycle,
+                    promoCode: appliedPromoComponent  // ✅ Pass promo if still applied
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                currentCalcComponent = data.calculation;
+                displayBreakdown(data.calculation);
+                console.log('[MODAL] Breakdown updated for', billingCycle);
+            }
+        } catch (error) {
+            console.error('[MODAL] Billing cycle change error:', error);
+        }
+    });
+});
+
+        console.log('✅ [MODAL] All handlers attached - Component fully loaded');
+        
+    } catch (error) {
+        console.error('❌ [MODAL] Fatal error:', error);
+    }
+})();
+</script>

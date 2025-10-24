@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Subscription - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 100px;
+            padding-bottom: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .subscription-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            margin-bottom: 30px;
+        }
+
+        .plan-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .plan-free {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .plan-basic {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .plan-race {
+            background: #ede9fe;
+            color: #6d28d9;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .info-item {
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .info-label {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .renewal-status {
+            padding: 25px;
+            border-radius: 12px;
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .renewal-green {
+            background: #d1fae5;
+            border: 2px solid #10b981;
+        }
+
+        .renewal-yellow {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+        }
+
+        .renewal-red {
+            background: #fee2e2;
+            border: 2px solid #ef4444;
+        }
+
+        .renewal-days {
+            font-size: 48px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .green-text { color: #10b981; }
+        .yellow-text { color: #f59e0b; }
+        .red-text { color: #ef4444; }
+
+        .features {
+            margin: 30px 0;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+
+        .feature-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            color: #10b981;
+            flex-shrink: 0;
+        }
+
+        .btn-upgrade {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+
+        .btn-upgrade:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-cancel {
+            background: white;
+            color: #ef4444;
+            border: 2px solid #ef4444;
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-cancel:hover {
+            background: #fef2f2;
+        }
+
+        /* ===================================
+           MOBILE RESPONSIVE
+           =================================== */
+        @media screen and (max-width: 768px) {
+            body {
+                padding-top: 90px;
+            }
+
+            .subscription-card {
+                padding: 25px 20px;
+                border-radius: 12px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            .subtitle {
+                font-size: 14px;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .info-item {
+                padding: 15px;
+            }
+
+            .info-value {
+                font-size: 18px;
+            }
+
+            .renewal-days {
+                font-size: 36px;
+            }
+
+            .feature-item {
+                font-size: 14px;
+                padding: 10px 0;
+            }
+        }
+
+        @media screen and (max-width: 576px) {
+            .container {
+                padding: 0 15px;
+            }
+
+            .subscription-card {
+                padding: 20px 15px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .plan-badge {
+                font-size: 12px;
+                padding: 6px 16px;
+            }
+
+            .info-label {
+                font-size: 11px;
+            }
+
+            .info-value {
+                font-size: 16px;
+            }
+
+            .renewal-status {
+                padding: 20px;
+            }
+
+            .renewal-days {
+                font-size: 32px;
+            }
+
+            .btn-upgrade,
+            .btn-cancel {
+                padding: 12px 24px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="subscription-card">
+            <h1>My Subscription</h1>
+            <p class="subtitle">Manage your ZoneTrain subscription</p>
+
+            <div id="subscription-content">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ✅ Load nav-header ONCE at the end -->
+    <script src="/components/nav-header.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            const token = localStorage.getItem('userToken');
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/subscription', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    displaySubscription(data.subscription);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                document.getElementById('subscription-content').innerHTML = `
+                    <p style="color: #ef4444;">Error loading subscription: ${error.message}</p>
+                    <button class="btn-upgrade" onclick="window.location.href='/plans'">View Plans</button>
+                `;
+            }
+        });
+
+        function displaySubscription(sub) {
+            const content = document.getElementById('subscription-content');
+            
+            // Determine plan badge class
+            let planClass = 'plan-free';
+            let planName = 'Free Plan';
+            if (sub.plan === 'basic') {
+                planClass = 'plan-basic';
+                planName = 'Basic Coach';
+            } else if (sub.plan === 'race') {
+                planClass = 'plan-race';
+                planName = 'Race Coach';
+            }
+
+            // Calculate days remaining and color
+            let renewalHTML = '';
+            if (sub.plan !== 'free' && sub.renewalDate) {
+                const now = new Date();
+                const renewal = new Date(sub.renewalDate);
+                const start = new Date(sub.startDate);
+                
+                const totalDays = Math.ceil((renewal - start) / (1000 * 60 * 60 * 24));
+                const daysRemaining = Math.ceil((renewal - now) / (1000 * 60 * 60 * 24));
+                const daysElapsed = totalDays - daysRemaining;
+                
+                // Determine color based on 1/3 periods
+                let colorClass = 'renewal-green';
+                let textClass = 'green-text';
+                let statusText = 'All Good';
+                
+                if (daysElapsed > totalDays * 2/3) {
+                    colorClass = 'renewal-red';
+                    textClass = 'red-text';
+                    statusText = 'Renewal Soon!';
+                } else if (daysElapsed > totalDays / 3) {
+                    colorClass = 'renewal-yellow';
+                    textClass = 'yellow-text';
+                    statusText = 'Mid-Period';
+                }
+
+                renewalHTML = `
+                    <div class="renewal-status ${colorClass}">
+                        <div class="info-label">${statusText}</div>
+                        <div class="renewal-days ${textClass}">${daysRemaining}</div>
+                        <div style="font-weight: 600; font-size: 18px;">Days Until Renewal</div>
+                        <div style="margin-top: 10px; color: #6b7280; font-size: 14px;">Renews on ${renewal.toLocaleDateString()}</div>
+                    </div>
+                `;
+            }
+
+            // Build features list
+            let features = [];
+            if (sub.plan === 'free') {
+                features = [
+                    'Connect Strava account',
+                    '1 free AI analysis per month',
+                    'Basic zone recommendations',
+                    'View past 30 days of activities'
+                ];
+            } else if (sub.plan === 'basic') {
+                features = [
+                    'Unlimited Strava sync',
+                    'HRV-based training recommendations',
+                    'Habit building workouts',
+                    'Recovery tracking',
+                    'Weekly progress reports'
+                ];
+            } else if (sub.plan === 'race') {
+                features = [
+                    'Everything in Basic Coach',
+                    'Personalized race training plans',
+                    'Advanced performance analytics',
+                    'Pace & power zone optimization',
+                    'Race day strategy',
+                    'Priority support'
+                ];
+            }
+
+            const featuresHTML = features.map(f => `
+                <div class="feature-item">
+                    <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    <span>${f}</span>
+                </div>
+            `).join('');
+
+            // Build upgrade button
+            let actionHTML = '';
+            if (sub.plan === 'free') {
+                actionHTML = `<button class="btn-upgrade" onclick="window.location.href='/plans'">🚀 Upgrade to Premium</button>`;
+            } else if (sub.plan === 'basic') {
+                actionHTML = `
+                    <button class="btn-upgrade" onclick="window.location.href='/plans'">⬆️ Upgrade to Race Coach</button>
+                    <button class="btn-cancel" onclick="cancelSubscription()">Cancel Subscription</button>
+                `;
+            } else {
+                actionHTML = `<button class="btn-cancel" onclick="cancelSubscription()">Cancel Subscription</button>`;
+            }
+
+            content.innerHTML = `
+                <div class="plan-badge ${planClass}">${planName}</div>
+
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Status</div>
+                        <div class="info-value" style="color: ${sub.status === 'active' ? '#10b981' : '#6b7280'};">
+                            ${sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Started</div>
+                        <div class="info-value">${new Date(sub.startDate).toLocaleDateString()}</div>
+                    </div>
+                    ${sub.plan !== 'free' ? `
+                    <div class="info-item">
+                        <div class="info-label">Price</div>
+                        <div class="info-value">₹${sub.price || 0}/month</div>
+                    </div>
+                    ` : ''}
+                </div>
+
+                ${renewalHTML}
+
+                <div class="features">
+                    <h3 style="margin-bottom: 15px; color: #1f2937;">Your Features</h3>
+                    ${featuresHTML}
+                </div>
+
+                ${actionHTML}
+            `;
+        }
+
+        function cancelSubscription() {
+            if (confirm('Are you sure you want to cancel your subscription? You will lose access at the end of your billing period.')) {
+                // TODO: Implement actual cancellation API call
+                alert('Cancellation feature coming soon. Please contact support@zonetrain.com');
+            }
+        }
+    </script>
+</body>
+</html>

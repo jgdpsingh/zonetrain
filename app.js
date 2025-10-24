@@ -3,7 +3,7 @@ const express = require('express');
 // AI SERVICE INTEGRATION - Add after your existing requires
 const { AIService } = require('./services/aiService');
 const aiService = new AIService();
-
+const razorpayService = require('./services/razorpayService');
 
 const admin = require('firebase-admin');
 admin.initializeApp({
@@ -25,7 +25,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Add these imports after your existing requires
-const { initializeAccessControl, authenticateToken, requireFeatureAccess, trackFeatureUsage, checkFeatureAccess, FEATURE_ACCESS } = require('./middleware/accessControl');
+const { authenticateToken, requirePlan, requireAdmin, optionalAuth } = require('./middleware/accessControl');
+
 // Optional security middleware
 const helmet = require('helmet');
 const cors = require('cors');
@@ -33,12 +34,17 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 const port = process.env.PORT || 3000;
+// Trust proxy - Required for rate limiting behind reverse proxies
+app.set('trust proxy', 1);
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 
 app.use('/js', express.static(path.join(__dirname, 'public/js'), {
     setHeaders: (res, path) => {
         if (path.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
     }
 }));
+
 app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     setHeaders: (res, path) => {
         if (path.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
@@ -55,9 +61,61 @@ let storedTokens = {
 
 // Security middleware (optional but recommended)
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for development
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: [
+                "'self'", 
+                "'unsafe-inline'", 
+                "https://fonts.googleapis.com", 
+                "https://cdnjs.cloudflare.com"
+            ],
+            fontSrc: [
+                "'self'", 
+                "data:", 
+                "https://fonts.gstatic.com", 
+                "https://cdnjs.cloudflare.com"
+            ],
+            scriptSrc: [
+                "'self'", 
+                "'unsafe-inline'", 
+                "'unsafe-eval'",
+                "https://checkout.razorpay.com",
+                "https://www.gstatic.com",  // ✅ Firebase SDK
+                "https://www.googletagmanager.com",  // ✅ Firebase Analytics
+                "https://apis.google.com"  // ✅ Google APIs  // ✅ ADD THIS - Allow Razorpay checkout script
+            ],
+            scriptSrcAttr: ["'unsafe-inline'"],  // ✅ ADD THIS - Allow inline event handlers (onclick, etc.)
+            imgSrc: [
+                "'self'", 
+                "data:", 
+                "https:", 
+                "blob:",
+                "https://cdn.razorpay.com"  // ✅ ADD THIS - Allow Razorpay images/logos
+            ],
+            connectSrc: [
+                "'self'", 
+                "https://www.strava.com", 
+                "https://generativelanguage.googleapis.com",
+                "https://api.razorpay.com",  // ✅ ADD THIS - Allow Razorpay API calls
+                "https://lumberjack.razorpay.com",
+                "https://*.googleapis.com",  // ✅ Firebase API
+                "https://*.firebaseio.com",  // ✅ Firebase Realtime DB
+                "https://*.cloudfunctions.net",  // ✅ Firebase Functions
+                "https://identitytoolkit.googleapis.com",  // ✅ Firebase Auth
+                "https://securetoken.googleapis.com",
+                "https://www.gstatic.com"   // ✅ ADD THIS - Razorpay analytics
+            ],
+            frameSrc: [
+                "'self'",
+                "https://api.razorpay.com",
+                "https://*.firebaseapp.com"  // ✅ ADD THIS - Allow Razorpay payment iframe
+            ],
+            formAction: ["'self'", "https://api.razorpay.com"]  // ✅ ADD THIS - Allow form submission to Razorpay
+        }
+    }
 }));
-app.use(cors());
+
 
 // Add this helper function
 function validatePassword(password) {
@@ -92,6 +150,8 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // Body parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -131,6 +191,9 @@ app.use(session({
 // Initialize passport
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Add this helper function near the top of app.js
+
 
 // Updated welcome page route - replace your existing '/' route
 app.get('/', (req, res) => {
@@ -1215,1052 +1278,985 @@ app.get('/', (req, res) => {
 
 
 app.get('/login', (req, res) => {
+  const redirect = req.query.redirect || '';
   const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
+<!DOCTYPE html>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - ZoneTrain</title>
+    <link rel="stylesheet" href="css/cookies.css">
     <style>
-      :root {
-        --deep-purple: #6B46C1;
-        --light-purple: #A78BFA;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --error-red: #EF4444;
-      }
+        :root {
+            --deep-purple: #6B46C1;
+            --light-purple: #A78BFA;
+            --accent-purple: #8B5CF6;
+            --white: #FFFFFF;
+            --dark-gray: #1F2937;
+            --success-green: #10B981;
+            --error-red: #EF4444;
+        }
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-      }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
 
-      .login-container {
-        background: var(--white);
-        border-radius: 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        padding: 40px;
-        width: 100%;
-        max-width: 450px;
-        position: relative;
-      }
+        /* Back Button */
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 25px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
 
-      .login-container h1 {
-        color: #667eea;
-        text-align: center;
-        margin-bottom: 10px;
-        font-size: 28px;
-    }
+        .back-btn:hover { 
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateX(-3px);
+        }
 
-    .login-container h2 {
-        text-align: center;
-        color: #374151;
-        margin-bottom: 30px;
-        font-size: 20px;
-        font-weight: 500;
-    }
+        /* Login Container */
+        .login-container {
+            background: var(--white);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 450px;
+        }
 
+        .login-container h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
 
-      .back-btn {
-        position: relative;
-        top: 20px;
-        left: 20px;
-        color: var(--deep-purple);
-        text-decoration: none;
-        font-size: 1.5rem;
-        transition: transform 0.3s ease;
-      }
+        .login-container h2 {
+            text-align: center;
+            color: #374151;
+            margin-bottom: 30px;
+            font-size: 20px;
+            font-weight: 500;
+        }
 
-      .back-btn:hover { transform: translateX(-5px); }
+        .form-group {
+            margin-bottom: 20px;
+        }
 
-      .logo {
-        text-align: center;
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--deep-purple);
-        margin-bottom: 30px;
-      }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--dark-gray);
+            font-weight: 500;
+        }
 
-      h2 {
-        text-align: center;
-        color: var(--dark-gray);
-        margin-bottom: 30px;
-        font-size: 1.8rem;
-      }
+        input[type="email"], 
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
 
-      .form-group {
-        margin-bottom: 20px;
-      }
+        input:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }
 
-      label {
-        display: block;
-        margin-bottom: 8px;
-        color: var(--dark-gray);
-        font-weight: 500;
-      }
+        .forgot-password {
+            text-align: right;
+            margin-top: 10px;
+        }
 
-      input[type="email"], input[type="password"] {
-        width: 100%;
-        padding: 12px 15px;
-        border: 2px solid #E5E7EB;
-        border-radius: 10px;
-        font-size: 1rem;
-        transition: border-color 0.3s ease;
-      }
+        .forgot-password a {
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
 
-      input[type="email"]:focus, input[type="password"]:focus {
-        outline: none;
-        border-color: var(--accent-purple);
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-      }
+        .forgot-password a:hover { 
+            text-decoration: underline; 
+        }
 
-      .forgot-password {
-        text-align: right;
-        margin-top: 10px;
-      }
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
 
-      .forgot-password a {
-        color: var(--accent-purple);
-        text-decoration: none;
-        font-size: 0.9rem;
-      }
+        .btn-primary {
+            background: var(--deep-purple);
+            color: var(--white);
+        }
 
-      .forgot-password a:hover { text-decoration: underline; }
+        .btn-primary:hover {
+            background: var(--accent-purple);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
+        }
 
-      .btn {
-        width: 100%;
-        padding: 15px;
-        border: none;
-        border-radius: 10px;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        margin-bottom: 15px;
-      }
-
-      .btn-primary {
-        background: var(--deep-purple);
-        color: var(--white);
-      }
-
-      .btn-primary:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
-      }
-
-      .btn-google {
-        background: var(--white);
-        color: var(--dark-gray);
-        border: 2px solid #E5E7EB;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-      }
-
-      .btn-google:hover {
-        background: #F9FAFB;
-        border-color: var(--light-purple);
-      }
-
-      .divider {
-        text-align: center;
-        margin: 25px 0;
-        position: relative;
-        color: #9CA3AF;
-      }
-
-      .divider::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: #E5E7EB;
-        z-index: 1;
-      }
-
-      .divider span {
-        background: var(--white);
-        padding: 0 15px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .signup-link {
-        text-align: center;
-        margin-top: 25px;
-        color: var(--dark-gray);
-      }
-
-      .signup-link a {
-        color: var(--accent-purple);
-        text-decoration: none;
-        font-weight: 600;
-      }
-
-      .signup-link a:hover { text-decoration: underline; }
-
-      .error-message {
-        background: #FEE2E2;
-        color: var(--error-red);
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        font-size: 0.9rem;
-        display: none;
-      }
-
-      .error-message.error {
-    background: #FEE2E2;
-    color: #EF4444;
+        .btn-social {
+    width: 100%;
+    padding: 12px;
+    background: white;
+    border: 2px solid #E5E7EB;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #374151;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    margin-bottom: 12px;
 }
 
-.error-message.success {
-    background: #D1FAE5;
-    color: #10B981;
+.btn-social:hover {
+    background: #F9FAFB;
+    border-color: #D1D5DB;
 }
 
-.error-message.info {
-    background: #E0E7FF;
-    color: #6366F1;
+        .btn-google {
+            background: var(--white);
+            color: var(--dark-gray);
+            border: 2px solid #E5E7EB;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-google:hover {
+            background: #F9FAFB;
+            border-color: var(--light-purple);
+        }
+
+        .btn-facebook {
+    border-color: #1877F2;
 }
 
-      @media (max-width: 480px) {
-        .login-container { padding: 30px 25px; }
-      }
-
-      /* Add this to your existing login page CSS */
-.divider {
-  text-align: center;
-  margin: 25px 0;
-  position: relative;
-  color: #9CA3AF;
+.btn-facebook:hover {
+    background: #EFF6FF;
+    border-color: #1877F2;
 }
 
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #E5E7EB;
-  z-index: 1;
+.btn-phone {
+    border-color: #10B981;
 }
 
-.divider span {
-  background: var(--white);
-  padding: 0 15px;
-  position: relative;
-  z-index: 2;
+.btn-phone:hover {
+    background: #ECFDF5;
+    border-color: #10B981;
 }
 
-.social-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+        .divider {
+            text-align: center;
+            margin: 25px 0;
+            position: relative;
+            color: #9CA3AF;
+        }
 
-.btn-social {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border: 2px solid #E5E7EB;
-  border-radius: 10px;
-  text-decoration: none;
-  font-weight: 600;
-  transition: all 0.3s ease;
-  background: white;
-}
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #E5E7EB;
+            z-index: 1;
+        }
 
-.btn-google {
-  color: #4285f4;
-  border-color: #4285f4;
-}
+        .divider span {
+            background: var(--white);
+            padding: 0 15px;
+            position: relative;
+            z-index: 2;
+        }
 
-.btn-google:hover {
-  background: #4285f4;
-  color: white;
-}
+        /* Single Signup Section */
+        .signup-section {
+            text-align: center;
+            margin-top: 25px;
+            padding: 18px;
+            background: #F3F4F6;
+            border-radius: 12px;
+        }
 
+        .signup-section p {
+            margin: 0;
+            color: #6B7280;
+            font-size: 14px;
+        }
+
+        .signup-section a {
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .signup-section a:hover {
+            text-decoration: underline;
+        }
+
+        /* Cookie Links */
+        .cookie-links {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #E5E7EB;
+        }
+
+        .cookie-links a {
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .cookie-links a:hover {
+            text-decoration: underline;
+        }
+
+        .error-message {
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .error-message.error {
+            background: #FEE2E2;
+            color: var(--error-red);
+        }
+
+        .error-message.success {
+            background: #D1FAE5;
+            color: var(--success-green);
+        }
+
+        /* Mobile Responsive */
+        @media screen and (max-width: 768px) {
+            body { padding: 15px; }
+            .login-container { padding: 35px 30px; }
+            .back-btn { top: 15px; left: 15px; padding: 9px 14px; font-size: 13px; }
+        }
+
+        @media screen and (max-width: 576px) {
+            body { padding: 10px; }
+            .back-btn { top: 12px; left: 12px; padding: 8px 12px; }
+            .login-container { padding: 30px 20px; border-radius: 15px; }
+            .cookie-links { flex-direction: column; gap: 12px; }
+        }
+
+        @media screen and (max-width: 400px) {
+            .back-btn { top: 10px; left: 10px; padding: 7px 10px; font-size: 12px; }
+            .login-container { padding: 25px 18px; }
+        }
     </style>
-  </head>
-  <body>
+</head>
+<body>
+    <!-- Back Button -->
+    <a href="/" class="back-btn">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Back
+    </a>
+
+    <!-- Login Container -->
     <div class="login-container">
-      <a href="/" class="back-btn">←</a>
-      
-      <div class="logo">ZoneTrain</div>
-      <h2>Welcome Back</h2>
+        <h1>ZoneTrain</h1>
+        <h2>Welcome Back</h2>
 
-      <div id="errorMessage" class="error-message"></div>
+        <div id="errorMessage" class="error-message"></div>
 
-      <form id="loginForm">
-        <div class="form-group">
-          <label for="email">Email Address</label>
-          <input type="email" id="email" name="email" required>
-        </div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required autocomplete="email">
+            </div>
 
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input type="password" id="password" name="password" required>
-          <div class="forgot-password">
-            <a href="/forgot-password">Forgot Password?</a>
-          </div>
-        </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <div class="forgot-password">
+                    <a href="/forgot-password">Forgot Password?</a>
+                </div>
+            </div>
 
-        <button type="submit" class="btn btn-primary">Sign In</button>
-      </form>
+            <button type="submit" class="btn btn-primary">Sign In</button>
+        </form>
 
-      
+        <!-- Divider -->
+        <div class="divider"><span>OR</span></div>
 
-      <!-- ADD THIS SOCIAL LOGIN SECTION -->
-<div class="divider">
-  <span>OR</span>
-</div>
-
-<div class="social-buttons">
-  <a href="/auth/google" class="btn-social btn-google">
-    <svg width="20" height="20" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        <!-- Google Login -->
+        <button class="btn-social btn-google" onclick="window.location.href='/auth/google'">
+    <svg width="18" height="18" viewBox="0 0 18 18">
+        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+        <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
+        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
     </svg>
     Continue with Google
-  </a>
-</div>
+</button>
 
-      
+        <!-- Facebook Login Button -->
+<a href="/auth/facebook" class="btn-social btn-facebook">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+    Continue with Facebook
+</a>
 
-      <div class="signup-link">
-        Don't have an account? <a href="/signup">Sign Up</a>
-      </div>
+<a href="/phone-login" class="btn-social btn-phone">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+    </svg>
+    Continue with Phone
+</a>
+
+        <!-- Single Signup Section -->
+        <div class="signup-section">
+            <p>Don't have an account? <a href="#" id="signup-link">Sign Up Here</a></p>
+        </div>
+
+        <!-- Cookie Links -->
+        <div class="cookie-links">
+            <a href="/privacy">Privacy Policy</a>
+            <a href="/cookie-policy">Cookie Policy</a>
+        </div>
     </div>
 
+    <!-- Single JavaScript Section -->
     <script>
-      document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    // Check if already logged in
+    (function() {
+        const userToken = localStorage.getItem('userToken');
+        const userEmail = localStorage.getItem('userEmail');
+        if (userToken && userEmail) {
+            window.location.href = '/dashboard';
+        }
+    })();
+
+    // Login form handler
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
         const formData = new FormData(e.target);
         const loginData = {
-          email: formData.get('email'),
-          password: formData.get('password')
+            email: formData.get('email'),
+            password: formData.get('password')
         };
-       
 
-    try {
-        console.log('📡 Sending login request...');
-        
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(loginData)
-        });
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(loginData)
+            });
 
-        const result = await response.json();
-        console.log('📡 Login response:', result);
+            const result = await response.json();
 
-        if (result.success) {
-            // Store user session data
-            localStorage.setItem('userToken', result.token);
-            localStorage.setItem('userId', result.user.id);
-            localStorage.setItem('userEmail', result.user.email);
-            localStorage.setItem('userType', result.userType);
-            localStorage.setItem('userInfo', JSON.stringify(result.user));
+            if (result.success) {
+                localStorage.setItem('userToken', result.token);
+                localStorage.setItem('userId', result.user.id);
+                localStorage.setItem('userEmail', result.user.email);
+                localStorage.setItem('userType', result.userType);
+                localStorage.setItem('userInfo', JSON.stringify(result.user));
 
-            console.log('✅ Login successful, user type:', result.userType);
-            console.log('🚀 Redirecting to:', result.redirect);
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirectParam = urlParams.get('redirect');
 
-            // Handle pending subscription
-            const pendingSubscription = sessionStorage.getItem('pendingSubscription');
-            if (pendingSubscription) {
-                localStorage.setItem('mockSubscription', pendingSubscription);
-                sessionStorage.removeItem('pendingSubscription');
+                showMessage('Welcome back! Redirecting...', 'success');
+
+                setTimeout(() => {
+                    if (redirectParam === 'plans') {
+                        window.location.href = '/plans.html';
+                    } else {
+                        window.location.href = result.redirect || '/dashboard.html';
+                    }
+                }, 1000);
+            } else {
+                showMessage(result.message, 'error');
             }
-
-            // Show success message
-            showMessage('Welcome back! Redirecting...', 'success');
-
-            // Redirect based on user type and preferences
-            setTimeout(() => {
-                window.location.href = result.redirect;
-            }, 1000);
-
-        } else {
-            console.log('❌ Login failed:', result.message);
-            showMessage(result.message, 'error');
+        } catch (error) {
+            console.error('Login error:', error);
+            showMessage('Login failed. Please try again.', 'error');
         }
+    });
 
-    } catch (error) {
-        console.error('❌ Login error:', error);
-        showMessage('Login failed. Please try again.', 'error');
-    }
-});
+    // Signup link handler
+    document.getElementById('signup-link').addEventListener('click', function(e) {
+        e.preventDefault();
+        const params = new URLSearchParams(window.location.search);
+        const r = params.get('redirect');
+        window.location.href = r ? \`/signup?redirect=\${encodeURIComponent(r)}\` : '/signup';
+    });
 
-function showMessage(message, type) {
-    const errorDiv = document.getElementById('errorMessage');
-    errorDiv.textContent = message;
-    errorDiv.className = 'error-message ' + type;
-    errorDiv.style.display = 'block';
-    
-    // Auto-hide success messages
-    if (type === 'success') {
-        setTimeout(() => {
-            errorDiv.style.display = 'none';
-        }, 3000);
-    } else {
-        // Hide error messages after 5 seconds
-        setTimeout(() => {
-            errorDiv.style.display = 'none';
-        }, 5000);
+    function showMessage(message, type) {
+        const errorDiv = document.getElementById('errorMessage');
+        errorDiv.textContent = message;
+        errorDiv.className = 'error-message ' + type;
+        errorDiv.style.display = 'block';
+        setTimeout(() => errorDiv.style.display = 'none', type === 'success' ? 3000 : 5000);
     }
-}
     </script>
-    <script>
-// Show/Hide Password functionality
-document.addEventListener('DOMContentLoaded', function() {
-  // For login page
-  const togglePassword = document.getElementById('togglePassword');
-  const passwordField = document.getElementById('password');
-  
-  if (togglePassword && passwordField) {
-    togglePassword.addEventListener('click', function() {
-      const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
-      passwordField.setAttribute('type', type);
-      this.textContent = type === 'password' ? '👁️' : '🙈';
-    });
-  }
 
-  // For signup page (confirm password)
-  const toggleConfirmPassword = document.getElementById('toggleConfirmPassword');
-  const confirmPasswordField = document.getElementById('confirmPassword');
-  
-  if (toggleConfirmPassword && confirmPasswordField) {
-    toggleConfirmPassword.addEventListener('click', function() {
-      const type = confirmPasswordField.getAttribute('type') === 'password' ? 'text' : 'password';
-      confirmPasswordField.setAttribute('type', type);
-      this.textContent = type === 'password' ? '👁️' : '🙈';
-    });
-  }
-});
-</script>
-
-<div id="ztCookieBanner" class="zt-cookie-banner">
-        <div class="zt-cookie-container">
-            <div class="zt-cookie-content">
-                <div class="zt-cookie-title">🍪 We value your privacy</div>
-                <div class="zt-cookie-text">
-                    We use cookies to enhance your ZoneTrain experience and provide personalized coaching.
-                </div>
-                <div class="zt-cookie-links">
-                    <a href="/privacy-policy" class="zt-cookie-link">Privacy Policy</a>
-                    <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
-                </div>
-            </div>
-            <div class="zt-cookie-actions">
-                <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
-                    Decline
-                </button>
-                <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                    Settings
-                </button>
-                <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                    Accept All
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Cookie Settings Modal -->
-    ${getCookieModalHTML()}
-${getCookieBannerHTML()}
-    
+    <!-- Cookie Banner (loaded once) -->
     <script src="js/cookies.js"></script>
-    <script src="/components/nav-header.js"></script>
-
-  </body>
-  </html>
+   
+</body>
+</html>
   `;
   res.send(html);
 });
 
+
 app.get('/signup', (req, res) => {
+  const redirect = req.query.redirect || '';
   const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
+<!DOCTYPE html>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - ZoneTrain</title>
     <style>
-      :root {
-        --deep-purple: #6B46C1;
-        --light-purple: #A78BFA;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --error-red: #EF4444;
-      }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* Back Button - Fixed Position */
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            border: none;
+            cursor: pointer;
+        }
 
-      body {
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateX(-3px);
+        }
 
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-        padding-top: 110px;
-      }
+        /* Signup Container - Centered */
+        .signup-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 500px;
+        }
 
-      .signup-container {
-        background: var(--white);
-        border-radius: 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        padding: 40px;
-        width: 100%;
-        max-width: 500px;
-        position: relative;
-        margin-top: 0;
-      }
+        .logo-text {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
 
-      .back-btn {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        color: var(--deep-purple);
-        text-decoration: none;
-        font-size: 1.5rem;
-        transition: transform 0.3s ease;
-        z-index: 10;
-      }
+        .welcome-text {
+            text-align: center;
+            font-size: 22px;
+            color: #1F2937;
+            margin-bottom: 30px;
+        }
 
-      .back-btn:hover { transform: translateX(-5px); }
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
 
-      .signup-container h1,
-      .signup-container > *:first-child {
-        margin-top: 40px; /* Space for back button */
-      }
+        .form-group {
+            margin-bottom: 20px;
+            flex: 1;
+        }
 
-      .logo {
-        text-align: center;
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--deep-purple);
-        margin-bottom: 20px;
-      }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
 
-      h2 {
-        text-align: center;
-        color: var(--dark-gray);
-        margin-bottom: 30px;
-        font-size: 1.8rem;
-      }
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
 
-      .form-row {
-        display: flex;
-        gap: 15px;
-      }
+        input:focus {
+            outline: none;
+            border-color: #8B5CF6;
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }
 
-      .form-group {
-        margin-bottom: 20px;
-        flex: 1;
-      }
+        .password-requirements {
+            font-size: 12px;
+            color: #6B7280;
+            margin-top: 5px;
+        }
 
-      label {
-        display: block;
-        margin-bottom: 5px;
-        color: var(--dark-gray);
-        font-weight: 500;
-      }
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
 
-      input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
-        width: 100%;
-        padding: 12px 15px;
-        border: 2px solid #E5E7EB;
-        border-radius: 10px;
-        font-size: 1rem;
-        transition: border-color 0.3s ease;
-      }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(107, 70, 193, 0.4);
+        }
 
-      input:focus {
-        outline: none;
-        border-color: var(--accent-purple);
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-      }
+        .terms-agreement {
+            font-size: 12px;
+            color: #6B7280;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
 
-      .password-requirements {
-        font-size: 0.8rem;
-        color: #6B7280;
-        margin-top: 5px;
-      }
+        .terms-agreement a {
+            color: #8B5CF6;
+            text-decoration: none;
+        }
 
-      .btn {
-        width: 100%;
-        padding: 15px;
-        border: none;
-        border-radius: 10px;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        margin-bottom: 15px;
-      }
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 25px 0;
+            color: #9CA3AF;
+            font-size: 13px;
+        }
 
-      .btn-primary {
-        background: var(--deep-purple);
-        color: var(--white);
-      }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #E5E7EB;
+        }
 
-      .btn-primary:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
-      }
+        .divider span { padding: 0 15px; }
 
-      .btn-google {
-        background: var(--white);
-        color: var(--dark-gray);
-        border: 2px solid #E5E7EB;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-      }
-
-      .btn-google:hover {
-        background: #F9FAFB;
-        border-color: var(--light-purple);
-      }
-
-      .divider {
-        text-align: center;
-        margin: 25px 0;
-        position: relative;
-        color: #9CA3AF;
-      }
-
-      .divider::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: #E5E7EB;
-        z-index: 1;
-      }
-
-      .divider span {
-        background: var(--white);
-        padding: 0 15px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .login-link {
-        text-align: center;
-        margin-top: 25px;
-        color: var(--dark-gray);
-      }
-
-      .login-link a {
-        color: var(--accent-purple);
-        text-decoration: none;
-        font-weight: 600;
-      }
-
-      .login-link a:hover { text-decoration: underline; }
-
-      .error-message, .success-message {
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        font-size: 0.9rem;
-        display: none;
-      }
-
-      .error-message {
-        background: #FEE2E2;
-        color: var(--error-red);
-      }
-
-      .success-message {
-        background: #D1FAE5;
-        color: var(--success-green);
-      }
-
-      .terms-agreement {
-        font-size: 0.85rem;
-        color: #6B7280;
-        margin-bottom: 20px;
-        line-height: 1.5;
-      }
-
-      .terms-agreement a {
-        color: var(--accent-purple);
-        text-decoration: none;
-      }
-
-      .terms-agreement a:hover { text-decoration: underline; }
-
-      @media (max-width: 480px) {
-        .signup-container { padding: 30px 25px; }
-        .form-row { flex-direction: column; gap: 0; }
-      }
-
-      /* Add this to your existing login page CSS */
-.divider {
-  text-align: center;
-  margin: 25px 0;
-  position: relative;
-  color: #9CA3AF;
+        .btn-social {
+    width: 100%;
+    padding: 12px;
+    background: white;
+    border: 2px solid #E5E7EB;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #374151;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    margin-bottom: 12px;
 }
 
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #E5E7EB;
-  z-index: 1;
+.btn-social:hover {
+    background: #F9FAFB;
+    border-color: #D1D5DB;
+}
+        
+        .btn-google {
+            width: 100%;
+            padding: 12px;
+            background: white;
+            border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .btn-google:hover {
+            background: #F9FAFB;
+            border-color: #D1D5DB;
+        }
+
+        .btn-facebook {
+    border-color: #1877F2;
 }
 
-.divider span {
-  background: var(--white);
-  padding: 0 15px;
-  position: relative;
-  z-index: 2;
+.btn-facebook:hover {
+    background: #EFF6FF;
+    border-color: #1877F2;
 }
 
-.social-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.btn-phone {
+    border-color: #10B981;
 }
 
-.btn-social {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border: 2px solid #E5E7EB;
-  border-radius: 10px;
-  text-decoration: none;
-  font-weight: 600;
-  transition: all 0.3s ease;
-  background: white;
+.btn-phone:hover {
+    background: #ECFDF5;
+    border-color: #10B981;
 }
 
-.btn-google {
-  color: #4285f4;
-  border-color: #4285f4;
-}
+        /* Login Section */
+        .login-section {
+            text-align: center;
+            margin-top: 25px;
+            padding: 18px;
+            background: #F3F4F6;
+            border-radius: 12px;
+        }
 
-.btn-google:hover {
-  background: #4285f4;
-  color: white;
-}
+        .login-section p {
+            margin: 0;
+            color: #6B7280;
+            font-size: 14px;
+        }
+
+        .login-section a {
+            color: #8B5CF6;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .login-section a:hover {
+            text-decoration: underline;
+        }
+
+        .error-message, .success-message {
+            display: none;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .error-message {
+            background: #FEE2E2;
+            color: #DC2626;
+        }
+
+        .success-message {
+            background: #D1FAE5;
+            color: #059669;
+        }
+
+        @media (max-width: 576px) {
+            .signup-container { padding: 30px 20px; }
+            .back-btn { top: 15px; left: 15px; font-size: 13px; padding: 8px 14px; }
+            .logo-text { font-size: 28px; }
+            .welcome-text { font-size: 20px; }
+            .form-row { flex-direction: column; gap: 0; }
+        }
+
+        
+
+
+
 
     </style>
-  </head>
-  <body>
+</head>
+<body>
+    <!-- Back Button -->
+    <a href="/" class="back-btn">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Back
+    </a>
+
     <div class="signup-container">
-      <a href="/" class="back-btn">←</a>
-      
-      <div class="logo">ZoneTrain</div>
-      <h2>Create Your Account</h2>
+        <div class="logo-text">ZoneTrain</div>
+        <h2 class="welcome-text">Create Your Account</h2>
 
-      <div id="errorMessage" class="error-message"></div>
-      <div id="successMessage" class="success-message"></div>
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
 
-      <form id="signupForm">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="firstName">First Name</label>
-            <input type="text" id="firstName" name="firstName" required>
-          </div>
-          <div class="form-group">
-            <label for="lastName">Last Name</label>
-            <input type="text" id="lastName" name="lastName" required>
-          </div>
-        </div>
+        <form id="signupForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="firstName">First Name</label>
+                    <input type="text" id="firstName" name="firstName" required>
+                </div>
+                <div class="form-group">
+                    <label for="lastName">Last Name</label>
+                    <input type="text" id="lastName" name="lastName" required>
+                </div>
+            </div>
 
-        <div class="form-group">
-          <label for="email">Email Address</label>
-          <input type="email" id="email" name="email" required>
-        </div>
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required>
+            </div>
 
-        <div class="form-group">
-          <label for="phoneNumber">Phone Number (Optional)</label>
-          <input type="tel" id="phoneNumber" name="phoneNumber" placeholder="+91 98765 43210">
-        </div>
+            <div class="form-group">
+                <label for="phoneNumber">Phone Number (Optional)</label>
+                <input type="tel" id="phoneNumber" name="phoneNumber" placeholder="+91 98765 43210">
+            </div>
 
-        <div class="form-group">
-  <label for="password">Password</label>
-  <div style="position: relative;">
-    <input type="password" id="password" name="password" required style="padding-right: 45px;">
-    <button type="button" id="togglePassword" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem;">👁️</button>
-  </div>
-  <div class="password-requirements">
-    At least 8 characters with uppercase, lowercase, and number
-  </div>
-</div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+                <div class="password-requirements">
+                    At least 8 characters with uppercase, lowercase, and number
+                </div>
+            </div>
 
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required>
+            </div>
 
-        <div class="form-group">
-          <label for="confirmPassword">Confirm Password</label>
-          <div style="position: relative;">
-    <input type="password" id="confirmPassword" name="confirmPassword" required style="padding-right: 45px;">
-  </div>
-        </div>
+            <div class="terms-agreement">
+                By creating an account, you agree to our 
+                <a href="/terms" target="_blank">Terms of Service</a> and 
+                <a href="/privacy" target="_blank">Privacy Policy</a>.
+            </div>
 
-        <div class="terms-agreement">
-          By creating an account, you agree to our 
-          <a href="/terms" target="_blank">Terms of Service</a> and 
-          <a href="/privacy" target="_blank">Privacy Policy</a>.
-        </div>
+            <button type="submit" class="btn-submit">Create Account</button>
+        </form>
 
-        <button type="submit" class="btn btn-primary">Create Account</button>
-      </form>
-      <!-- ADD THIS SOCIAL LOGIN SECTION -->
-<div class="divider">
-  <span>OR</span>
-</div>
+        <div class="divider"><span>OR</span></div>
 
-<div class="social-buttons">
-  <a href="/auth/google" class="btn-social btn-google">
-    <svg width="20" height="20" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        <button class="btn-social btn-google" onclick="window.location.href='/auth/google'">
+    <svg width="18" height="18" viewBox="0 0 18 18">
+        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+        <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
+        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
     </svg>
     Continue with Google
-  </a>
-</div>
+</button>
 
-      <div class="divider">
-        <span>or</span>
-      </div>
+        <!-- Facebook Login Button -->
+<a href="/auth/facebook" class="btn-social btn-facebook">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+    Continue with Facebook
+</a>
 
-   
+<a href="/phone-login" class="btn-social btn-phone">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+    </svg>
+    Continue with Phone
+</a>
 
-      <div class="login-link">
-        Already have an account? <a href="/login">Sign In</a>
-      </div>
+
+        <!-- Single Login Section -->
+        <div class="login-section">
+            <p>Already have an account? <a href="#" id="login-link">Login Here</a></p>
+        </div>
     </div>
 
     <script>
-      document.getElementById('signupForm').addEventListener('submit', async (e) => {
+    // Check if already logged in
+    (function() {
+        const userToken = localStorage.getItem('userToken');
+        const userEmail = localStorage.getItem('userEmail');
+        if (userToken && userEmail) {
+            window.location.href = '/dashboard';
+        }
+    })();
+
+    // Signup form handler
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
         const formData = new FormData(e.target);
         const password = formData.get('password');
         const confirmPassword = formData.get('confirmPassword');
-
-        // Validate password match
+        
         if (password !== confirmPassword) {
-          showError('Passwords do not match');
-          return;
+            showError('Passwords do not match');
+            return;
         }
-
-        // Validate password strength
+        
         if (!isValidPassword(password)) {
-          showError('Password must be at least 8 characters with uppercase, lowercase, and number');
-          return;
+            showError('Password must be at least 8 characters with uppercase, lowercase, and number');
+            return;
         }
-
+        
         const signupData = {
-          firstName: formData.get('firstName'),
-          lastName: formData.get('lastName'),
-          email: formData.get('email'),
-          phoneNumber: formData.get('phoneNumber') || null,
-          password: password
+            firstName: formData.get('firstName'),
+            lastName: formData.get('lastName'),
+            email: formData.get('email'),
+            phoneNumber: formData.get('phoneNumber') || null,
+            password: password
         };
-
+        
         const urlParams = new URLSearchParams(window.location.search);
-    const redirect = urlParams.get('redirect');
-    if (redirect) {
-        signupData.redirect = redirect;
+        const redirect = urlParams.get('redirect');
+        
+        try {
+            const response = await fetch('/api/signup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(signupData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                localStorage.setItem('userEmail', signupData.email);
+                localStorage.setItem('userName', signupData.firstName);
+                
+                // Auto-login
+                const loginResponse = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        email: signupData.email, 
+                        password: password 
+                    })
+                });
+                
+                const loginData = await loginResponse.json();
+                
+                if (loginData.success) {
+                    localStorage.setItem('userToken', loginData.token);
+                    localStorage.setItem('userId', loginData.user.id);
+                    
+                    showSuccess('Account created successfully! Redirecting...');
+                    
+                    setTimeout(() => {
+                        if (redirect === 'plans') {
+                            window.location.href = '/plans.html';
+                        } else {
+                            window.location.href = '/dashboard.html';
+                        }
+                    }, 1500);
+                }
+            } else {
+                showError(result.message);
+            }
+        } catch (error) {
+            console.error('Signup error:', error);
+            showError('Signup failed. Please try again.');
+        }
+    });
+
+    // Login link handler
+    const loginLink = document.getElementById('login-link');
+    if (loginLink) {
+        loginLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            const params = new URLSearchParams(window.location.search);
+            const r = params.get('redirect');
+            window.location.href = r ? \`/login?redirect=\${encodeURIComponent(r)}\` : '/login';
+        });
     }
 
-        try {
-          const response = await fetch('/api/auth/register', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(signupData)
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-          localStorage.setItem('userToken', result.token);
-            localStorage.setItem('userId', result.user.id);
-            localStorage.setItem('userEmail', result.user.email);
-            
-            // ADD THIS: Handle pending subscription
-            const pendingSubscription = sessionStorage.getItem('pendingSubscription');
-            if (pendingSubscription) {
-                localStorage.setItem('mockSubscription', pendingSubscription);
-                sessionStorage.removeItem('pendingSubscription');
-            }
-            
-            showSuccess('Account created successfully! Redirecting...');
-            setTimeout(() => {
-              window.location.href = '/login?message=Account created successfully';
-            }, 2000);
-          } else {
-            showError(result.message);
-          }
-        } catch (error) {
-          console.error('Signup error:', error);
-          showError('Signup failed. Please try again.');
-        }
-      });
-
-      function isValidPassword(password) {
+    function isValidPassword(password) {
         return password.length >= 8 && 
                /[A-Z]/.test(password) && 
                /[a-z]/.test(password) && 
                /[0-9]/.test(password);
-      }
+    }
 
-      function showError(message) {
+    function showError(message) {
         const errorDiv = document.getElementById('errorMessage');
         const successDiv = document.getElementById('successMessage');
-        successDiv.style.display = 'none';
+        if (successDiv) successDiv.style.display = 'none';
         errorDiv.textContent = message;
         errorDiv.style.display = 'block';
         errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+    }
 
-      function showSuccess(message) {
+    function showSuccess(message) {
         const errorDiv = document.getElementById('errorMessage');
         const successDiv = document.getElementById('successMessage');
-        errorDiv.style.display = 'none';
+        if (errorDiv) errorDiv.style.display = 'none';
         successDiv.textContent = message;
         successDiv.style.display = 'block';
         successDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-
-      function signupWithGoogle() {
-        alert('Google signup will be implemented with Google OAuth');
-      }
+    }
     </script>
-    <script>
-<script>
-// Show/Hide Password functionality
-document.addEventListener('DOMContentLoaded', function() {
-  console.log('🔧 Password toggle script loaded'); // Debug log
-  
-  // For login/signup page
-  const togglePassword = document.getElementById('togglePassword');
-  const passwordField = document.getElementById('password');
-  
-  if (togglePassword && passwordField) {
-    console.log('✅ Password toggle elements found'); // Debug log
-    
-    togglePassword.addEventListener('click', function() {
-      console.log('👁️ Password toggle clicked'); // Debug log
-      
-      const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
-      passwordField.setAttribute('type', type);
-      this.textContent = type === 'password' ? '👁️' : '🙈';
-      
-      console.log('🔄 Password type changed to:', type); // Debug log
-    });
-  } else {
-    console.log('❌ Password toggle elements not found'); // Debug log
-  }
-  
-  // For signup page - confirm password field
-  const toggleConfirmPassword = document.getElementById('toggleConfirmPassword');
-  const confirmPasswordField = document.getElementById('confirmPassword');
-  
-  if (toggleConfirmPassword && confirmPasswordField) {
-    console.log('✅ Confirm password toggle found'); // Debug log
-    
-    toggleConfirmPassword.addEventListener('click', function() {
-      console.log('👁️ Confirm password toggle clicked'); // Debug log
-      
-      const type = confirmPasswordField.getAttribute('type') === 'password' ? 'text' : 'password';
-      confirmPasswordField.setAttribute('type', type);
-      this.textContent = type === 'password' ? '👁️' : '🙈';
-    });
-  }
-});
-</script>
-
-<div id="ztCookieBanner" class="zt-cookie-banner">
-        <div class="zt-cookie-container">
-            <div class="zt-cookie-content">
-                <div class="zt-cookie-title">🍪 We value your privacy</div>
-                <div class="zt-cookie-text">
-                    We use cookies to enhance your ZoneTrain experience and provide personalized coaching.
-                </div>
-                <div class="zt-cookie-links">
-                    <a href="/privacy-policy" class="zt-cookie-link">Privacy Policy</a>
-                    <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
-                </div>
-            </div>
-            <div class="zt-cookie-actions">
-                <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
-                    Decline
-                </button>
-                <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                    Settings
-                </button>
-                <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                    Accept All
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Cookie Settings Modal -->
-    ${getCookieModalHTML()}
-    ${getCookieBannerHTML()}
-    
-
-    <script src="js/cookies.js"></script>
-    <script src="/components/nav-header.js"></script>
-
-  </body>
-  </html>
+</body>
+</html>
   `;
   res.send(html);
 });
-
 
 
 // Helper function to calculate training zone distribution
@@ -3730,10 +3726,6 @@ app.get('/callback', async (req, res) => {
 });
 
 
-
-
-
-
 // View activities (existing)
 // Updated activities route
 app.get('/activities', async (req, res) => {
@@ -4160,8 +4152,6 @@ app.get('/analyze-zones', authenticateToken, async (req, res) => {
     }
 });
 
-
-
 // Add these NEW routes to your app.js
 
 // Dashboard data endpoint - ADD THIS NEW ROUTE
@@ -4270,6 +4260,12 @@ const plan = hasPlan ? planSnapshot.docs[0].data() : null;
         });
     }
 });
+
+// Phone login page route
+app.get('/phone-login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'phone-login.html'));
+});
+
 
 // Helper function
 function calculateWeeksRemaining(plan, profile) {
@@ -4675,9 +4671,6 @@ app.get('/api/dashboard/data', authenticateToken, async (req, res) => {
     }
 });
 
-// ============================================
-// ZONETRAIN COOKIE CONSENT SYSTEM - ADD THESE ROUTES
-// ============================================
 
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {
@@ -4820,10 +4813,6 @@ app.get('/privacy-policy', (req, res) => {
     `);
 });
 
-// Cookie Policy Route
-// ============================================
-// ZONETRAIN COOKIE CONSENT SYSTEM - ADD THESE ROUTES
-// ============================================
 
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {
@@ -5021,6 +5010,84 @@ console.log('🤖 AI Onboarding routes added');
 app.get('/ai-onboarding', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/ai-onboarding.html'));
 });
+
+// Weather API - Using Google Maps Platform Weather API
+app.get('/api/weather', authenticateToken, async (req, res) => {
+    try {
+        const { lat, lon } = req.query;
+        
+        if (!lat || !lon) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Location coordinates required' 
+            });
+        }
+
+        console.log(`🌤️ Fetching weather from Google Weather API for lat:${lat}, lon:${lon}`);
+
+        const GOOGLE_WEATHER_API_KEY = process.env.GOOGLE_WEATHER_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+        
+        if (!GOOGLE_WEATHER_API_KEY) {
+            console.error('❌ No Google Weather API key found');
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Weather API key not configured' 
+            });
+        }
+
+        // Google Weather API endpoint for current conditions
+        const axios = require('axios');
+        const weatherUrl = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${GOOGLE_WEATHER_API_KEY}&location.latitude=${lat}&location.longitude=${lon}&unitsSystem=METRIC`;
+        
+        const response = await axios.get(weatherUrl);
+        const data = response.data;
+        
+        // Parse Google Weather API response
+        const weatherData = {
+            temperature: Math.round(data.temperature.degrees),
+            condition: data.weatherCondition.description.text,
+            description: data.weatherCondition.description.text.toLowerCase(),
+            humidity: data.relativeHumidity,
+            windSpeed: Math.round(data.wind.speed.value), // Already in km/h
+            icon: data.weatherCondition.type.toLowerCase(), // CLOUDY, RAINY, SUNNY, etc.
+            feelsLike: Math.round(data.feelsLikeTemperature.degrees),
+            uvIndex: data.uvIndex || 0,
+            visibility: data.visibility?.distance || 10,
+            cloudCover: data.cloudCover || 0
+        };
+        
+        console.log('✅ Real weather data from Google:', weatherData);
+        
+        return res.json({ 
+            success: true, 
+            weather: weatherData,
+            mock: false 
+        });
+        
+    } catch (error) {
+        console.error('❌ Google Weather API error:', error.response?.data || error.message);
+        
+        // Return fallback mock data on error
+        res.json({ 
+            success: true, 
+            weather: {
+                temperature: 22,
+                condition: 'Partly Cloudy',
+                description: 'partly cloudy',
+                humidity: 65,
+                windSpeed: 12,
+                icon: 'cloudy',
+                feelsLike: 21,
+                uvIndex: 3,
+                visibility: 10,
+                cloudCover: 50
+            },
+            mock: true,
+            error: error.message
+        });
+    }
+});
+
 
 // Weather preview API
 app.post('/api/weather-preview', async (req, res) => {
@@ -5354,8 +5421,49 @@ app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
     }
 });
 
+// ============================================
+// AI ONBOARDING ROUTES (Frontend Pages)
+// ============================================
 
-// Helper functions
+// Race Coach Onboarding (for Premium/Race plan users)
+app.get('/ai-onboarding-race', authenticateToken, (req, res) => {
+    // Check if user has race/premium plan
+    const userPlan = req.user.currentPlan || req.user.subscriptionStatus;
+    
+    if (userPlan !== 'race' && userPlan !== 'premium') {
+        return res.redirect('/dashboard?error=access_denied');
+    }
+    
+    res.sendFile(path.join(__dirname, 'public', 'ai-onboarding.html'));
+});
+
+// Basic Coach Onboarding (for Basic plan users)
+app.get('/ai-onboarding-basic', authenticateToken, (req, res) => {
+    // Check if user has basic plan
+    const userPlan = req.user.currentPlan || req.user.subscriptionStatus;
+    
+    if (userPlan !== 'basic') {
+        return res.redirect('/dashboard?error=access_denied');
+    }
+    
+    res.sendFile(path.join(__dirname, 'public', 'ai-onboarding-basic.html'));
+});
+
+// Legacy redirect (for backward compatibility)
+app.get('/ai-onboarding-active', authenticateToken, (req, res) => {
+    const userPlan = req.user.currentPlan || req.user.subscriptionStatus;
+    
+    if (userPlan === 'race' || userPlan === 'premium') {
+        res.redirect('/ai-onboarding-race');
+    } else if (userPlan === 'basic') {
+        res.redirect('/ai-onboarding-basic');
+    } else {
+        res.redirect('/plans.html'); // Free users go to plans page
+    }
+});
+
+
+
 // Helper functions for AI onboarding
 function calculateBMI(height, weight) {
     // Height in cm, weight in kg
@@ -5498,10 +5606,6 @@ function generateFallbackPlan(profile) {
 
 console.log('🤖 AI Onboarding System Routes Added');
 
-// AI SERVICE INTEGRATION
-
-// ============================================
-// AI ENDPOINTS WITH COST OPTIMIZATION
 // ============================================
 
 // Get daily workout plan
@@ -5617,7 +5721,7 @@ app.post('/api/ai/adjust-plan', authenticateToken, async (req, res) => {
 });
 
 // AI cost monitoring endpoint
-app.get('/api/ai/cost-status', authenticateToken, requireFeatureAccess('admin'), (req, res) => {
+app.get('/api/ai/cost-status', authenticateToken, requireAdmin, (req, res) => {
     const costStatus = {
         today: {
             requests: aiService.costTracker.requestsToday,
@@ -5754,33 +5858,78 @@ app.get('/api/ai/test', (req, res) => {
     });
 });
 
-// ============================================
-// PREMIUM DASHBOARD ROUTING
-// ============================================
 
-// Premium Dashboard Route
-app.get('/premium-dashboard', async (req, res) => {
+app.get('/dashboard', authenticateToken, async (req, res) => {
     try {
-        // Check if user is premium (implement your auth logic)
-        const userToken = req.headers.authorization || req.query.token;
+        const userId = req.user.userId;
         
-        // Replace with your actual user verification
-        const userStatus = await verifyUserStatus(userToken);
+        console.log(`📊 Dashboard request from user: ${userId}`);
         
-        if (userStatus === 'premium') {
-            res.sendFile(path.join(__dirname, 'public', 'premium-dashboard.html'));
-        } else {
-            res.redirect('/dashboard'); // Redirect to free dashboard
+        // Get user from Firestore
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            console.log('❌ User not found, redirecting to login');
+            return res.redirect('/login');
         }
+        
+        const user = userDoc.data();
+        
+        // ✅ FIX: Check multiple fields for plan type
+        // Priority: currentPlan > plan > subscriptionStatus
+        let planType = user.currentPlan || user.plan || user.subscriptionStatus || 'free';
+        
+        console.log(`🔍 Raw plan data:`, {
+            currentPlan: user.currentPlan,
+            plan: user.plan,
+            subscriptionStatus: user.subscriptionStatus
+        });
+        
+        // Map plan types to dashboard files
+        // Handle different naming conventions
+        const planMapping = {
+            // Free tier
+            'free': 'free',
+            
+            // Basic tier (Fitness Coach)
+            'basic': 'basic',
+            'fitness': 'basic',
+            'active': 'basic',     // Status "active" defaults to basic
+            
+            // Race tier (Race Coach)
+            'race': 'race',
+            'premium': 'race',
+            'performance': 'race'
+        };
+        
+        // Normalize and map the plan
+        const normalizedPlan = planType.toLowerCase();
+        const mappedPlan = planMapping[normalizedPlan] || 'free';
+        
+        console.log(`✅ Plan resolution: "${planType}" → "${mappedPlan}"`);
+        
+        // Map to dashboard files
+        const dashboardFiles = {
+            'free': 'dashboard-free.html',
+            'basic': 'dashboard-basic.html',
+            'race': 'dashboard-race.html'
+        };
+        
+        const dashboardFile = dashboardFiles[mappedPlan];
+        
+        console.log(`📄 Serving: ${dashboardFile}`);
+        
+        res.sendFile(path.join(__dirname, 'public', dashboardFile));
     } catch (error) {
-        console.error('Premium dashboard error:', error);
-        res.redirect('/dashboard');
+        console.error('❌ Dashboard error:', error);
+        res.status(500).send('Error loading dashboard');
     }
 });
 
-// Free Dashboard Route (existing)
-app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+
+// Backward compatibility - redirect .html URLs
+app.get('/dashboard.html', authenticateToken, (req, res) => {
+    res.redirect('/dashboard');
 });
 
 // User status verification function
@@ -5799,6 +5948,8 @@ async function verifyUserStatus(token) {
         return 'free';
     }
 }
+
+
 
 // RESET TEST USERS - Add this route temporarily
 app.get('/debug/reset-test-users', async (req, res) => {
@@ -5866,6 +6017,1144 @@ app.get('/debug/reset-test-users', async (req, res) => {
     }
 });
 
+// Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+    console.log('🚪 User logging out');
+    
+    // Clear the cookie
+    res.clearCookie('userToken', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/'
+    });
+    
+    res.json({ 
+        success: true, 
+        message: 'Logged out successfully',
+        redirect: '/login'
+    });
+});
+
+app.get('/api/payment/config', authenticateToken, (req, res) => {
+    res.json({
+        success: true,
+        key: process.env.RAZORPAY_KEY_ID,
+        testMode: process.env.RAZORPAY_KEY_ID.startsWith('rzp_test')
+    });
+});
+
+// Create payment order
+app.post('/api/payment/create-order', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { planType, amount } = req.body;
+        
+        console.log(`💳 Creating order for user ${userId}, plan: ${planType}`);
+        
+        // Get user details
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        
+        const user = userDoc.data();
+        
+        // Create Razorpay order
+        const order = await razorpayService.createOrder({
+            amount: amount,
+            userId: userId,
+            userEmail: user.email,
+            planType: planType
+        });
+        
+        // Store order in Firestore
+        await db.collection('orders').add({
+            orderId: order.id,
+            userId: userId,
+            userEmail: user.email,
+            planType: planType,
+            amount: amount,
+            currency: 'INR',
+            status: 'created',
+            createdAt: new Date().toISOString()
+        });
+        
+        res.json({
+            success: true,
+            order: {
+                id: order.id,
+                amount: order.amount,
+                currency: order.currency
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Order creation error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Verify payment
+app.post('/api/payment/verify', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planType } = req.body;
+        
+        console.log(`🔍 Verifying payment for user ${userId}`);
+        
+        // Verify signature
+        const isValid = razorpayService.verifyPaymentSignature({
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature
+        });
+        
+        if (!isValid) {
+            console.log('❌ Invalid payment signature');
+            return res.status(400).json({
+                success: false,
+                message: 'Payment verification failed'
+            });
+        }
+        
+        console.log('✅ Payment signature verified');
+        
+        // Get payment details
+        const payment = await razorpayService.getPayment(razorpay_payment_id);
+        
+        // Update order status in Firestore
+        const orderQuery = await db.collection('orders')
+            .where('orderId', '==', razorpay_order_id)
+            .limit(1)
+            .get();
+        
+        if (!orderQuery.empty) {
+            await orderQuery.docs[0].ref.update({
+                paymentId: razorpay_payment_id,
+                status: 'paid',
+                paidAt: new Date().toISOString(),
+                paymentMethod: payment.method
+            });
+        }
+        
+        // Upgrade user subscription
+        await db.collection('users').doc(userId).update({
+            subscriptionStatus: 'active',
+            currentPlan: planType,
+            paymentId: razorpay_payment_id,
+            subscriptionStartDate: new Date().toISOString(),
+            subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days
+        });
+        
+        console.log(`✅ User ${userId} upgraded to ${planType} plan`);
+        
+        res.json({
+            success: true,
+            message: 'Payment successful! Your account has been upgraded.',
+            planType: planType
+        });
+        
+    } catch (error) {
+        console.error('❌ Payment verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+
+// Razorpay Webhook Handler
+// Razorpay Webhook Handler
+app.post('/api/payment/webhook', express.json(), async (req, res) => {
+    try {
+        const webhookSignature = req.headers['x-razorpay-signature'];
+        const webhookBody = req.body;
+        
+        console.log('🔔 Webhook received:', webhookBody.event);
+        
+        // Skip signature verification in dev mode if no secret
+        if (process.env.RAZORPAY_WEBHOOK_SECRET) {
+            const isValid = razorpayService.verifyWebhookSignature(webhookBody, webhookSignature);
+            
+            if (!isValid) {
+                console.log('❌ Invalid webhook signature');
+                return res.status(400).json({ success: false, message: 'Invalid signature' });
+            }
+        } else {
+            console.log('⚠️ Webhook signature verification skipped (no secret)');
+        }
+        
+        const event = webhookBody.event;
+        const payload = webhookBody.payload;
+        
+        // Handle different webhook events
+        switch (event) {
+            case 'payment.captured':
+                console.log('✅ Payment captured:', payload.payment.entity.id);
+                await handlePaymentCaptured(payload.payment.entity);
+                break;
+                
+            case 'payment.authorized':
+                console.log('⏳ Payment authorized:', payload.payment.entity.id);
+                // Payment authorized but not captured yet
+                break;
+                
+            case 'payment.failed':
+                console.log('❌ Payment failed:', payload.payment.entity.id);
+                await handlePaymentFailure(payload.payment.entity);
+                break;
+                
+            case 'order.paid':
+                console.log('💰 Order paid:', payload.order.entity.id);
+                await handleOrderPaid(payload.order.entity);
+                break;
+                
+            case 'refund.created':
+                console.log('💸 Refund created:', payload.refund.entity.id);
+                await handleRefundCreated(payload.refund.entity);
+                break;
+                
+            default:
+                console.log('ℹ️ Unhandled webhook event:', event);
+        }
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Webhook error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Helper functions for webhook handlers
+async function handlePaymentCaptured(payment) {
+    console.log('Processing captured payment:', payment.id);
+    
+    // Update order status
+    const orderQuery = await db.collection('orders')
+        .where('orderId', '==', payment.order_id)
+        .limit(1)
+        .get();
+    
+    if (!orderQuery.empty) {
+        const orderDoc = orderQuery.docs[0];
+        const orderData = orderDoc.data();
+        
+        await orderDoc.ref.update({
+            paymentId: payment.id,
+            status: 'paid',
+            paidAt: new Date().toISOString(),
+            paymentMethod: payment.method,
+            amount: payment.amount / 100
+        });
+        
+        // Upgrade user if not already done
+        if (orderData.userId) {
+            const userDoc = await db.collection('users').doc(orderData.userId).get();
+            if (userDoc.exists && userDoc.data().subscriptionStatus !== 'active') {
+                await db.collection('users').doc(orderData.userId).update({
+                    subscriptionStatus: 'active',
+                    currentPlan: orderData.planType,
+                    paymentId: payment.id,
+                    subscriptionStartDate: new Date().toISOString(),
+                    subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                });
+                console.log('✅ User upgraded via webhook');
+            }
+        }
+    }
+}
+
+async function handlePaymentFailure(payment) {
+    console.log('Processing failed payment:', payment.id);
+    
+    // Update order status
+    const orderQuery = await db.collection('orders')
+        .where('orderId', '==', payment.order_id)
+        .limit(1)
+        .get();
+    
+    if (!orderQuery.empty) {
+        await orderQuery.docs[0].ref.update({
+            status: 'failed',
+            failedAt: new Date().toISOString(),
+            errorCode: payment.error_code,
+            errorDescription: payment.error_description
+        });
+    }
+}
+
+async function handleOrderPaid(order) {
+    console.log('Processing paid order:', order.id);
+    
+    // This is a backup - usually payment.captured handles everything
+    const orderQuery = await db.collection('orders')
+        .where('orderId', '==', order.id)
+        .limit(1)
+        .get();
+    
+    if (!orderQuery.empty) {
+        await orderQuery.docs[0].ref.update({
+            status: 'paid',
+            paidAt: new Date().toISOString()
+        });
+    }
+}
+
+async function handleRefundCreated(refund) {
+    console.log('Processing refund:', refund.id);
+    
+    // Log refund
+    await db.collection('refunds').add({
+        refundId: refund.id,
+        paymentId: refund.payment_id,
+        amount: refund.amount / 100,
+        status: refund.status,
+        createdAt: new Date().toISOString()
+    });
+    
+    // Optionally downgrade user
+    const orderQuery = await db.collection('orders')
+        .where('paymentId', '==', refund.payment_id)
+        .limit(1)
+        .get();
+    
+    if (!orderQuery.empty) {
+        const userId = orderQuery.docs[0].data().userId;
+        if (userId) {
+            await db.collection('users').doc(userId).update({
+                subscriptionStatus: 'refunded',
+                currentPlan: 'free',
+                refundedAt: new Date().toISOString()
+            });
+            console.log('✅ User downgraded due to refund');
+        }
+    }
+}
+
+const DailyWorkoutScheduler = require('./services/dailyWorkoutScheduler');
+
+// Initialize scheduler
+const workoutScheduler = new DailyWorkoutScheduler(db, aiService);
+workoutScheduler.start();
+
+console.log('✅ WhatsApp daily workout scheduler initialized');
+
+
+
+// Phone authentication endpoint
+app.post('/api/auth/phone-login', async (req, res) => {
+    try {
+        const { phoneNumber, firebaseUid, idToken } = req.body;
+
+        // Verify Firebase ID token
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        
+        if (decodedToken.phone_number !== phoneNumber) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Phone number mismatch' 
+            });
+        }
+
+        // Check if user exists with this phone
+        let user = await userManager.getUserByPhone(phoneNumber);
+
+        if (!user) {
+            // Create new user
+            user = await userManager.createUser({
+                phoneNumber: phoneNumber,
+                firebaseUid: firebaseUid,
+                email: `${phoneNumber.replace('+', '')}@phone.zonetrain.com`, // Temporary email
+                firstName: 'User',
+                provider: 'phone'
+            });
+
+            console.log('✅ New user created via phone:', user.id);
+        } else {
+            // Update last login
+            await userManager.updateUser(user.id, {
+                lastLogin: new Date()
+            });
+        }
+
+        // Generate JWT
+        const token = jwt.sign(
+            {
+                userId: user.id,
+                phoneNumber: phoneNumber,
+                plan: user.currentPlan,
+                status: user.subscriptionStatus
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            success: true,
+            token: token,
+            user: userManager.sanitizeUser(user)
+        });
+
+    } catch (error) {
+        console.error('❌ Phone login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Phone authentication failed'
+        });
+    }
+});
+
+const WhatsAppService = require('./services/whatsappService');
+const whatsappService = new WhatsAppService();
+
+// WhatsApp webhook verification (required by Meta)
+app.get('/webhook/whatsapp', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    // Verify token (set this in your .env as WHATSAPP_VERIFY_TOKEN)
+    const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'zonetrain_verify_123';
+
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+        console.log('✅ WhatsApp webhook verified');
+        res.status(200).send(challenge);
+    } else {
+        res.status(403).send('Forbidden');
+    }
+});
+
+// WhatsApp webhook to receive messages
+app.post('/webhook/whatsapp', async (req, res) => {
+    try {
+        const body = req.body;
+
+        // Check if this is a message event
+        if (body.object === 'whatsapp_business_account') {
+            const entries = body.entry;
+
+            for (const entry of entries) {
+                const changes = entry.changes;
+
+                for (const change of changes) {
+                    if (change.field === 'messages') {
+                        const messages = change.value.messages;
+
+                        if (messages) {
+                            for (const message of messages) {
+                                const from = message.from; // Phone number
+                                const messageBody = message.text?.body || 
+                                                   message.interactive?.button_reply?.title ||
+                                                   message.interactive?.list_reply?.title;
+
+                                console.log(`📩 WhatsApp message from ${from}: ${messageBody}`);
+
+                                // Find user by phone
+                                const usersSnapshot = await db.collection('users')
+                                    .where('phoneNumber', '==', `+${from}`)
+                                    .limit(1)
+                                    .get();
+
+                                if (!usersSnapshot.empty) {
+                                    const userId = usersSnapshot.docs[0].id;
+
+                                    // Process HRV response
+                                    await workoutScheduler.processHRVResponse(userId, messageBody);
+                                } else {
+                                    console.log(`⚠️ User not found for phone: +${from}`);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('❌ Webhook error:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+// Test WhatsApp with Meta's hello_world template
+app.get('/test/whatsapp', async (req, res) => {
+    try {
+        const whatsapp = new WhatsAppService();
+        
+        // Test connection first
+        const connectionTest = await whatsapp.testConnection();
+        console.log('Connection test:', connectionTest);
+        
+        // Send hello_world template to your number
+        const result = await whatsapp.sendTemplateMessage(
+            '+919711317547',  // Your number
+            'hello_world',    // Meta's pre-approved template
+            'en_US'
+        );
+        
+        res.json({
+            connectionTest,
+            messageResult: result
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Test with custom message (after 24-hour window opens)
+app.get('/test/whatsapp-custom', async (req, res) => {
+    try {
+        const whatsapp = new WhatsAppService();
+        const message = req.query.message || '🏃‍♂️ Test from ZoneTrain!';
+        
+        const result = await whatsapp.sendMessage('+919711317547', message);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+const SubscriptionService = require('./services/subscriptionService');
+const subscriptionService = new SubscriptionService(db, razorpayService);
+
+// Calculate upgrade cost (pro-rata)
+app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan, billingCycle, promoCode } = req.body;  // ✅ Add promoCode here
+
+        console.log('📊 Calculate upgrade request:');
+        console.log('   User:', userId);
+        console.log('   New plan:', newPlan);
+        console.log('   Billing cycle:', billingCycle);
+        console.log('   Promo code:', promoCode);  // ✅ Log it
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // ✅ Pass promoCode as 4th parameter
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user, 
+            newPlan, 
+            billingCycle,
+            promoCode  // ✅ Add this
+        );
+
+        console.log('✅ Calculation result:', JSON.stringify(calculation, null, 2));
+
+        res.json({
+            success: true,
+            calculation
+        });
+    } catch (error) {
+        console.error('❌ Calculate upgrade error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
+    }
+});
+
+
+// Process upgrade
+app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan, billingCycle, promoCode } = req.body;  // ✅ ADD promoCode
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // ✅ PASS promoCode to calculation
+        const calculation = subscriptionService.calculateProRataUpgrade(user, newPlan, billingCycle, promoCode);
+
+        console.log('💰 Upgrade calculation:', {
+            amountToPay: calculation.amountToPay,
+            originalAmount: calculation.originalAmount,
+            promoApplied: calculation.promoApplied
+        });
+
+        // Create Razorpay order with discounted amount
+        const order = await razorpayService.createOrder({
+            amount: calculation.amountToPay,  // ✅ This is now the discounted amount
+            currency: 'INR',
+            receipt: `upgrade_${userId}_${Date.now()}`,
+            notes: {
+                userId,
+                type: 'upgrade',
+                fromPlan: user.currentPlan,
+                toPlan: newPlan,
+                billingCycle,
+                // ✅ ADD promo code info to notes
+                promoCode: promoCode || 'none',
+                originalAmount: calculation.originalAmount || calculation.proRataCharge,
+                discountAmount: calculation.promoApplied?.discountAmount || 0,
+                discountPercent: calculation.promoApplied?.discount || 0
+            }
+        });
+
+        res.json({
+            success: true,
+            paymentOrder: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+                plan: newPlan,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        console.error('Upgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
+// Verify upgrade payment
+app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { paymentId, orderId, signature } = req.body;
+
+        // Verify signature
+        const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
+
+        if (!isValid) {
+            return res.status(400).json({ success: false, message: 'Invalid signature' });
+        }
+
+        // Get order details
+        const order = await razorpayService.getOrder(orderId);
+        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;  // ✅ Extract promo info
+
+        // Update user subscription
+        const subscriptionEndDate = new Date();
+        const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
+        subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + months);
+
+        await db.collection('users').doc(userId).update({
+            currentPlan: toPlan,
+            billingCycle: billingCycle,
+            subscriptionStatus: 'active',
+            subscriptionEndDate: subscriptionEndDate,
+            lastPaymentDate: new Date(),
+            lastPaymentAmount: order.amount / 100,
+            renewalReminderSent: false,
+            // ✅ ADD promo code tracking
+            lastPromoCodeUsed: promoCode !== 'none' ? promoCode : null,
+            lastPromoDiscount: parseInt(discountAmount) || 0,
+            totalSavingsFromPromos: admin.firestore.FieldValue.increment(parseInt(discountAmount) || 0)
+        });
+
+        // Log transaction with promo details
+        await db.collection('transactions').add({
+            userId,
+            type: 'upgrade',
+            fromPlan: order.notes.fromPlan,
+            toPlan: toPlan,
+            amount: order.amount / 100,  // Final amount paid
+            originalAmount: parseInt(originalAmount) || (order.amount / 100),  // ✅ Original price
+            discountAmount: parseInt(discountAmount) || 0,  // ✅ Discount applied
+            promoCode: promoCode !== 'none' ? promoCode : null,  // ✅ Promo code used
+            currency: 'INR',
+            paymentId,
+            orderId,
+            status: 'success',
+            billingCycle,
+            createdAt: new Date()
+        });
+
+        res.json({ success: true, message: 'Upgrade successful' });
+    } catch (error) {
+        console.error('Verify upgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
+// Downgrade (effective next billing cycle)
+app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan } = req.body;
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        const calculation = subscriptionService.calculateDowngradeWithCredit(user, newPlan)
+
+        // Schedule downgrade
+        await db.collection('users').doc(userId).update({
+            currentPlan: newPlan,
+            subscriptionEndDate: calculation.extendedEndDate,
+            previousPlan: user.currentPlan,
+            downgradeDate: new Date(),
+            creditedDays: calculation.extraDaysGranted,
+            lastModified: new Date()
+        });
+
+        await db.collection('transactions').add({
+            userId,
+            type: 'downgrade',
+            fromPlan: calculation.currentPlan,
+            toPlan: newPlan,
+            creditAmount: calculation.creditAmount,
+            extraDaysGranted: calculation.extraDaysGranted,
+            originalEndDate: calculation.originalEndDate,
+            extendedEndDate: calculation.extendedEndDate,
+            status: 'completed',
+            createdAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            message: calculation.message,
+            details: {
+                newPlan: newPlan,
+                extendedEndDate: calculation.extendedEndDate,
+                extraDays: calculation.extraDaysGranted,
+                savings: calculation.creditAmount
+            }
+        });
+    } catch (error) {
+        console.error('Downgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+const PaymentReminderService = require('./services/paymentReminderService');
+const reminderService = new PaymentReminderService(db, subscriptionService);
+
+// Start payment reminder scheduler
+reminderService.start();
+
+// Get renewal information
+app.get('/api/subscription/renewal-info', async (req, res) => {
+    try {
+        const { token } = req.query;
+
+        // Validate token
+        const validation = await reminderService.validateRenewalToken(token);
+        if (!validation.valid) {
+            return res.status(400).json({ success: false, message: validation.error });
+        }
+
+        const userDoc = await db.collection('users').doc(validation.userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // Calculate days remaining
+        const endDate = new Date(user.subscriptionEndDate);
+        const today = new Date();
+        const daysRemaining = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+
+        // Get renewal options
+        const renewalOptions = subscriptionService.getRenewalOptions(user);
+
+        res.json({
+            success: true,
+            user: {
+                firstName: user.firstName,
+                email: user.email,
+                currentPlan: user.currentPlan,
+                billingCycle: user.billingCycle,
+                subscriptionEndDate: user.subscriptionEndDate
+            },
+            renewalOptions,
+            daysRemaining
+        });
+    } catch (error) {
+        console.error('Renewal info error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Create renewal order
+app.post('/api/subscription/create-renewal-order', async (req, res) => {
+    try {
+        const { token, plan, billingCycle } = req.body;
+
+        const validation = await reminderService.validateRenewalToken(token);
+        if (!validation.valid) {
+            return res.status(400).json({ success: false, message: validation.error });
+        }
+
+        const userId = validation.userId;
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // Get pricing
+        const amount = subscriptionService.pricing[plan][billingCycle];
+
+        // Create Razorpay order
+        const order = await razorpayService.createOrder({
+            amount: amount,
+            currency: 'INR',
+            receipt: `renewal_${userId}_${Date.now()}`,
+            notes: {
+                userId,
+                type: 'renewal',
+                plan,
+                billingCycle,
+                renewalToken: token
+            }
+        });
+
+        res.json({
+            success: true,
+            order: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+                plan
+            }
+        });
+    } catch (error) {
+        console.error('Create renewal order error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Verify renewal payment
+app.post('/api/subscription/verify-renewal', async (req, res) => {
+    try {
+        const { token, paymentId, orderId, signature } = req.body;
+
+        // Verify signature
+        const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
+        if (!isValid) {
+            return res.status(400).json({ success: false, message: 'Invalid signature' });
+        }
+
+        const validation = await reminderService.validateRenewalToken(token);
+        if (!validation.valid) {
+            return res.status(400).json({ success: false, message: validation.error });
+        }
+
+        const userId = validation.userId;
+        const order = await razorpayService.getOrder(orderId);
+        const { plan, billingCycle } = order.notes;
+
+        // Calculate new end date
+        const newEndDate = new Date();
+        const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
+        newEndDate.setMonth(newEndDate.getMonth() + months);
+
+        // Update user subscription
+        await db.collection('users').doc(userId).update({
+            currentPlan: plan,
+            billingCycle: billingCycle,
+            subscriptionStatus: 'active',
+            subscriptionStartDate: new Date(),
+            subscriptionEndDate: newEndDate,
+            lastPaymentDate: new Date(),
+            lastPaymentAmount: order.amount / 100,
+            renewalReminderSent: false
+        });
+
+        // Mark token as used
+        await db.collection('renewal_tokens').doc(token).update({ used: true });
+
+        // Log transaction
+        await db.collection('transactions').add({
+            userId,
+            type: 'renewal',
+            plan,
+            amount: order.amount / 100,
+            currency: 'INR',
+            paymentId,
+            orderId,
+            status: 'success',
+            billingCycle,
+            createdAt: new Date()
+        });
+
+        res.json({ success: true, message: 'Subscription renewed successfully' });
+    } catch (error) {
+        console.error('Verify renewal error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Calculate upgrade cost with promo code support
+app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan, billingCycle, promoCode } = req.body;
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user, 
+            newPlan, 
+            billingCycle,
+            promoCode || null
+        );
+
+        res.json({
+            success: true,
+            calculation
+        });
+    } catch (error) {
+        console.error('Calculate upgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Process upgrade with promo code
+app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan, billingCycle, promoCode } = req.body;
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user, 
+            newPlan, 
+            billingCycle,
+            promoCode || null
+        );
+
+        // Create Razorpay order with final discounted amount
+        const order = await razorpayService.createOrder({
+            amount: calculation.amountToPay,
+            currency: 'INR',
+            receipt: `upgrade_${userId}_${Date.now()}`,
+            notes: {
+                userId,
+                type: 'upgrade',
+                fromPlan: user.currentPlan,
+                toPlan: newPlan,
+                billingCycle,
+                promoCode: promoCode || null,
+                promoApplied: calculation.promoApplied ? true : false
+            }
+        });
+
+        res.json({
+            success: true,
+            paymentOrder: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+                plan: newPlan,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        console.error('Upgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Validate promo code
+app.post('/api/subscription/validate-promo', async (req, res) => {
+    try {
+        const { promoCode, transactionType, plan, billingCycle } = req.body;
+
+        const validation = subscriptionService.validatePromoCode(promoCode, transactionType);
+        
+        if (!validation.valid) {
+            return res.json({ 
+                success: false, 
+                message: validation.error 
+            });
+        }
+
+        // Calculate discount
+        const originalAmount = subscriptionService.pricing[plan][billingCycle];
+        const discountResult = subscriptionService.applyPromoCode(originalAmount, promoCode);
+
+        res.json({
+            success: true,
+            description: validation.description,
+            originalAmount: originalAmount,
+            discountAmount: discountResult.discountAmount,
+            discountedAmount: discountResult.discountedAmount,
+            discountPercent: discountResult.discountPercent
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Notification endpoints
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        const notificationsSnapshot = await db.collection('notifications')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .get();
+        
+        const notifications = notificationsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                timeAgo: getTimeAgo(data.createdAt.toDate())
+            };
+        });
+        
+        const unreadCount = notifications.filter(n => !n.read).length;
+        
+        res.json({
+            success: true,
+            notifications,
+            unreadCount
+        });
+    } catch (error) {
+        console.error('Get notifications error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        const notificationId = req.params.id;
+        
+        await db.collection('notifications').doc(notificationId).update({
+            read: true,
+            readAt: new Date()
+        });
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/notifications/mark-all-read', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        const snapshot = await db.collection('notifications')
+            .where('userId', '==', userId)
+            .where('read', '==', false)
+            .get();
+        
+        const batch = db.batch();
+        snapshot.docs.forEach(doc => {
+            batch.update(doc.ref, { read: true, readAt: new Date() });
+        });
+        
+        await batch.commit();
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Race status endpoints
+app.get('/api/race/status', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+        
+        let raceCompleted = false;
+        let completedRaceName = '';
+        
+        if (user.activeRace) {
+            const raceDate = new Date(user.activeRace.date);
+            const today = new Date();
+            
+            if (today > raceDate) {
+                raceCompleted = true;
+                completedRaceName = user.activeRace.name;
+            }
+        }
+        
+        res.json({
+            success: true,
+            raceCompleted,
+            completedRaceName,
+            postRaceDismissed: user.postRaceDismissed || false
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/race/dismiss-banner', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        await db.collection('users').doc(userId).update({
+            postRaceDismissed: true
+        });
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/api/race/create', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { name, date, distance, goalTime } = req.body;
+        
+        // Create new race
+        const raceData = {
+            name,
+            date,
+            distance: parseFloat(distance),
+            goalTime,
+            createdAt: new Date(),
+            status: 'active'
+        };
+        
+        // Update user's active race
+        await db.collection('users').doc(userId).update({
+            activeRace: raceData,
+            postRaceDismissed: false
+        });
+        
+        // Create notification
+        await db.collection('notifications').add({
+            userId,
+            type: 'race',
+            title: '🏁 New Race Goal Set',
+            message: `Training plan for ${name} is being generated. Check back in a few minutes!`,
+            read: false,
+            createdAt: new Date()
+        });
+        
+        // TODO: Trigger training plan generation
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Helper function
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+}
 
 
 
@@ -6126,7 +7415,7 @@ async function initializeTestUsers() {
     try {
         console.log('🔧 Creating test users...');
         
-        // Free test user
+        // 1. FREE TEST USER
         try {
             const freeUser = {
                 email: 'free@test.com',
@@ -6140,54 +7429,119 @@ async function initializeTestUsers() {
         } catch (error) {
             if (error.message === 'User already exists') {
                 console.log('✅ Free test user already exists');
+            } else {
+                console.error('❌ Error creating free user:', error.message);
             }
         }
         
-        // Premium test user
+        // 2. BASIC COACH TEST USER
         try {
-            const premiumUser = await userManager.createUser({
-                email: 'premium@test.com',
+            const basicUser = await userManager.createUser({
+                email: 'basic@test.com',
                 password: 'password123',
-                firstName: 'Premium',
-                lastName: 'User',
+                firstName: 'Basic',
+                lastName: 'Coach',
                 phoneNumber: null
             });
             
-            // Upgrade to premium
-            await userManager.updateUser(premiumUser.id, {
+            // Upgrade to basic plan
+            await userManager.updateUser(basicUser.id, {
                 subscriptionStatus: 'active',
-                currentPlan: 'fitness',
-                currentPrice: 199,
-                originalPrice: 199,
+                currentPlan: 'basic',
+                currentPrice: 299,
+                originalPrice: 299,
                 planStartDate: new Date()
             });
-            console.log('✅ Premium test user created and upgraded');
+            console.log('✅ Basic Coach test user created and upgraded');
         } catch (error) {
             if (error.message === 'User already exists') {
                 // Find existing user and upgrade
-                const existingUser = await userManager.getUserByEmail('premium@test.com');
+                const existingUser = await userManager.getUserByEmail('basic@test.com');
                 if (existingUser) {
                     await userManager.updateUser(existingUser.id, {
                         subscriptionStatus: 'active',
-                        currentPlan: 'fitness',
-                        currentPrice: 199,
-                        originalPrice: 199,
+                        currentPlan: 'basic',
+                        currentPrice: 299,
+                        originalPrice: 299,
                         planStartDate: new Date()
                     });
-                    console.log('✅ Premium test user upgraded');
+                    console.log('✅ Basic Coach test user upgraded');
                 }
+            } else {
+                console.error('❌ Error creating basic user:', error.message);
             }
         }
         
+        // 3. RACE COACH TEST USER
+        try {
+            const raceUser = await userManager.createUser({
+                email: 'race@test.com',
+                password: 'password123',
+                firstName: 'Race',
+                lastName: 'Coach',
+                phoneNumber: null
+            });
+            
+            // Upgrade to race plan
+            await userManager.updateUser(raceUser.id, {
+                subscriptionStatus: 'active',
+                currentPlan: 'race',
+                currentPrice: 599,
+                originalPrice: 599,
+                planStartDate: new Date()
+            });
+            console.log('✅ Race Coach test user created and upgraded');
+        } catch (error) {
+            if (error.message === 'User already exists') {
+                // Find existing user and upgrade
+                const existingUser = await userManager.getUserByEmail('race@test.com');
+                if (existingUser) {
+                    await userManager.updateUser(existingUser.id, {
+                        subscriptionStatus: 'active',
+                        currentPlan: 'race',
+                        currentPrice: 599,
+                        originalPrice: 599,
+                        planStartDate: new Date()
+                    });
+                    console.log('✅ Race Coach test user upgraded');
+                }
+            } else {
+                console.error('❌ Error creating race user:', error.message);
+            }
+        }
+        
+        // Also update your existing premium user to basic
+        try {
+            const premiumUser = await userManager.getUserByEmail('premium@test.com');
+            if (premiumUser) {
+                await userManager.updateUser(premiumUser.id, {
+                    subscriptionStatus: 'active',
+                    currentPlan: 'basic',  // Changed from 'fitness' to 'basic'
+                    currentPrice: 299,
+                    originalPrice: 299,
+                    planStartDate: new Date()
+                });
+                console.log('✅ Premium test user updated to basic plan');
+            }
+        } catch (error) {
+            console.log('ℹ️ Premium user not found or already updated');
+        }
+        
+        console.log('\n🎉 All test users ready!');
+        console.log('📧 Login credentials (all use password: password123):');
+        console.log('   • free@test.com → Free Dashboard');
+        console.log('   • basic@test.com → Basic Coach Dashboard');
+        console.log('   • race@test.com → Race Coach Dashboard');
+        console.log('   • premium@test.com → Basic Coach Dashboard\n');
+        
     } catch (error) {
-        console.error('❌ Error creating test users:', error);
+        console.error('❌ Error initializing test users:', error);
     }
 }
 
-// Initialize test users
+// Initialize test users (this line should already exist)
 initializeTestUsers();
 
-initializeAccessControl(db, userManager);
 
 // ==================== AUTHENTICATION ROUTES ====================
 
@@ -6234,20 +7588,33 @@ app.post('/api/auth/login', async (req, res) => {
             console.log('✅ Login successful for:', email);
             console.log('User subscription status:', result.user.subscriptionStatus);
             
+            // ✨ NEW: Set token as HTTP-only cookie
+            res.cookie('userToken', result.token, {
+                httpOnly: true, // Prevents JavaScript access (XSS protection)
+                secure: false,
+                //secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+                maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+                sameSite: 'lax',
+                //sameSite: 'strict', // CSRF protection
+                path: '/' // Available across entire site
+            });
+            
+            console.log('🍪 Token set as cookie');
+            
             const response = {
-                success: true,
-                token: result.token,
-                user: {
-                    id: result.user.id,
-                    email: result.user.email,
-                    firstName: result.user.firstName,
-                    subscriptionStatus: result.user.subscriptionStatus || 'free',
-                    currentPlan: result.user.currentPlan
-                },
-                userType: result.user.subscriptionStatus === 'active' ? 'premium' : 'free',
-                message: 'Login successful',
-                redirect: '/dashboard'
-            };
+    success: true,
+    token: result.token,
+    user: {
+        id: result.user.id,
+        email: result.user.email,
+        firstName: result.user.firstName,
+        subscriptionStatus: result.user.subscriptionStatus || 'free',
+        currentPlan: result.user.currentPlan
+    },
+    userType: result.user.subscriptionStatus === 'active' ? 'premium' : 'free',
+    message: 'Login successful',
+    redirect: '/dashboard' // ✅ Already present
+};
             
             return res.json(response);
         } else {
@@ -6267,32 +7634,48 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 
+
 // HRV coaching endpoint (Premium feature)
 app.post('/api/coaching/hrv', 
     authenticateToken, 
-    requireFeatureAccess('hrv-coaching'), 
+    requirePlan(['basic', 'race']), // ✅ NEW - HRV coaching requires paid plan
     async (req, res) => {
         try {
             const { hrvData, additionalData } = req.body;
+            const userId = req.user.userId;
             
-            // Your HRV coaching logic here
+            console.log('🏃 HRV coaching request from:', userId);
+            console.log('📊 HRV data:', hrvData);
+            
+            // Generate HRV-based coaching
             const coaching = {
                 recommendation: "Sample coaching based on HRV",
                 intensity: "moderate",
-                duration: "45 minutes"
+                duration: "45 minutes",
+                hrvValue: hrvData?.value || 50
             };
             
-            await trackFeatureUsage(req.user.userId, 'hrv-coaching', {
-                hrvValue: hrvData.value,
-                coachingType: coaching.intensity
-            });
+            // Optional: Log usage to Firestore
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
 
             res.json({
                 success: true,
                 coaching: coaching
             });
         } catch (error) {
-            console.error('HRV coaching error:', error);
+            console.error('❌ HRV coaching error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Coaching generation failed'
@@ -6300,6 +7683,7 @@ app.post('/api/coaching/hrv',
         }
     }
 );
+
 
 // User access status endpoint - FIXED
 app.get('/api/user/access-status', authenticateToken, async (req, res) => {
@@ -6538,11 +7922,14 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         console.log('✅ User found:', user.email);
         
         // Get AI profile if exists
-        let aiProfile = {};
+        let aiProfile = null;
+        let aiOnboardingCompleted = false;
+        
         try {
             const aiProfileDoc = await db.collection('aiprofiles').doc(userId).get();
             if (aiProfileDoc.exists) {
                 aiProfile = aiProfileDoc.data();
+                aiOnboardingCompleted = true;
                 console.log('✅ AI profile found');
             } else {
                 console.log('ℹ️ No AI profile found');
@@ -6551,20 +7938,28 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             console.log('ℹ️ No AI profile:', e.message);
         }
 
+        // ✅ Build complete response with all required fields
         res.json({
             success: true,
             user: {
                 email: user.email,
-                name: user.name || user.displayName || '',
+                name: user.name || user.firstName || user.displayName || '',
                 subscriptionStatus: user.subscriptionStatus || 'free',
-                aiProfile: aiProfile
-            }
+                currentPlan: user.currentPlan || user.subscriptionStatus || 'free', // ✅ Add currentPlan
+                aiProfile: aiProfile // ✅ Return full AI profile object
+            },
+            aiProfile: aiProfile, // ✅ Also at top level for easier access
+            aiOnboardingCompleted: aiOnboardingCompleted // ✅ Boolean flag
         });
     } catch (error) {
         console.error('❌ Profile error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching profile: ' + error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error fetching profile: ' + error.message 
+        });
     }
 });
+
 
 // Update user profile
 app.put('/api/profile', authenticateToken, async (req, res) => {
@@ -6609,7 +8004,7 @@ app.get('/profile', (req, res) => {
 // ==================== PROTECTED ROUTES EXAMPLES ====================
 
 // Free feature - everyone can access
-app.post('/api/analyze-zones', authenticateToken, requireFeatureAccess('strava_analysis'), async (req, res) => {try {
+app.post('/api/analyze-zones', authenticateToken, requirePlan(['basic', 'race']), async (req, res) => {try {
             const accessToken = storedTokens.accessToken;
             if (!accessToken) {
                 return res.status(401).json({
@@ -6617,9 +8012,19 @@ app.post('/api/analyze-zones', authenticateToken, requireFeatureAccess('strava_a
                     message: 'Strava not connected'
                 });
             }
-            await trackFeatureUsage(req.user.userId, 'strava-analysis', {
-                activitiesAnalyzed: runningActivities.length
-            });
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
             res.json({
                 success: true,
                 analysis: analysis,
@@ -6638,16 +8043,18 @@ app.post('/api/analyze-zones', authenticateToken, requireFeatureAccess('strava_a
 });
 
 // Premium feature - only trial/paid users
-app.post('/api/hrv-coaching', authenticateToken, requireFeatureAccess('hrv_coaching'), async (req, res) => {
+app.post('/api/hrv-coaching', authenticateToken, requirePlan(['basic', 'race']), async (req, res) => {
   // HRV coaching functionality
 });
 
 // Paid-only feature
-app.get('/api/advanced-analytics', authenticateToken, requireFeatureAccess('advanced_analytics'), async (req, res) => {
+app.get('/api/advanced-analytics', authenticateToken, requirePlan(['basic', 'race']), async (req, res) => {
   // Advanced analytics for paid users only
 });
 
 // ==================== MIDDLEWARE ====================
+
+
 
 
 // Get monthly revenue
@@ -6718,7 +8125,8 @@ app.post('/api/signup', async (req, res) => {
     res.json({
       success: true,
       message: 'Account created successfully!',
-      user: user
+      user: user,
+      redirect: '/dashboard'
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -6799,7 +8207,7 @@ app.get('/forgot-password', (req, res) => {
       }
 
       .back-btn {
-        position: absolute;
+        position: fixed;
         top: 20px;
         left: 20px;
         color: var(--deep-purple);
@@ -7368,16 +8776,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// Add this route to your app.js (after your other routes)
-app.get('/dashboard', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
-});
-
-// Also add route without .html extension for cleaner URLs
-app.get('/dashboard.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
-});
-
 // Privacy Policy page
 app.get('/privacy', (req, res) => {
   const privacyHTML = `
@@ -7526,7 +8924,7 @@ passport.deserializeUser(async (id, done) => {
     }
 });
 
-// Passport serialization
+
 // Google OAuth Strategy - FIXED VERSION
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
@@ -7670,6 +9068,98 @@ app.get('/auth/success', (req, res) => {
   res.send(html);
 });
 
+const FacebookStrategy = require('passport-facebook').Strategy;
+
+// Facebook OAuth Strategy
+passport.use(new FacebookStrategy({
+    clientID: process.env.FACEBOOK_APP_ID,
+    clientSecret: process.env.FACEBOOK_APP_SECRET,
+    callbackURL: `${process.env.BASE_URL || 'http://localhost:3000'}/auth/facebook/callback`,
+    profileFields: ['id', 'emails', 'name', 'photos']
+}, async (accessToken, refreshToken, profile, done) => {
+    try {
+        console.log('✅ Facebook OAuth callback received:', profile.id);
+        
+        // Check if user email exists
+        if (!profile.emails || !profile.emails[0]) {
+            return done(new Error('No email provided by Facebook'), null);
+        }
+        
+        const email = profile.emails[0].value;
+        
+        // Check if user already exists
+        let user = await userManager.getUserByEmail(email);
+        
+        if (user) {
+            // User exists, update their Facebook info
+            await userManager.updateUser(user.id, {
+                facebookId: profile.id,
+                firstName: profile.name.givenName || user.firstName,
+                lastName: profile.name.familyName || user.lastName,
+                avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : user.avatar,
+                lastLogin: new Date()
+            });
+            
+            user = await userManager.getUserById(user.id);
+            console.log('✅ Existing user logged in via Facebook');
+            return done(null, user);
+        } else {
+            // Create new user with Facebook OAuth data
+            const newUser = await userManager.createOAuthUser({
+                facebookId: profile.id,
+                email: email,
+                firstName: profile.name.givenName || 'User',
+                lastName: profile.name.familyName || '',
+                avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
+                provider: 'facebook'
+            });
+            
+            console.log('✅ New user created via Facebook:', newUser.id);
+            await userManager.trackActivity(newUser.id, 'facebook_signup', { provider: 'facebook' });
+            
+            return done(null, newUser);
+        }
+    } catch (error) {
+        console.error('❌ Facebook OAuth error:', error);
+        return done(error, null);
+    }
+}));
+
+// Facebook OAuth routes
+app.get('/auth/facebook', passport.authenticate('facebook', { 
+    scope: ['email', 'public_profile'] 
+}));
+
+app.get('/auth/facebook/callback', 
+    passport.authenticate('facebook', { failureRedirect: '/login?error=oauth_failed' }),
+    async (req, res) => {
+        // Successful authentication
+        const user = req.user;
+        
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                userId: user.id, 
+                email: user.email,
+                plan: user.currentPlan,
+                status: user.subscriptionStatus 
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        // Set session data
+        req.session.authData = {
+            token: token,
+            user: userManager.sanitizeUser(user)
+        };
+        
+        res.redirect('/auth/success');
+    }
+);
+
+
+
 // ============================================
 // STRAVA OAUTH ROUTES - FIXED
 // ============================================
@@ -7701,6 +9191,10 @@ app.get('/connect-strava', (req, res) => {
         `&approval_prompt=auto`;
     
     res.redirect(stravaAuthUrl);
+});
+
+app.get('/auth/strava', (req, res) => {
+    res.redirect('/connect-strava');
 });
 
 // Step 2: Strava OAuth Callback
@@ -7828,16 +9322,26 @@ app.post('/api/claim-strava-connection', authenticateToken, async (req, res) => 
 // Strava analysis with rate limiting
 app.get('/api/strava/analyze', 
     authenticateToken, 
-    requireFeatureAccess('strava-analysis'), 
+    requirePlan(['basic', 'race']), 
     async (req, res) => {
         try {
             // Perform Strava analysis
             const analysisResult = await performStravaAnalysis(req.user.userId);
             
             // Track usage
-            await trackFeatureUsage(req.user.userId, 'strava-analysis', {
-                activitiesAnalyzed: analysisResult.activities.length
-            });
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
 
             res.json({
                 success: true,
@@ -7859,16 +9363,25 @@ app.get('/api/strava/analyze',
 // HRV coaching endpoint
 app.post('/api/coaching/hrv', 
     authenticateToken, 
-    requireFeatureAccess('hrv-coaching'), 
+    requirePlan(['basic', 'race']), 
     async (req, res) => {
         try {
             const { hrvData, additionalData } = req.body;
             const coaching = await generateHRVCoaching(req.user.userId, hrvData, additionalData);
             
-            await trackFeatureUsage(req.user.userId, 'hrv-coaching', {
-                hrvValue: hrvData.value,
-                coachingType: coaching.type
-            });
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
 
             res.json({
                 success: true,
@@ -7887,16 +9400,25 @@ app.post('/api/coaching/hrv',
 // WhatsApp coaching with usage tracking
 app.post('/api/coaching/whatsapp', 
     authenticateToken, 
-    requireFeatureAccess('whatsapp-coaching'), 
+    requirePlan(['basic', 'race']), 
     async (req, res) => {
         try {
             const { message, phoneNumber } = req.body;
             const response = await sendWhatsAppCoaching(phoneNumber, message);
             
-            await trackFeatureUsage(req.user.userId, 'whatsapp-coaching', {
-                messageType: req.body.type || 'general',
-                phoneNumber: phoneNumber.slice(-4) // Log last 4 digits only
-            });
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
 
             res.json({
                 success: true,
@@ -7916,17 +9438,25 @@ app.post('/api/coaching/whatsapp',
 // Race planning (paid feature)
 app.post('/api/planning/race', 
     authenticateToken, 
-    requireFeatureAccess('race-planning'), 
+    requirePlan(['basic', 'race']), 
     async (req, res) => {
         try {
             const { raceData, goals } = req.body;
             const racePlan = await generateRacePlan(req.user.userId, raceData, goals);
             
-            await trackFeatureUsage(req.user.userId, 'race-planning', {
-                raceDistance: raceData.distance,
-                raceDate: raceData.date,
-                goalTime: goals.targetTime
-            });
+            try {
+                await db.collection('feature_usage').add({
+                    userId: userId,
+                    feature: 'hrv-coaching',
+                    timestamp: new Date(),
+                    data: {
+                        hrvValue: hrvData?.value,
+                        coachingType: coaching.intensity
+                    }
+                });
+            } catch (logError) {
+                console.warn('Failed to log usage:', logError.message);
+            }
 
             res.json({
                 success: true,

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phone Login - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .phone-login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .logo-text {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            text-align: center;
+            color: #1F2937;
+            margin-bottom: 30px;
+            font-size: 22px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #8B5CF6;
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(107, 70, 193, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .message {
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .message.error {
+            background: #FEE2E2;
+            color: #DC2626;
+        }
+
+        .message.success {
+            background: #D1FAE5;
+            color: #059669;
+        }
+
+        .otp-section {
+            display: none;
+        }
+
+        .resend-otp {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+            color: #6B7280;
+        }
+
+        .resend-otp button {
+            background: none;
+            border: none;
+            color: #8B5CF6;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .back-link a {
+            color: #8B5CF6;
+            text-decoration: none;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="phone-login-container">
+        <div class="logo-text">ZoneTrain</div>
+        <h2>Sign in with Phone</h2>
+
+        <div id="message" class="message"></div>
+
+        <!-- Phone Number Section -->
+        <div id="phone-section">
+            <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <input 
+                    type="tel" 
+                    id="phone" 
+                    placeholder="+91 98765 43210" 
+                    maxlength="15"
+                >
+            </div>
+            <button id="send-otp-button" class="btn">Send OTP</button>
+        </div>
+
+        <!-- OTP Verification Section -->
+        <div id="otp-section" class="otp-section">
+            <div class="form-group">
+                <label for="otp">Enter OTP</label>
+                <input 
+                    type="text" 
+                    id="otp" 
+                    placeholder="6-digit code" 
+                    maxlength="6"
+                >
+            </div>
+            <button id="verify-otp-button" class="btn">Verify & Sign In</button>
+            
+            <div class="resend-otp">
+                Didn't receive code? 
+                <button id="resend-otp">Resend OTP</button>
+            </div>
+        </div>
+
+        <div class="back-link">
+            <a href="/login">← Back to Login</a>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { sendOTP, verifyOTP, setupRecaptcha } from '/js/phone-auth.js';
+
+        const phoneSection = document.getElementById('phone-section');
+        const otpSection = document.getElementById('otp-section');
+        const messageDiv = document.getElementById('message');
+        const phoneInput = document.getElementById('phone');
+        const otpInput = document.getElementById('otp');
+        const sendOtpBtn = document.getElementById('send-otp-button');
+        const verifyOtpBtn = document.getElementById('verify-otp-button');
+        const resendOtpBtn = document.getElementById('resend-otp');
+
+        // Setup reCAPTCHA on page load
+        setupRecaptcha('send-otp-button');
+
+        function showMessage(message, type) {
+            messageDiv.textContent = message;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+        }
+
+        // Send OTP
+        sendOtpBtn.addEventListener('click', async () => {
+            const phone = phoneInput.value.trim();
+            
+            if (!phone) {
+                showMessage('Please enter a phone number', 'error');
+                return;
+            }
+
+            sendOtpBtn.disabled = true;
+            sendOtpBtn.textContent = 'Sending...';
+
+            const result = await sendOTP(phone);
+
+            if (result.success) {
+                showMessage(result.message, 'success');
+                phoneSection.style.display = 'none';
+                otpSection.style.display = 'block';
+            } else {
+                showMessage(result.message, 'error');
+            }
+
+            sendOtpBtn.disabled = false;
+            sendOtpBtn.textContent = 'Send OTP';
+        });
+
+        // Verify OTP
+        verifyOtpBtn.addEventListener('click', async () => {
+            const otp = otpInput.value.trim();
+
+            if (!otp || otp.length !== 6) {
+                showMessage('Please enter a valid 6-digit OTP', 'error');
+                return;
+            }
+
+            verifyOtpBtn.disabled = true;
+            verifyOtpBtn.textContent = 'Verifying...';
+
+            const result = await verifyOTP(otp);
+
+            if (result.success) {
+                showMessage('Phone verified! Signing in...', 'success');
+
+                // Send to backend to create/login user
+                const response = await fetch('/api/auth/phone-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phoneNumber: result.phoneNumber,
+                        firebaseUid: result.firebaseUid,
+                        idToken: result.idToken
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    localStorage.setItem('userToken', data.token);
+                    localStorage.setItem('userId', data.user.id);
+                    localStorage.setItem('userEmail', data.user.email || '');
+                    
+                    window.location.href = '/dashboard';
+                } else {
+                    showMessage(data.message, 'error');
+                }
+            } else {
+                showMessage(result.message, 'error');
+            }
+
+            verifyOtpBtn.disabled = false;
+            verifyOtpBtn.textContent = 'Verify & Sign In';
+        });
+
+        // Resend OTP
+        resendOtpBtn.addEventListener('click', async () => {
+            otpSection.style.display = 'none';
+            phoneSection.style.display = 'block';
+            otpInput.value = '';
+            showMessage('Please click Send OTP again', 'success');
+        });
+    </script>
+</body>
+</html>

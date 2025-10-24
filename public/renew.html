@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renew Subscription - ZoneTrain</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .renewal-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #1f2937;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .expiry-notice {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .expiry-notice.urgent {
+            background: #fee2e2;
+            border-left-color: #ef4444;
+        }
+
+        .current-plan {
+            background: linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .plan-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .promo-section {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f9fafb;
+    border-radius: 12px;
+    border: 2px dashed #d1d5db;
+}
+
+.promo-input-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.promo-input-group input {
+    flex: 1;
+    padding: 12px 15px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.btn-apply-promo {
+    padding: 12px 24px;
+    background: white;
+    border: 2px solid #667eea;
+    color: #667eea;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-apply-promo:hover {
+    background: #667eea;
+    color: white;
+}
+
+.promo-message {
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+.promo-message.success {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.promo-message.error {
+    color: #ef4444;
+}
+
+.promo-discount {
+    margin-top: 15px;
+    padding: 15px;
+    background: #d1fae5;
+    border-left: 4px solid #10b981;
+    border-radius: 8px;
+}
+
+        .plan-card {
+            border: 2px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 30px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .plan-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .plan-card.selected {
+            border-color: #667eea;
+            background: #f5f3ff;
+        }
+
+        .plan-card.recommended {
+            border-color: #10b981;
+        }
+
+        .recommended-badge {
+            position: absolute;
+            top: -12px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .plan-header {
+            margin-bottom: 15px;
+        }
+
+        .plan-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 5px;
+        }
+
+        .plan-price {
+            font-size: 32px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .plan-price small {
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 400;
+        }
+
+        .savings {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 5px;
+            display: inline-block;
+        }
+
+        .upgrade-section {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .btn-renew {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+
+        .btn-renew:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(107, 70, 193, 0.4);
+        }
+
+        .btn-renew:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+            .renewal-card {
+                padding: 25px;
+            }
+
+            .plan-options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="renewal-card">
+            <div class="header">
+                <h1>🔄 Renew Your Subscription</h1>
+                <p id="user-greeting">Loading...</p>
+            </div>
+
+            <div id="expiry-notice" class="expiry-notice">
+                Loading subscription details...
+            </div>
+
+            <div class="current-plan">
+                <h3>Current Plan</h3>
+                <div id="current-plan-details">Loading...</div>
+            </div>
+
+            <h3>Choose Billing Cycle for <span id="renewal-plan-name">Current Plan</span></h3>
+
+            <div class="plan-options" id="plan-options">
+                <!-- Plans will be inserted here -->
+            </div>
+
+            <div class="promo-section">
+    <h4>💰 Have a promo code?</h4>
+    <div class="promo-input-group">
+        <input 
+            type="text" 
+            id="promo-code-input" 
+            placeholder="Enter code (e.g., RENEW50)" 
+            maxlength="20"
+            style="text-transform: uppercase;"
+        >
+        <button id="apply-promo-btn" class="btn-apply-promo" onclick="applyPromoCodeRenewal()">
+            Apply
+        </button>
+    </div>
+    <div id="promo-message" class="promo-message"></div>
+    <div id="promo-discount" class="promo-discount" style="display: none;"></div>
+</div>
+
+            <div class="upgrade-section" id="upgrade-section" style="display: none;">
+                <h4>🚀 Want to upgrade to Race Coach?</h4>
+                <p>Get race-specific training plans, advanced analytics, and more!</p>
+                <button class="btn-renew" onclick="showUpgradeOptions()">
+                    View Upgrade Options
+                </button>
+            </div>
+
+            <button id="btn-proceed" class="btn-renew" onclick="proceedToPayment()">
+                Proceed to Payment
+            </button>
+        </div>
+    </div>
+
+    <script src="/components/nav-header.js"></script>
+    <script>
+        let userData = {};
+        let selectedPlan = null;
+        let selectedCycle = null;
+        let renewalToken = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Get token from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            renewalToken = urlParams.get('token');
+
+            if (!renewalToken) {
+                alert('Invalid renewal link');
+                window.location.href = '/login';
+                return;
+            }
+
+            await loadRenewalData();
+        });
+
+        async function loadRenewalData() {
+            try {
+                const response = await fetch(`/api/subscription/renewal-info?token=${renewalToken}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    alert(data.message);
+                    window.location.href = '/login';
+                    return;
+                }
+
+                userData = data.user;
+                displayRenewalOptions(data);
+            } catch (error) {
+                console.error('Error loading renewal data:', error);
+                alert('Failed to load renewal information');
+            }
+        }
+
+        function displayRenewalOptions(data) {
+            const { user, renewalOptions, daysRemaining } = data;
+
+            // User greeting
+            document.getElementById('user-greeting').textContent = 
+                `Welcome back, ${user.firstName || 'Runner'}! 👋`;
+
+            // Expiry notice
+            const expiryNotice = document.getElementById('expiry-notice');
+            const isUrgent = daysRemaining <= 2;
+            expiryNotice.className = `expiry-notice ${isUrgent ? 'urgent' : ''}`;
+            expiryNotice.innerHTML = `
+                <strong>${isUrgent ? '⚠️ Urgent:' : '📅 Reminder:'}</strong> 
+                Your subscription expires in <strong>${daysRemaining} days</strong> 
+                (${new Date(user.subscriptionEndDate).toLocaleDateString()})
+            `;
+
+            // Current plan
+            const planName = user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach';
+            document.getElementById('current-plan-details').innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2>${planName}</h2>
+                        <p>Current billing: ${user.billingCycle || 'Monthly'}</p>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('renewal-plan-name').textContent = planName;
+
+            // Plan options
+            const planOptionsHTML = Object.entries(renewalOptions).map(([cycle, option]) => `
+                <div class="plan-card ${option.recommended ? 'recommended' : ''}" 
+                     onclick="selectPlan('${user.currentPlan}', '${cycle}')">
+                    ${option.recommended ? '<div class="recommended-badge">Best Value</div>' : ''}
+                    <div class="plan-header">
+                        <div class="plan-name">${cycle.charAt(0).toUpperCase() + cycle.slice(1)}</div>
+                        <div class="plan-price">
+                            ₹${option.price}
+                            <small>/${cycle === 'monthly' ? 'mo' : cycle === 'quarterly' ? 'qtr' : 'yr'}</small>
+                        </div>
+                        ${option.savings > 0 ? `<div class="savings">Save ₹${option.savings}</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('plan-options').innerHTML = planOptionsHTML;
+
+            // Show upgrade option for basic users
+            if (user.currentPlan === 'basic') {
+                document.getElementById('upgrade-section').style.display = 'block';
+            }
+        }
+
+        function selectPlan(plan, cycle) {
+            selectedPlan = plan;
+            selectedCycle = cycle;
+
+            // Remove previous selection
+            document.querySelectorAll('.plan-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+
+            // Add selection to clicked card
+            event.currentTarget.classList.add('selected');
+
+            // Enable proceed button
+            document.getElementById('btn-proceed').disabled = false;
+        }
+
+        let appliedPromoCodeRenewal = null;
+
+async function applyPromoCodeRenewal() {
+    const promoInput = document.getElementById('promo-code-input');
+    const promoCode = promoInput.value.trim().toUpperCase();
+    const messageDiv = document.getElementById('promo-message');
+    const discountDiv = document.getElementById('promo-discount');
+    const applyBtn = document.getElementById('apply-promo-btn');
+
+    if (!promoCode) {
+        messageDiv.className = 'promo-message error';
+        messageDiv.textContent = 'Please enter a promo code';
+        return;
+    }
+
+    if (!selectedCycle) {
+        messageDiv.className = 'promo-message error';
+        messageDiv.textContent = 'Please select a billing cycle first';
+        return;
+    }
+
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Applying...';
+
+    try {
+        const response = await fetch('/api/subscription/validate-promo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                promoCode,
+                transactionType: 'renewal',
+                plan: selectedPlan,
+                billingCycle: selectedCycle
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            appliedPromoCodeRenewal = promoCode;
+            
+            messageDiv.className = 'promo-message success';
+            messageDiv.textContent = `✅ ${data.description} - Save ₹${data.discountAmount}!`;
+            
+            discountDiv.style.display = 'block';
+            discountDiv.innerHTML = `
+                <h4>🎉 Discount Applied!</h4>
+                <div style="margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                        <span>Original Price:</span>
+                        <span style="text-decoration: line-through;">₹${data.originalAmount}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                        <span>Discount (${data.discountPercent}%):</span>
+                        <span style="color: #10b981;">-₹${data.discountAmount}</span>
+                    </div>
+                    <hr style="margin: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: #10b981;">
+                        <span>Final Price:</span>
+                        <span>₹${data.discountedAmount}</span>
+                    </div>
+                </div>
+            `;
+
+            promoInput.disabled = true;
+            applyBtn.textContent = 'Applied ✓';
+        } else {
+            messageDiv.className = 'promo-message error';
+            messageDiv.textContent = `❌ ${data.message}`;
+            appliedPromoCodeRenewal = null;
+            discountDiv.style.display = 'none';
+        }
+    } catch (error) {
+        messageDiv.className = 'promo-message error';
+        messageDiv.textContent = '❌ Failed to apply promo code';
+        appliedPromoCodeRenewal = null;
+    } finally {
+        applyBtn.disabled = false;
+        if (!appliedPromoCodeRenewal) applyBtn.textContent = 'Apply';
+    }
+}
+
+        async function proceedToPayment() {
+            if (!selectedCycle) {
+                alert('Please select a billing cycle');
+                return;
+            }
+
+            const btn = document.getElementById('btn-proceed');
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+
+            try {
+                const response = await fetch('/api/subscription/create-renewal-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                token: renewalToken,
+                plan: selectedPlan,
+                billingCycle: selectedCycle,
+                promoCode: appliedPromoCodeRenewal
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    initiatePayment(data.order);
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Payment initiation failed');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Proceed to Payment';
+            }
+        }
+
+        function initiatePayment(order) {
+            const options = {
+                key: order.razorpayKeyId,
+                amount: order.amount,
+                currency: 'INR',
+                name: 'ZoneTrain',
+                description: `Renewal - ${order.plan}`,
+                order_id: order.orderId,
+                handler: function(response) {
+                    verifyPayment(response);
+                },
+                prefill: {
+                    email: userData.email,
+                    name: userData.firstName
+                },
+                theme: { color: '#667eea' }
+            };
+
+            const rzp = new Razorpay(options);
+            rzp.open();
+        }
+
+        async function verifyPayment(payment) {
+            try {
+                const response = await fetch('/api/subscription/verify-renewal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: renewalToken,
+                        paymentId: payment.razorpay_payment_id,
+                        orderId: payment.razorpay_order_id,
+                        signature: payment.razorpay_signature
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('🎉 Subscription renewed successfully!');
+                    window.location.href = '/dashboard';
+                } else {
+                    alert('Payment verification failed');
+                }
+            } catch (error) {
+                alert('Verification failed');
+            }
+        }
+
+        function showUpgradeOptions() {
+            window.location.href = '/plans';
+        }
+    </script>
+</body>
+</html>

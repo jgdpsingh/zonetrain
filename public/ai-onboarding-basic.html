@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic Coach Setup - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            margin: 20px 30px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: white;
+            transition: width 0.3s ease;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px 30px;
+            background: #f8f9fa;
+        }
+
+        .step-dot {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #666;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .step-dot.active {
+            background: #10b981;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step-dot.completed {
+            background: #10b981;
+            color: white;
+        }
+
+        .form-content {
+            padding: 40px;
+        }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .required {
+            color: #ef4444;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #10b981;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .checkbox-option {
+            flex: 0 0 calc(50% - 8px);
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .checkbox-option:hover {
+            border-color: #10b981;
+            background: #f8f9fa;
+        }
+
+        .checkbox-option input {
+            margin-right: 10px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-prev {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn-prev:hover {
+            background: #e5e7eb;
+        }
+
+        .btn-next {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-next:hover {
+            background: #059669;
+        }
+
+        .btn-submit {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-submit:hover {
+            background: #059669;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .hint {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .row .form-group {
+            flex: 1;
+        }
+
+        .info-box {
+            background: #f0fdf4;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .info-box strong {
+            color: #059669;
+        }
+
+        .device-connect {
+            margin-top: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #FC4C02 0%, #D24202 100%);
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .device-connect h3 {
+            color: white;
+            margin-bottom: 10px;
+        }
+
+        .device-connect p {
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .device-connect button {
+            background: white;
+            color: #FC4C02;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Basic Coach Setup</h1>
+            <p>Let's build your running habit with smart, HRV-based coaching</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <div class="step-indicator">
+            <div class="step-dot active" data-step="1">1</div>
+            <div class="step-dot" data-step="2">2</div>
+            <div class="step-dot" data-step="3">3</div>
+        </div>
+
+        <form id="basicCoachForm" class="form-content">
+            
+            <!-- STEP 1: Personal Profile & Location -->
+            <div class="step active" data-step="1">
+                <h2>📋 About You</h2>
+                <p class="hint" style="margin-bottom: 20px;">Basic information to personalize your training</p>
+
+                <div class="info-box">
+                    <strong>💡 Basic Coach Focus:</strong> Build consistent running habits with adaptive training based on your recovery (HRV). No race pressure, just sustainable progress!
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Age <span class="required">*</span></label>
+                        <input type="number" name="age" min="15" max="100" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Gender <span class="required">*</span></label>
+                        <select name="gender" required>
+                            <option value="">Select</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Height (cm) <span class="required">*</span></label>
+                        <input type="number" name="height" min="140" max="220" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Weight (kg) <span class="required">*</span></label>
+                        <input type="number" name="weight" min="40" max="150" step="0.1" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Any Injuries or Health Concerns?</label>
+                    <textarea name="injury_history" rows="3" placeholder="e.g., Previous knee injury, lower back pain..."></textarea>
+                    <span class="hint">This helps us adjust your training intensity</span>
+                </div>
+
+                <div class="form-group">
+                    <label>Training Location <span class="required">*</span></label>
+                    <p class="hint" style="margin-bottom: 10px;">
+                        Share your location to tailor workouts based on weather and terrain. This will be your default training location.
+                    </p>
+                    <button type="button" onclick="getLocation()" id="locationBtn" style="width: 100%; background: #10b981; color: white; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        📍 Share My Location
+                    </button>
+                    <input type="hidden" name="latitude" id="latitude" required>
+                    <input type="hidden" name="longitude" id="longitude" required>
+                    <div id="locationDisplay" style="margin-top: 10px; padding: 10px; background: #f3f4f6; border-radius: 6px; display: none;">
+                        <span style="color: #10b981;">✓ Location captured:</span>
+                        <span id="locationText"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 2: Current Activity & Goals -->
+            <div class="step" data-step="2">
+                <h2>🏃 Current Activity Level</h2>
+                <p class="hint" style="margin-bottom: 20px;">Help us understand where you're starting from</p>
+
+                <div class="form-group">
+                    <label>Current Running Experience <span class="required">*</span></label>
+                    <select name="experience_level" required>
+                        <option value="">Select your level</option>
+                        <option value="beginner">Beginner (Just starting out)</option>
+                        <option value="novice">Novice (Run occasionally, less than 1 year)</option>
+                        <option value="intermediate">Intermediate (Run regularly, 1-2 years)</option>
+                        <option value="experienced">Experienced (Consistent runner, 2+ years)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Current Weekly Running (if any)</label>
+                    <select name="weekly_frequency">
+                        <option value="0">Not currently running</option>
+                        <option value="1">Once a week</option>
+                        <option value="2">2 times a week</option>
+                        <option value="3">3 times a week</option>
+                        <option value="4">4+ times a week</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Your Primary Goal <span class="required">*</span></label>
+                    <select name="primary_goal" required>
+                        <option value="">Select your goal</option>
+                        <option value="habit">Build a consistent running habit</option>
+                        <option value="fitness">Improve general fitness</option>
+                        <option value="weight">Weight management</option>
+                        <option value="stress">Stress relief & mental health</option>
+                        <option value="social">Social & community running</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>How many days per week would you like to run? <span class="required">*</span></label>
+                    <select name="target_frequency" required>
+                        <option value="">Select</option>
+                        <option value="2">2 days (Easy start)</option>
+                        <option value="3">3 days (Recommended)</option>
+                        <option value="4">4 days (Active)</option>
+                        <option value="5">5+ days (Very active)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Preferred Running Days</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="monday" id="day_mon">
+                            <label for="day_mon">Monday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="tuesday" id="day_tue">
+                            <label for="day_tue">Tuesday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="wednesday" id="day_wed">
+                            <label for="day_wed">Wednesday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="thursday" id="day_thu">
+                            <label for="day_thu">Thursday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="friday" id="day_fri">
+                            <label for="day_fri">Friday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="saturday" id="day_sat">
+                            <label for="day_sat">Saturday</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="preferred_days" value="sunday" id="day_sun">
+                            <label for="day_sun">Sunday</label>
+                        </div>
+                    </div>
+                    <span class="hint">Optional: Leave blank to let us suggest optimal days</span>
+                </div>
+            </div>
+
+            <!-- STEP 3: HRV & Recovery Tracking -->
+            <div class="step" data-step="3">
+                <h2>❤️ HRV & Recovery Tracking</h2>
+                <p class="hint" style="margin-bottom: 20px;">Essential for adaptive, recovery-based coaching</p>
+
+                <div class="info-box">
+                    <strong>Why HRV?</strong> Heart Rate Variability (HRV) tells us when your body is ready to train hard or needs recovery. This is the foundation of Basic Coach's adaptive training.
+                </div>
+
+                <div class="row">
+                    <div class="form-group">
+                        <label>Resting Heart Rate (bpm)</label>
+                        <input type="number" name="resting_hr" min="30" max="100" placeholder="e.g., 60">
+                        <span class="hint">Measure first thing in the morning</span>
+                    </div>
+                    <div class="form-group">
+                        <label>HRV Baseline (if known)</label>
+                        <input type="number" name="baseline_hrv" min="10" max="200" placeholder="e.g., 45">
+                        <span class="hint">From your watch/device</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Do you have a device that tracks HRV? <span class="required">*</span></label>
+                    <select name="has_hrv_device" id="hasHrvDevice" required>
+                        <option value="">Select</option>
+                        <option value="yes">Yes, I have HRV tracking</option>
+                        <option value="no">No, but I can measure heart rate</option>
+                        <option value="planning">Planning to get one</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>What device(s) do you use or plan to use?</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="garmin" id="dev_garmin">
+                            <label for="dev_garmin">Garmin Watch</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="apple" id="dev_apple">
+                            <label for="dev_apple">Apple Watch</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="whoop" id="dev_whoop">
+                            <label for="dev_whoop">WHOOP</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="oura" id="dev_oura">
+                            <label for="dev_oura">Oura Ring</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="chest_strap" id="dev_chest">
+                            <label for="dev_chest">Chest Strap HR Monitor</label>
+                        </div>
+                        <div class="checkbox-option">
+                            <input type="checkbox" name="devices" value="other" id="dev_other">
+                            <label for="dev_other">Other</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Average Sleep Quality (1-10)</label>
+                    <input type="range" name="sleep_quality" min="1" max="10" value="7" id="sleepRange">
+                    <div style="display: flex; justify-content: space-between; font-size: 14px; color: #6b7280;">
+                        <span>Poor (1)</span>
+                        <span id="sleepValue">7</span>
+                        <span>Excellent (10)</span>
+                    </div>
+                </div>
+
+                <!-- Strava Connect -->
+                <div class="device-connect">
+                    <h3>🚴 Connect with Strava</h3>
+                    <p>Automatically sync your activities and track progress over time</p>
+                    <button type="button" onclick="connectStrava()">
+                        Connect Strava
+                    </button>
+                    <p style="color: rgba(255,255,255,0.7); margin-top: 10px; font-size: 12px;">
+                        Optional but recommended
+                    </p>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="button-group">
+                <button type="button" class="btn-prev" id="prevBtn" style="display: none;">← Previous</button>
+                <button type="button" class="btn-next" id="nextBtn">Next →</button>
+                <button type="submit" class="btn-submit" id="submitBtn" style="display: none;">🚀 Start My Journey</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        let currentStep = 1;
+        const totalSteps = 3;
+
+        // Sleep quality slider
+        const sleepRange = document.getElementById('sleepRange');
+        const sleepValue = document.getElementById('sleepValue');
+        if (sleepRange) {
+            sleepRange.addEventListener('input', function() {
+                sleepValue.textContent = this.value;
+            });
+        }
+
+        // Strava Connect
+        window.connectStrava = function() {
+            const token = localStorage.getItem('userToken');
+            if (!token) {
+                alert('Please login first');
+                return;
+            }
+            localStorage.setItem('stravaReturnUrl', window.location.href);
+            window.location.href = '/connect-strava';
+        };
+
+        // Location capture
+        window.getLocation = function() {
+            const btn = document.getElementById('locationBtn');
+            btn.innerHTML = '⏳ Getting location...';
+            btn.disabled = true;
+            
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser');
+                btn.innerHTML = '📍 Share My Location';
+                btn.disabled = false;
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const lat = position.coords.latitude.toFixed(6);
+                    const lon = position.coords.longitude.toFixed(6);
+                    
+                    document.getElementById('latitude').value = lat;
+                    document.getElementById('longitude').value = lon;
+                    
+                    document.getElementById('locationText').textContent = `${lat}, ${lon}`;
+                    document.getElementById('locationDisplay').style.display = 'block';
+                    
+                    btn.innerHTML = '✓ Location Saved';
+                    btn.style.background = '#059669';
+                },
+                function(error) {
+                    alert('Could not get your location. Please enable location services and try again.');
+                    btn.innerHTML = '📍 Share My Location';
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        };
+
+        function showStep(step) {
+            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.step[data-step="${step}"]`).classList.add('active');
+
+            document.querySelectorAll('.step-dot').forEach((dot, index) => {
+                dot.classList.remove('active', 'completed');
+                if (index + 1 < step) dot.classList.add('completed');
+                else if (index + 1 === step) dot.classList.add('active');
+            });
+
+            const progress = ((step - 1) / (totalSteps - 1)) * 100;
+            document.getElementById('progressFill').style.width = progress + '%';
+
+            document.getElementById('prevBtn').style.display = step === 1 ? 'none' : 'block';
+            document.getElementById('nextBtn').style.display = step === totalSteps ? 'none' : 'block';
+            document.getElementById('submitBtn').style.display = step === totalSteps ? 'block' : 'none';
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function validateStep(step) {
+            const currentStepEl = document.querySelector(`.step[data-step="${step}"]`);
+            const required = currentStepEl.querySelectorAll('[required]');
+            
+            for (let field of required) {
+                if (field.type === 'hidden' && !field.value) {
+                    if (field.name === 'latitude' || field.name === 'longitude') {
+                        alert('Please share your location before continuing');
+                        return false;
+                    }
+                } else if (!field.value.trim()) {
+                    field.focus();
+                    alert('Please fill in: ' + (field.closest('.form-group')?.querySelector('label')?.textContent || 'required field'));
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', function() {
+            if (validateStep(currentStep)) {
+                currentStep++;
+                showStep(currentStep);
+            }
+        });
+
+        document.getElementById('prevBtn').addEventListener('click', function() {
+            currentStep--;
+            showStep(currentStep);
+        });
+
+        document.getElementById('basicCoachForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            if (!validateStep(currentStep)) return;
+
+            const formData = { planType: 'basic' };
+            const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
+
+            inputs.forEach(input => {
+                if (input.name) {
+                    if (input.type === 'checkbox') {
+                        if (!formData[input.name]) formData[input.name] = [];
+                        if (input.checked) formData[input.name].push(input.value);
+                    } else if (input.value) {
+                        formData[input.name] = input.value;
+                    }
+                }
+            });
+
+            const token = localStorage.getItem('userToken');
+            if (!token) {
+                alert('Please login first');
+                window.location.href = '/login';
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.innerHTML = '⏳ Creating Plan...';
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/ai-onboarding-basic', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('🎉 Your coaching plan is ready!');
+                    window.location.href = '/dashboard';
+                } else {
+                    throw new Error(result.message || 'Failed to create plan');
+                }
+            } catch (error) {
+                alert('Failed to submit: ' + error.message);
+                submitBtn.innerHTML = '🚀 Start My Journey';
+                submitBtn.disabled = false;
+            }
+        });
+
+        showStep(1);
+    });
+    </script>
+    <!-- Before </body> -->
+<script src="/components/nav-header.js"></script>
+
+</body>
+</html>
