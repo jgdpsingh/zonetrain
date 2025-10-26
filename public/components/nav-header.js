@@ -253,7 +253,7 @@
     <!-- Spacer -->
     <div style="height: 70px;"></div>
 
-    <style>
+        <style>
     /* Hide scrollbar */
     #main-nav::-webkit-scrollbar {
         display: none;
@@ -324,39 +324,8 @@
         background: #9ca3af;
     }
 
-    /* Mobile-specific dropdown adjustments */
-    @media screen and (max-height: 600px) {
-        #profile-dropdown {
-            max-height: calc(100vh - 75px);
-        }
-        
-        .menu-item {
-            padding: 10px 18px;
-            font-size: 13px;
-        }
-    }
-
-    /* Mobile Responsive */
-    @media (max-width: 768px) {
-        #zonetrain-nav-header {
-            padding: 0 15px;
-        }
-        
-        #nav-logo span {
-            font-size: 18px;
-        }
-        
-        #main-nav {
-            gap: 15px;
-            padding: 0 8px;
-        }
-        
-        .nav-link {
-            font-size: 14px;
-        }
-    }
-
-        @keyframes spin {
+    /* Notification Animations */
+    @keyframes spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
@@ -367,6 +336,7 @@
         20%, 40% { transform: rotate(10deg); }
     }
 
+    /* Notification Bell Styles */
     #notification-bell:hover {
         background: rgba(255,255,255,0.1);
     }
@@ -421,24 +391,48 @@
         background: #9ca3af;
     }
 
-    /* Mobile adjustments */
-    @media (max-width: 576px) {
-        #notification-panel {
-            width: calc(100vw - 20px);
-            right: -10px;
+    /* Mobile-specific dropdown adjustments */
+    @media screen and (max-height: 600px) {
+        #profile-dropdown {
+            max-height: calc(100vh - 75px);
         }
-
-        #notification-bell {
-            padding: 6px;
-        }
-
-        #notification-bell svg {
-            width: 20px;
-            height: 20px;
+        
+        .menu-item {
+            padding: 10px 18px;
+            font-size: 13px;
         }
     }
 
+    /* Tablet Responsive */
+    @media (max-width: 768px) {
+        #zonetrain-nav-header {
+            padding: 0 15px;
+        }
+        
+        #nav-logo span {
+            font-size: 18px;
+        }
+        
+        #main-nav {
+            gap: 15px;
+            padding: 0 8px;
+        }
+        
+        .nav-link {
+            font-size: 14px;
+        }
 
+        /* ✅ Notification Panel - Tablet */
+        #notification-panel {
+            position: fixed !important;
+            right: 10px !important;
+            top: 75px !important;
+            width: calc(100vw - 20px) !important;
+            max-width: 400px !important;
+        }
+    }
+
+    /* Mobile Responsive */
     @media (max-width: 576px) {
         #zonetrain-nav-header {
             padding: 0 10px;
@@ -476,8 +470,89 @@
             width: 20px;
             height: 20px;
         }
+
+        /* ✅ Notification Bell - Mobile */
+        #notification-bell {
+            padding: 6px;
+        }
+
+        #notification-bell svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        #notification-badge {
+            top: 2px !important;
+            right: 2px !important;
+            font-size: 9px !important;
+            padding: 1px 4px !important;
+            min-width: 16px !important;
+        }
+
+        /* ✅ Notification Panel - Mobile Full Width */
+        #notification-panel {
+            position: fixed !important;
+            right: 5px !important;
+            left: 5px !important;
+            top: 70px !important;
+            width: auto !important;
+            max-width: none !important;
+            max-height: calc(100vh - 85px) !important;
+            border-radius: 10px !important;
+        }
+
+        #notification-panel h3 {
+            font-size: 16px !important;
+        }
+
+        .notification-item {
+            padding: 12px 15px !important;
+        }
+
+        .notification-item h4 {
+            font-size: 13px !important;
+        }
+
+        .notification-item p {
+            font-size: 12px !important;
+        }
+
+        .notification-item > div > div:first-child {
+            font-size: 20px !important;
+        }
+
+        #mark-all-read {
+            font-size: 11px !important;
+            padding: 3px 6px !important;
+        }
+
+        #notifications-list {
+            max-height: calc(100vh - 180px) !important;
+        }
+    }
+
+    /* Extra Small Mobile */
+    @media (max-width: 400px) {
+        #notification-panel {
+            right: 3px !important;
+            left: 3px !important;
+            border-radius: 8px !important;
+        }
+
+        .notification-item {
+            padding: 10px 12px !important;
+        }
+
+        .notification-item h4 {
+            font-size: 12px !important;
+        }
+
+        .notification-item p {
+            font-size: 11px !important;
+        }
     }
     </style>
+
     `;
 
     // Wait for DOM to load

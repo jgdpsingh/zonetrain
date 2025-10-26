@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Notifications - ZoneTrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 90px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .page-header {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+
+        .page-header h1 {
+            font-size: 28px;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+
+        .page-header p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .notifications-container {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+
+        .notification-item {
+            padding: 20px;
+            border-bottom: 1px solid #f3f4f6;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .notification-item:hover {
+            background: #f9fafb;
+        }
+
+        .notification-item:last-child {
+            border-bottom: none;
+        }
+
+        .notification-item.unread {
+            background: #eff6ff;
+        }
+
+        .notification-content {
+            display: flex;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .notification-icon {
+            font-size: 32px;
+            flex-shrink: 0;
+        }
+
+        .notification-text {
+            flex: 1;
+        }
+
+        .notification-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 6px;
+        }
+
+        .notification-message {
+            font-size: 14px;
+            color: #6b7280;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .notification-time {
+            font-size: 13px;
+            color: #9ca3af;
+        }
+
+        .empty-state {
+            padding: 80px 20px;
+            text-align: center;
+            color: #9ca3af;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 24px;
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #6b7280;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            transition: transform 0.2s;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 15px;
+            }
+
+            .page-header {
+                padding: 20px;
+            }
+
+            .page-header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/dashboard" class="back-button">← Back to Dashboard</a>
+
+        <div class="page-header">
+            <h1>All Notifications</h1>
+            <p>Stay updated with your training progress and important updates</p>
+        </div>
+
+        <div class="notifications-container">
+            <div id="all-notifications-list">
+                <!-- Loading state -->
+                <div class="empty-state" id="loading">
+                    <p>Loading notifications...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/components/nav-header.js"></script>
+    <script>
+        async function loadAllNotifications() {
+            const token = localStorage.getItem('userToken');
+            const container = document.getElementById('all-notifications-list');
+
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/notifications', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.notifications && data.notifications.length > 0) {
+                    container.innerHTML = data.notifications.map(n => `
+                        <div class="notification-item ${n.read ? '' : 'unread'}" onclick="markAsRead('${n.id}')">
+                            <div class="notification-content">
+                                <div class="notification-icon">${getIcon(n.type)}</div>
+                                <div class="notification-text">
+                                    <div class="notification-title">${n.title}</div>
+                                    <div class="notification-message">${n.message}</div>
+                                    <div class="notification-time">${n.timeAgo || 'Just now'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    showEmptyState();
+                }
+            } catch (error) {
+                console.error('Failed to load notifications:', error);
+                showEmptyState();
+            }
+        }
+
+        function getIcon(type) {
+            const icons = {
+                'workout': '🏃',
+                'recovery': '💪',
+                'payment': '💳',
+                'upgrade': '🚀',
+                'race': '🏁',
+                'achievement': '🏆',
+                'sync': '🔄',
+                'zone': '🎯',
+                'alert': '⚠️'
+            };
+            return icons[type] || '🔔';
+        }
+
+        function showEmptyState() {
+            document.getElementById('all-notifications-list').innerHTML = `
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <h3>No notifications</h3>
+                    <p>You're all caught up! 🎉</p>
+                </div>
+            `;
+        }
+
+        async function markAsRead(notificationId) {
+            const token = localStorage.getItem('userToken');
+            
+            try {
+                await fetch(`/api/notifications/${notificationId}/read`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                loadAllNotifications();
+            } catch (error) {
+                console.error('Failed to mark as read:', error);
+            }
+        }
+
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', loadAllNotifications);
+    </script>
+</body>
+</html>

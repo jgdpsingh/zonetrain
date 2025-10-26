@@ -30,7 +30,7 @@ class DailyWorkoutScheduler {
         console.log('✅ Daily workout scheduler started (7:00 AM IST)');
     }
 
-    // Send HRV check to all paid users
+        // Send daily HRV check to all active paid users
     async sendDailyHRVCheck() {
         try {
             // Get all paid active users with phone numbers
@@ -40,6 +40,7 @@ class DailyWorkoutScheduler {
 
             console.log(`📱 Processing ${usersSnapshot.size} paid users...`);
             let sentCount = 0;
+            let failedCount = 0;
 
             for (const doc of usersSnapshot.docs) {
                 const user = { id: doc.id, ...doc.data() };
@@ -50,48 +51,64 @@ class DailyWorkoutScheduler {
                     continue;
                 }
 
-                // Get AI profile to check HRV device
-                const aiProfileDoc = await this.db.collection('aiprofiles').doc(user.id).get();
-                const hasHRVDevice = aiProfileDoc.exists && 
-                    (aiProfileDoc.data().devices?.hasHRVMonitor || 
-                     aiProfileDoc.data().devices?.smartwatch === 'yes');
+                try {
+                    // Send the approved template (no parameters - fixed text)
+                    const result = await this.whatsapp.sendRecoveryCheck(user.phoneNumber);
 
-                // Generate question
-                const question = this.whatsapp.generateHRVQuestion(hasHRVDevice);
+                    if (result.success) {
+                        sentCount++;
+                        
+                        // Log activity
+                        await this.db.collection('hrv_checks').add({
+                            userId: user.id,
+                            sentAt: new Date(),
+                            status: 'sent',
+                            type: 'daily_hrv_check',
+                            messageId: result.messageId,
+                            phone: user.phoneNumber
+                        });
 
-                // Send WhatsApp message with buttons
-                const result = await this.whatsapp.sendButtonMessage(
-                    user.phoneNumber,
-                    question.message,
-                    question.buttons
-                );
-
-                if (result.success) {
-                    sentCount++;
-                    
-                    // Log activity
-                    await this.db.collection('hrv_checks').add({
-                        userId: user.id,
-                        sentAt: new Date(),
-                        status: 'sent',
-                        type: hasHRVDevice ? 'hrv_reading' : 'recovery_assessment',
-                        messageId: result.messageId
-                    });
-
-                    console.log(`✅ Sent to ${user.email}`);
-                } else {
-                    console.error(`❌ Failed to send to ${user.email}:`, result.error);
+                        console.log(`✅ Sent to ${user.email} (${user.phoneNumber})`);
+                    } else {
+                        failedCount++;
+                        console.error(`❌ Failed to send to ${user.email}:`, result.error);
+                        
+                        // Log failure
+                        await this.db.collection('hrv_checks').add({
+                            userId: user.id,
+                            sentAt: new Date(),
+                            status: 'failed',
+                            type: 'daily_hrv_check',
+                            error: result.error,
+                            phone: user.phoneNumber
+                        });
+                    }
+                } catch (error) {
+                    failedCount++;
+                    console.error(`❌ Error sending to ${user.email}:`, error.message);
                 }
 
-                // Wait 2 seconds between messages to avoid rate limiting
+                // Rate limiting - 2 seconds between messages (WhatsApp best practice)
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
-            console.log(`✅ Daily HRV checks complete: ${sentCount}/${usersSnapshot.size} sent`);
+            console.log(`✅ Daily HRV checks complete: ${sentCount} sent, ${failedCount} failed out of ${usersSnapshot.size} users`);
+            
+            return {
+                success: true,
+                sent: sentCount,
+                failed: failedCount,
+                total: usersSnapshot.size
+            };
         } catch (error) {
-            console.error('❌ Error sending HRV checks:', error);
+            console.error('❌ Error in sendDailyHRVCheck:', error);
+            return {
+                success: false,
+                error: error.message
+            };
         }
     }
+
 
     // Process user HRV response and generate workout
     async processHRVResponse(userId, response) {

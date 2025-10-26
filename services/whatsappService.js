@@ -1,4 +1,8 @@
 const axios = require('axios');
+const dns = require('dns');
+
+// ✅ Force IPv4 resolution (fixes ENOTFOUND on Mac)
+dns.setDefaultResultOrder('ipv4first');
 
 class WhatsAppService {
     constructor() {
@@ -10,30 +14,35 @@ class WhatsAppService {
 
     // Format phone number - Remove + and keep country code
     formatPhoneNumber(phone) {
-        // Remove all non-digits
         return phone.replace(/\D/g, '');
     }
 
-    // Send template message (Works in development mode)
-    async sendTemplateMessage(phoneNumber, templateName = 'hello_world', languageCode = 'en_US') {
+    // Core template sender with parameters
+    async sendTemplate(phoneNumber, templateName, languageCode = 'en', components = []) {
         try {
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
             
             console.log(`📤 Sending template "${templateName}" to ${formattedPhone}`);
             
+            const payload = {
+                messaging_product: 'whatsapp',
+                to: formattedPhone,
+                type: 'template',
+                template: {
+                    name: templateName,
+                    language: {
+                        code: languageCode
+                    }
+                }
+            };
+
+            if (components.length > 0) {
+                payload.template.components = components;
+            }
+
             const response = await axios.post(
                 `${this.apiUrl}/messages`,
-                {
-                    messaging_product: 'whatsapp',
-                    to: formattedPhone,
-                    type: 'template',
-                    template: {
-                        name: templateName,
-                        language: {
-                            code: languageCode
-                        }
-                    }
-                },
+                payload,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.accessToken}`,
@@ -42,14 +51,14 @@ class WhatsAppService {
                 }
             );
 
-            console.log('✅ Template message sent:', response.data);
+            console.log('✅ Template sent successfully:', response.data);
             return { 
                 success: true, 
                 messageId: response.data.messages[0].id,
                 waId: response.data.contacts[0].wa_id 
             };
         } catch (error) {
-            console.error('❌ Template send error:', error.response?.data || error.message);
+            console.error('❌ Template error:', error.response?.data || error.message);
             return { 
                 success: false, 
                 error: error.response?.data?.error?.message || error.message 
@@ -57,7 +66,250 @@ class WhatsAppService {
         }
     }
 
-    // Send text message (Only works after 24-hour template window)
+    // ✅ 1. Morning Recovery Check (UTILITY - Approved)
+    async sendRecoveryCheck(phoneNumber) {
+        return this.sendTemplate(
+            phoneNumber,
+            'daily_hrv_check',
+            'en',
+            [] // No parameters
+        );
+    }
+
+    // ✅ 2. Easy Run Reminder (UTILITY)
+    async sendEasyRunReminder(phoneNumber, distance, duration, pace, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'easy_run_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: distance },
+                        { type: 'text', text: duration },
+                        { type: 'text', text: pace },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 3. Interval Workout (UTILITY)
+    async sendIntervalWorkout(phoneNumber, sets, intervals, recovery, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'interval_workout_zones',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: sets },
+                        { type: 'text', text: intervals },
+                        { type: 'text', text: recovery },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 4. Long Run (UTILITY)
+    async sendLongRun(phoneNumber, distance, duration, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'long_run_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: distance },
+                        { type: 'text', text: duration },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 5. Tempo Run (UTILITY)
+    async sendTempoRun(phoneNumber, distance, duration, pace, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'tempo_run_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: distance },
+                        { type: 'text', text: duration },
+                        { type: 'text', text: pace },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 6. Threshold Run (UTILITY)
+    async sendThresholdRun(phoneNumber, distance, duration, pace, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'threshold_run_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: distance },
+                        { type: 'text', text: duration },
+                        { type: 'text', text: pace },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 7. Fartlek Run (UTILITY)
+    async sendFartlekRun(phoneNumber, duration, intervals, zone) {
+        return this.sendTemplate(
+            phoneNumber,
+            'fartlek_run_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: duration },
+                        { type: 'text', text: intervals },
+                        { type: 'text', text: zone }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 8. Strides Workout (UTILITY)
+    async sendStridesWorkout(phoneNumber, reps, distance, recovery) {
+        return this.sendTemplate(
+            phoneNumber,
+            'strides_reminder',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: reps },
+                        { type: 'text', text: distance },
+                        { type: 'text', text: recovery }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 9. Payment Reminder (UTILITY)
+    async sendPaymentReminder(phoneNumber, daysLeft, amount) {
+        return this.sendTemplate(
+            phoneNumber,
+            'payment_reminder_3days',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: daysLeft },
+                        { type: 'text', text: amount }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 10. Payment Success (UTILITY)
+    async sendPaymentSuccess(phoneNumber, amount, plan, nextBilling) {
+        return this.sendTemplate(
+            phoneNumber,
+            'payment_success',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: amount },
+                        { type: 'text', text: plan },
+                        { type: 'text', text: nextBilling }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 11. Payment Failed (UTILITY)
+    async sendPaymentFailed(phoneNumber, amount, reason) {
+        return this.sendTemplate(
+            phoneNumber,
+            'payment_failed',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: amount },
+                        { type: 'text', text: reason }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 12. Account Setup Required (UTILITY)
+    async sendAccountSetup(phoneNumber, stravaLink, dashboardLink) {
+        return this.sendTemplate(
+            phoneNumber,
+            'account_setup_required',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: stravaLink },
+                        { type: 'text', text: dashboardLink }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ 13. Subscription Expired (Will be MARKETING - use carefully)
+    async sendSubscriptionExpired(phoneNumber, expiryDate, renewLink) {
+        return this.sendTemplate(
+            phoneNumber,
+            'subscription_expired',
+            'en',
+            [
+                {
+                    type: 'body',
+                    parameters: [
+                        { type: 'text', text: expiryDate },
+                        { type: 'text', text: renewLink }
+                    ]
+                }
+            ]
+        );
+    }
+
+    // ✅ Generic Hello World (for testing)
+    async sendHelloWorld(phoneNumber) {
+        return this.sendTemplate(phoneNumber, 'hello_world', 'en_US');
+    }
+
+    // Send text message (Only works within 24-hour window)
     async sendMessage(phoneNumber, message) {
         try {
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
@@ -96,7 +348,6 @@ class WhatsAppService {
         try {
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
             
-            // Format buttons (max 3 buttons, max 20 chars each)
             const formattedButtons = buttons.slice(0, 3).map((btn, index) => ({
                 type: 'reply',
                 reply: {
@@ -114,7 +365,7 @@ class WhatsAppService {
                     interactive: {
                         type: 'button',
                         body: {
-                            text: bodyText.substring(0, 1024) // Max 1024 chars
+                            text: bodyText.substring(0, 1024)
                         },
                         action: {
                             buttons: formattedButtons

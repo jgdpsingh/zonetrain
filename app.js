@@ -6431,11 +6431,15 @@ app.get('/webhook/whatsapp', (req, res) => {
 });
 
 // WhatsApp webhook to receive messages
+// WhatsApp webhook to receive messages
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
         const body = req.body;
 
-        // Check if this is a message event
+        // Always respond 200 OK immediately (Meta requirement)
+        res.status(200).send('OK');
+
+        // Process asynchronously (don't block webhook response)
         if (body.object === 'whatsapp_business_account') {
             const entries = body.entry;
 
@@ -6453,35 +6457,639 @@ app.post('/webhook/whatsapp', async (req, res) => {
                                                    message.interactive?.button_reply?.title ||
                                                    message.interactive?.list_reply?.title;
 
-                                console.log(`📩 WhatsApp message from ${from}: ${messageBody}`);
+                                console.log(`📩 WhatsApp from ${from}: ${messageBody}`);
 
-                                // Find user by phone
-                                const usersSnapshot = await db.collection('users')
-                                    .where('phoneNumber', '==', `+${from}`)
-                                    .limit(1)
-                                    .get();
-
-                                if (!usersSnapshot.empty) {
-                                    const userId = usersSnapshot.docs[0].id;
-
-                                    // Process HRV response
-                                    await workoutScheduler.processHRVResponse(userId, messageBody);
-                                } else {
-                                    console.log(`⚠️ User not found for phone: +${from}`);
-                                }
+                                // Process message async
+                                processWhatsAppMessage(from, messageBody).catch(err => {
+                                    console.error('Error processing message:', err);
+                                });
                             }
                         }
                     }
                 }
             }
         }
-
-        res.status(200).send('OK');
     } catch (error) {
         console.error('❌ Webhook error:', error);
-        res.status(500).send('Internal Server Error');
     }
 });
+
+// Process incoming WhatsApp messages
+async function processWhatsAppMessage(phoneNumber, messageBody) {
+    try {
+        // Find user by phone
+        const usersSnapshot = await db.collection('users')
+            .where('phoneNumber', '==', `+${phoneNumber}`)
+            .limit(1)
+            .get();
+
+        if (usersSnapshot.empty) {
+            console.log(`⚠️ User not found for phone: +${phoneNumber}`);
+            return;
+        }
+
+        const userId = usersSnapshot.docs[0].id;
+        const user = usersSnapshot.docs[0].data();
+
+        // Parse the message
+        const parsed = parseHRVResponse(messageBody);
+
+        if (!parsed) {
+            // Unknown message - send help
+            await whatsappService.sendMessage(
+                `+${phoneNumber}`,
+                "❓ I didn't understand that. Please reply with:\n• 1-4 (recovery state)\n• GREAT/GOOD/OK/TIRED\n• HRV [number] (e.g., HRV 52)"
+            );
+            return;
+        }
+
+        // Store the data
+        await db.collection('daily_recovery').add({
+            userId,
+            date: new Date(),
+            recovery: parsed.recovery,
+            hrv: parsed.hrv,
+            source: 'whatsapp',
+            createdAt: new Date()
+        });
+
+        console.log(`✅ Stored recovery data for user ${userId}:`, parsed);
+
+        // Generate AI workout based on recovery
+        const workout = await generateWorkoutFromRecovery(userId, parsed);
+
+        // Send workout via WhatsApp
+        await sendWorkoutToUser(phoneNumber, user, workout);
+
+    } catch (error) {
+        console.error('Error in processWhatsAppMessage:', error);
+    }
+}
+
+// Parse user response
+function parseHRVResponse(message) {
+    const text = message.trim().toUpperCase();
+
+    // HRV number (e.g., "HRV 52")
+    if (text.startsWith('HRV')) {
+        const match = text.match(/HRV\s+(\d+)/);
+        if (match) {
+            return {
+                type: 'hrv',
+                hrv: parseInt(match[1]),
+                recovery: null
+            };
+        }
+    }
+
+    // Recovery state mappings
+    const recoveryMap = {
+        '1': 'great',
+        '2': 'good',
+        '3': 'ok',
+        '4': 'tired',
+        'GREAT': 'great',
+        'GOOD': 'good',
+        'OK': 'ok',
+        'TIRED': 'tired'
+    };
+
+    if (recoveryMap[text]) {
+        return {
+            type: 'recovery',
+            recovery: recoveryMap[text],
+            hrv: null
+        };
+    }
+
+    return null; // Unknown format
+}
+
+// Generate workout based on recovery/HRV
+async function generateWorkoutFromRecovery(userId, recoveryData) {
+    try {
+        // Get user profile
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+
+        // Get AI profile
+        const aiProfileDoc = await db.collection('aiprofiles').doc(userId).get();
+        const aiProfile = aiProfileDoc.exists ? aiProfileDoc.data() : null;
+
+        // Get recent workouts (last 7 days)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const workoutsSnapshot = await db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('date', '>=', sevenDaysAgo)
+            .orderBy('date', 'desc')
+            .limit(7)
+            .get();
+
+        const recentWorkouts = workoutsSnapshot.docs.map(doc => doc.data());
+
+        // Build AI prompt
+        const prompt = buildWorkoutPrompt(user, aiProfile, recoveryData, recentWorkouts);
+
+        // Call your AI service (OpenAI/Gemini/etc)
+        const aiResponse = await callAIForWorkout(prompt);
+
+        // Parse and structure the response
+        const workout = parseAIWorkoutResponse(aiResponse);
+
+        // Store workout in Firestore
+        const workoutRef = await db.collection('workouts').add({
+            userId,
+            date: new Date(),
+            type: workout.type,
+            description: workout.description,
+            distance: workout.distance,
+            duration: workout.duration,
+            pace: workout.pace,
+            zone: workout.zone,
+            recovery: recoveryData.recovery,
+            hrv: recoveryData.hrv,
+            source: 'ai_daily',
+            createdAt: new Date()
+        });
+
+        workout.id = workoutRef.id;
+        return workout;
+
+    } catch (error) {
+        console.error('Error generating workout:', error);
+        throw error;
+    }
+}
+
+// Build AI prompt
+function buildWorkoutPrompt(user, aiProfile, recoveryData, recentWorkouts) {
+    const recoveryLevel = recoveryData.hrv 
+        ? (recoveryData.hrv > 60 ? 'good' : recoveryData.hrv > 40 ? 'moderate' : 'low')
+        : recoveryData.recovery;
+
+    return `
+You are ZoneTrain, an AI running coach. Generate today's workout.
+
+ATHLETE PROFILE:
+- Name: ${user.name}
+- Subscription: ${user.subscriptionPlan}
+- Race Goal: ${aiProfile?.raceDistance || 'None'} on ${aiProfile?.raceDate || 'TBD'}
+- Max HR: ${aiProfile?.maxHR || 180} bpm
+- Recent HRV: ${recoveryData.hrv || 'N/A'}
+- Recovery State: ${recoveryLevel}
+
+RECENT WORKOUTS (last 7 days):
+${recentWorkouts.map(w => `- ${w.type}: ${w.distance || w.duration}`).join('\n')}
+
+INSTRUCTIONS:
+1. Consider recovery state (${recoveryLevel})
+2. If recovery is "tired" or HRV < 40, prescribe easy/rest day
+3. If recovery is "great" or HRV > 60, prescribe quality workout
+4. Include HR zones based on max HR
+5. Keep it conversational and motivating
+
+FORMAT YOUR RESPONSE AS JSON:
+{
+  "type": "easy|interval|long|tempo|rest",
+  "description": "Today's workout description",
+  "distance": "8km",
+  "duration": "45 min",
+  "pace": "5:30/km",
+  "zone": "Zone 2 (120-135 bpm)",
+  "motivation": "Short motivational message"
+}
+`;
+}
+
+// Call AI (use your existing AI service)
+async function callAIForWorkout(prompt) {
+    // If you have OpenAI
+    if (process.env.OPENAI_API_KEY) {
+        const { OpenAI } = require('openai');
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7
+        });
+        
+        return response.choices[0].message.content;
+    }
+    
+    // Or if you have Gemini
+    // const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    // const model = gemini.getGenerativeModel({ model: 'gemini-pro' });
+    // const result = await model.generateContent(prompt);
+    // return result.response.text();
+    
+    throw new Error('No AI service configured');
+}
+
+// Parse AI response
+function parseAIWorkoutResponse(aiResponse) {
+    try {
+        // Try to parse as JSON
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const workout = JSON.parse(jsonMatch[0]);
+            return workout;
+        }
+    } catch (error) {
+        console.error('Failed to parse AI response:', error);
+    }
+    
+    // Fallback: return basic structure
+    return {
+        type: 'easy',
+        description: aiResponse,
+        distance: '5km',
+        duration: '30 min',
+        pace: '6:00/km',
+        zone: 'Zone 2',
+        motivation: 'Keep it easy today!'
+    };
+}
+
+// Send workout to user via WhatsApp
+async function sendWorkoutToUser(phoneNumber, user, workout) {
+    const message = `
+🏃‍♂️ *${user.name || 'Athlete'}, here's your workout for today!*
+
+📋 *${workout.type.toUpperCase()} RUN*
+${workout.description}
+
+📏 *Distance:* ${workout.distance}
+⏱️ *Duration:* ${workout.duration}
+⚡ *Pace:* ${workout.pace}
+❤️ *Heart Rate:* ${workout.zone}
+
+💬 ${workout.motivation}
+
+📱 View full details: https://zonetrain.app/dashboard
+
+Reply:
+• *DONE* when completed
+• *SKIP* if you need to rest
+    `.trim();
+
+    await whatsappService.sendMessage(`+${phoneNumber}`, message);
+    console.log(`✅ Workout sent to ${phoneNumber}`);
+}
+
+
+// ============================================
+// 🧪 WHATSAPP TESTING ENDPOINTS
+// ============================================
+
+// ✅ Test All Template Types
+app.post('/api/test/whatsapp-templates', authenticateToken, async (req, res) => {
+    const { templateType, phoneNumber } = req.body;
+    
+    // Use provided phone or get from user profile
+    let targetPhone = phoneNumber;
+    if (!targetPhone) {
+        const userDoc = await db.collection('users').doc(req.user.userId).get();
+        targetPhone = userDoc.data().phoneNumber;
+    }
+
+    if (!targetPhone) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'No phone number provided. Add phoneNumber to request or update your profile.' 
+        });
+    }
+
+    try {
+        let result;
+        const today = new Date().toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        
+        switch (templateType) {
+            // ✅ Basic Templates
+            case 'hello':
+                result = await whatsappService.sendHelloWorld(targetPhone);
+                break;
+            
+            // ✅ Recovery & Training
+            case 'recovery':
+                result = await whatsappService.sendRecoveryCheck(targetPhone);
+                break;
+            
+            case 'easy_run':
+                result = await whatsappService.sendEasyRunReminder(
+                    targetPhone,
+                    '8km',
+                    '45 min',
+                    '5:30/km',
+                    'Zone 2 (120-135 bpm)'
+                );
+                break;
+            
+            case 'interval':
+                result = await whatsappService.sendIntervalWorkout(
+                    targetPhone,
+                    '4',
+                    '800m',
+                    '90 sec',
+                    'Zone 4 (155-165 bpm)'
+                );
+                break;
+            
+            case 'long_run':
+                result = await whatsappService.sendLongRun(
+                    targetPhone,
+                    '16km',
+                    '1 hour 30 min',
+                    'Zone 2-3 (130-150 bpm)'
+                );
+                break;
+            
+            case 'tempo':
+                result = await whatsappService.sendTempoRun(
+                    targetPhone,
+                    '10km',
+                    '50 min',
+                    '5:00/km',
+                    'Zone 3-4 (145-160 bpm)'
+                );
+                break;
+            
+            case 'threshold':
+                result = await whatsappService.sendThresholdRun(
+                    targetPhone,
+                    '8km',
+                    '40 min',
+                    '5:00/km',
+                    'Zone 4 (155-165 bpm)'
+                );
+                break;
+            
+            case 'fartlek':
+                result = await whatsappService.sendFartlekRun(
+                    targetPhone,
+                    '45 min',
+                    '8x (2 min fast, 2 min easy)',
+                    'Zone 2-4 (130-165 bpm)'
+                );
+                break;
+            
+            case 'strides':
+                result = await whatsappService.sendStridesWorkout(
+                    targetPhone,
+                    '6',
+                    '100m',
+                    '90 sec'
+                );
+                break;
+            
+            // ✅ Payment Templates
+            case 'payment_reminder':
+                result = await whatsappService.sendPaymentReminder(
+                    targetPhone,
+                    '3',
+                    '₹399'
+                );
+                break;
+            
+            case 'payment_success':
+                const nextMonth = new Date();
+                nextMonth.setMonth(nextMonth.getMonth() + 1);
+                result = await whatsappService.sendPaymentSuccess(
+                    targetPhone,
+                    '₹399',
+                    'Basic Coach',
+                    nextMonth.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                );
+                break;
+            
+            case 'payment_failed':
+                result = await whatsappService.sendPaymentFailed(
+                    targetPhone,
+                    '₹399',
+                    'Insufficient funds'
+                );
+                break;
+            
+            // ✅ Onboarding & Account
+            case 'account_setup':
+                result = await whatsappService.sendAccountSetup(
+                    targetPhone,
+                    'https://zonetrain.app/strava/connect',
+                    'https://zonetrain.app/dashboard'
+                );
+                break;
+            
+            case 'subscription_expired':
+                result = await whatsappService.sendSubscriptionExpired(
+                    targetPhone,
+                    today,
+                    'https://zonetrain.app/upgrade'
+                );
+                break;
+            
+            default:
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Invalid template type: ${templateType}. Valid options: hello, recovery, easy_run, interval, long_run, tempo, threshold, fartlek, strides, payment_reminder, payment_success, payment_failed, account_setup, subscription_expired` 
+                });
+        }
+
+        res.json({
+            success: true,
+            templateType,
+            phone: targetPhone,
+            result
+        });
+    } catch (error) {
+        console.error('Test template error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// ✅ Test Connection
+app.get('/api/test/whatsapp-connection', async (req, res) => {
+    try {
+        const result = await whatsappService.testConnection();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ✅ Send Workout Reminder Based on Actual User Data
+app.post('/api/whatsapp/send-workout', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { workoutId } = req.body;
+
+        // Get user phone
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+
+        if (!user.phoneNumber || !user.whatsappOptIn) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'WhatsApp notifications not enabled or phone number missing' 
+            });
+        }
+
+        // Get workout details
+        const workoutDoc = await db.collection('workouts').doc(workoutId).get();
+        if (!workoutDoc.exists) {
+            return res.status(404).json({ success: false, error: 'Workout not found' });
+        }
+
+        const workout = workoutDoc.data();
+        let result;
+
+        // Send appropriate template based on workout type
+        switch (workout.type) {
+            case 'easy':
+                result = await whatsappService.sendEasyRunReminder(
+                    user.phoneNumber,
+                    workout.distance || '8km',
+                    workout.duration || '45 min',
+                    workout.pace || '5:30/km',
+                    workout.zone || 'Zone 2'
+                );
+                break;
+            
+            case 'interval':
+                result = await whatsappService.sendIntervalWorkout(
+                    user.phoneNumber,
+                    workout.sets || '4',
+                    workout.intervals || '800m',
+                    workout.recovery || '90 sec',
+                    workout.zone || 'Zone 4'
+                );
+                break;
+            
+            case 'long':
+                result = await whatsappService.sendLongRun(
+                    user.phoneNumber,
+                    workout.distance || '16km',
+                    workout.duration || '1:30',
+                    workout.zone || 'Zone 2-3'
+                );
+                break;
+            
+            case 'tempo':
+                result = await whatsappService.sendTempoRun(
+                    user.phoneNumber,
+                    workout.distance || '10km',
+                    workout.duration || '50 min',
+                    workout.pace || '5:00/km',
+                    workout.zone || 'Zone 3-4'
+                );
+                break;
+            
+            default:
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Unsupported workout type: ${workout.type}` 
+                });
+        }
+
+        // Log the notification
+        await db.collection('notifications').add({
+            userId,
+            type: 'workout',
+            workoutId,
+            channel: 'whatsapp',
+            sent: result.success,
+            messageId: result.messageId,
+            error: result.error,
+            createdAt: new Date()
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error('Send workout error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ✅ Bulk Send Morning Recovery Check
+app.post('/api/whatsapp/send-recovery-bulk', authenticateToken, async (req, res) => {
+    try {
+        // Only allow admins
+        const userDoc = await db.collection('users').doc(req.user.userId).get();
+        if (userDoc.data().role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Admin access required' });
+        }
+
+        const today = new Date().toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+
+        // Get all active users with WhatsApp enabled
+        const usersSnapshot = await db.collection('users')
+            .where('whatsappOptIn', '==', true)
+            .where('subscriptionStatus', '==', 'active')
+            .get();
+
+        const results = {
+            total: usersSnapshot.size,
+            sent: 0,
+            failed: 0,
+            errors: []
+        };
+
+        for (const doc of usersSnapshot.docs) {
+            const user = doc.data();
+            
+            if (user.phoneNumber) {
+                try {
+                    const result = await whatsappService.sendRecoveryCheck(
+                        user.phoneNumber
+                    );
+
+                    if (result.success) {
+                        results.sent++;
+                    } else {
+                        results.failed++;
+                        results.errors.push({
+                            userId: doc.id,
+                            phone: user.phoneNumber,
+                            error: result.error
+                        });
+                    }
+
+                    // Rate limiting - 1 message per second
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push({
+                        userId: doc.id,
+                        phone: user.phoneNumber,
+                        error: error.message
+                    });
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            results
+        });
+    } catch (error) {
+        console.error('Bulk send error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Test WhatsApp with Meta's hello_world template
 app.get('/test/whatsapp', async (req, res) => {
@@ -7155,6 +7763,11 @@ function getTimeAgo(date) {
     if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
     return date.toLocaleDateString();
 }
+
+// Serve notifications page
+app.get('/notifications', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
+});
 
 
 
