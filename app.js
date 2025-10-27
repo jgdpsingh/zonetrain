@@ -4625,6 +4625,42 @@ function generateGuestAnalysisHTML(analysisData) {
     `;
 }
 
+// Get calendar workouts
+app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Get workouts for current month ± 1 month
+        const startDate = new Date();
+        startDate.setMonth(startDate.getMonth() - 1);
+        startDate.setDate(1);
+        
+        const endDate = new Date();
+        endDate.setMonth(endDate.getMonth() + 2);
+        endDate.setDate(0);
+
+        const workoutsSnapshot = await db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('date', '>=', startDate)
+            .where('date', '<=', endDate)
+            .get();
+
+        const workouts = workoutsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            date: doc.data().date.toDate ? doc.data().date.toDate().toISOString() : doc.data().date
+        }));
+
+        res.json({
+            success: true,
+            workouts
+        });
+    } catch (error) {
+        console.error('Calendar error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Dashboard data API route - ADD THIS
 app.get('/api/dashboard/data', authenticateToken, async (req, res) => {
@@ -7769,6 +7805,37 @@ app.get('/notifications', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
 });
 
+// Mark workout as complete
+app.post('/api/workouts/:workoutId/complete', authenticateToken, async (req, res) => {
+    try {
+        const { workoutId } = req.params;
+        const userId = req.user.userId;
+
+        // Verify workout belongs to user
+        const workoutRef = db.collection('workouts').doc(workoutId);
+        const workout = await workoutRef.get();
+
+        if (!workout.exists || workout.data().userId !== userId) {
+            return res.status(404).json({ success: false, error: 'Workout not found' });
+        }
+
+        // Update workout status
+        await workoutRef.update({
+            status: 'completed',
+            completedAt: new Date(),
+            updatedAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'Workout marked as complete'
+        });
+    } catch (error) {
+        console.error('Error completing workout:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 
 app.listen(port, () => {
@@ -8423,18 +8490,53 @@ app.get('/api/ai-profile', authenticateToken, async (req, res) => {
 
 app.get('/api/user/profile', authenticateToken, async (req, res) => {
   try {
-    const analytics = await userManager.getUserAnalytics(req.user.userId);
+    const userId = req.user.userId;
+    
+    // Get user document
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    
+    // Try to get analytics, but don't fail if unavailable
+    let analytics = null;
+    try {
+      analytics = await userManager.getUserAnalytics(userId);
+    } catch (analyticsError) {
+      // Log for monitoring, but don't expose to user
+      console.warn(`Analytics unavailable for user ${userId}:`, analyticsError.code || analyticsError.message);
+      // Analytics will be null - that's fine
+    }
+
+    // Always return success with available data
     res.json({
       success: true,
-      data: analytics
+      data: analytics,  // Will be null if unavailable
+      email: userData.email,
+      name: userData.name || userData.email.split('@')[0],
+      planType: userData.planType || 'free',
+      raceDate: userData.raceDate || null,
+      raceName: userData.raceName || null,
+      raceDistance: userData.raceDistance || null,
+      stravaConnected: !!userData.stravaRefreshToken,
+      createdAt: userData.createdAt
     });
   } catch (error) {
+    console.error('Profile fetch error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to fetch profile'
     });
   }
 });
+
+
 
 app.put('/api/user/profile', authenticateToken, async (req, res) => {
   try {
