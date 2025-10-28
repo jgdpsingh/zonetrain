@@ -34,6 +34,87 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+const cron = require('node-cron');
+
+// Add after your app initialization and before routes
+// Schedule cleanup job - runs every hour at minute 0
+cron.schedule('0 * * * *', async () => {
+    console.log('🔍 Running unverified user cleanup job at:', new Date().toISOString());
+    
+    try {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        
+        // Find unverified users created more than 24 hours ago
+        const unverifiedUsersSnapshot = await db.collection('users')
+            .where('emailVerified', '==', false)
+            .where('authProvider', '==', 'email')
+            .where('active', '!=', false)
+            .get();
+        
+        if (unverifiedUsersSnapshot.empty) {
+            console.log('✅ No unverified users to block');
+            return;
+        }
+        
+        // Filter by creation date (Firestore doesn't support multiple inequality filters)
+        const usersToBlock = [];
+        unverifiedUsersSnapshot.docs.forEach(doc => {
+            const userData = doc.data();
+            const createdAt = userData.createdAt?.toDate?.() || new Date(userData.createdAt);
+            
+            if (createdAt <= twentyFourHoursAgo) {
+                usersToBlock.push({
+                    id: doc.id,
+                    email: userData.email,
+                    createdAt: createdAt
+                });
+            }
+        });
+        
+        if (usersToBlock.length === 0) {
+            console.log('✅ No unverified users older than 24 hours');
+            return;
+        }
+        
+        console.log(`⚠️ Found ${usersToBlock.length} unverified users to block:`, 
+            usersToBlock.map(u => u.email));
+        
+        // Block each unverified user
+        const batch = db.batch();
+        usersToBlock.forEach(user => {
+            const userRef = db.collection('users').doc(user.id);
+            batch.update(userRef, {
+                active: false,
+                blockedReason: 'Email not verified within 24 hours',
+                blockedAt: new Date()
+            });
+        });
+        
+        await batch.commit();
+        console.log(`✅ Successfully blocked ${usersToBlock.length} unverified users`);
+        
+        // Track in activity log
+        for (const user of usersToBlock) {
+            try {
+                await userManager.trackActivity(user.id, 'account_blocked', {
+                    reason: 'email_not_verified',
+                    createdAt: user.createdAt,
+                    blockedAt: new Date()
+                });
+            } catch (trackError) {
+                console.error('Failed to track blocking activity:', trackError);
+            }
+        }
+        
+    } catch (error) {
+        console.error('❌ Cleanup job error:', error);
+    }
+});
+
+console.log('✅ Scheduled job initialized: Unverified user cleanup runs every hour');
+
+
 // Trust proxy - Required for rate limiting behind reverse proxies
 app.set('trust proxy', 1);
 const cookieParser = require('cookie-parser');
@@ -60,60 +141,70 @@ let storedTokens = {
 
 
 // Security middleware (optional but recommended)
+// In app.js - Replace your existing helmet configuration
 app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: [
-                "'self'", 
-                "'unsafe-inline'", 
-                "https://fonts.googleapis.com", 
-                "https://cdnjs.cloudflare.com"
-            ],
-            fontSrc: [
-                "'self'", 
-                "data:", 
-                "https://fonts.gstatic.com", 
-                "https://cdnjs.cloudflare.com"
-            ],
-            scriptSrc: [
-                "'self'", 
-                "'unsafe-inline'", 
-                "'unsafe-eval'",
-                "https://checkout.razorpay.com",
-                "https://www.gstatic.com",  // ✅ Firebase SDK
-                "https://www.googletagmanager.com",  // ✅ Firebase Analytics
-                "https://apis.google.com"  // ✅ Google APIs  // ✅ ADD THIS - Allow Razorpay checkout script
-            ],
-            scriptSrcAttr: ["'unsafe-inline'"],  // ✅ ADD THIS - Allow inline event handlers (onclick, etc.)
-            imgSrc: [
-                "'self'", 
-                "data:", 
-                "https:", 
-                "blob:",
-                "https://cdn.razorpay.com"  // ✅ ADD THIS - Allow Razorpay images/logos
-            ],
-            connectSrc: [
-                "'self'", 
-                "https://www.strava.com", 
-                "https://generativelanguage.googleapis.com",
-                "https://api.razorpay.com",  // ✅ ADD THIS - Allow Razorpay API calls
-                "https://lumberjack.razorpay.com",
-                "https://*.googleapis.com",  // ✅ Firebase API
-                "https://*.firebaseio.com",  // ✅ Firebase Realtime DB
-                "https://*.cloudfunctions.net",  // ✅ Firebase Functions
-                "https://identitytoolkit.googleapis.com",  // ✅ Firebase Auth
-                "https://securetoken.googleapis.com",
-                "https://www.gstatic.com"   // ✅ ADD THIS - Razorpay analytics
-            ],
-            frameSrc: [
-                "'self'",
-                "https://api.razorpay.com",
-                "https://*.firebaseapp.com"  // ✅ ADD THIS - Allow Razorpay payment iframe
-            ],
-            formAction: ["'self'", "https://api.razorpay.com"]  // ✅ ADD THIS - Allow form submission to Razorpay
-        }
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "https://fonts.googleapis.com",
+        "https://cdnjs.cloudflare.com"
+      ],
+      fontSrc: [
+        "'self'", 
+        "data:", 
+        "https://fonts.gstatic.com",
+        "https://cdnjs.cloudflare.com"
+      ],
+      scriptSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "'unsafe-eval'",
+        "https://checkout.razorpay.com",
+        "https://www.gstatic.com",
+        "https://www.googletagmanager.com",
+        "https://apis.google.com",
+        "https://www.google.com/recaptcha/",  // reCAPTCHA
+        "https://www.gstatic.com/recaptcha/",  // reCAPTCHA
+        "https://www.recaptcha.net"  // reCAPTCHA fallback
+      ],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      imgSrc: [
+        "'self'", 
+        "data:", 
+        "https:", 
+        "blob:",
+        "https://cdn.razorpay.com"
+      ],
+      connectSrc: [
+        "'self'",
+        "https://www.strava.com",
+        "https://generativelanguage.googleapis.com",
+        "https://api.razorpay.com",
+        "https://lumberjack.razorpay.com",
+        "https://*.googleapis.com",
+        "https://*.firebaseio.com",
+        "https://*.cloudfunctions.net",
+        "https://identitytoolkit.googleapis.com",
+        "https://securetoken.googleapis.com",
+        "https://www.gstatic.com",
+        "https://www.google.com"  // For reCAPTCHA
+      ],
+      frameSrc: [
+        "'self'",
+        "https://api.razorpay.com",
+        "https://*.firebaseapp.com",
+        "https://www.google.com",  // reCAPTCHA iframe
+        "https://www.recaptcha.net"  // reCAPTCHA fallback
+      ],
+      formAction: [
+        "'self'", 
+        "https://api.razorpay.com"
+      ]
     }
+  }
 }));
 
 
@@ -1274,11 +1365,10 @@ app.get('/', (req, res) => {
   res.send(html);
 });
 
-
-
-
 app.get('/login', (req, res) => {
   const redirect = req.query.redirect || '';
+  const error = req.query.error || '';
+  
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -1310,7 +1400,6 @@ app.get('/login', (req, res) => {
             padding: 20px;
         }
 
-        /* Back Button */
         .back-btn {
             position: fixed;
             top: 20px;
@@ -1335,7 +1424,6 @@ app.get('/login', (req, res) => {
             transform: translateX(-3px);
         }
 
-        /* Login Container */
         .login-container {
             background: var(--white);
             border-radius: 20px;
@@ -1426,61 +1514,51 @@ app.get('/login', (req, res) => {
         }
 
         .btn-social {
-    width: 100%;
-    padding: 12px;
-    background: white;
-    border: 2px solid #E5E7EB;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    color: #374151;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: all 0.3s ease;
-    text-decoration: none;
-    margin-bottom: 12px;
-}
-
-.btn-social:hover {
-    background: #F9FAFB;
-    border-color: #D1D5DB;
-}
-
-        .btn-google {
-            background: var(--white);
-            color: var(--dark-gray);
+            width: 100%;
+            padding: 12px;
+            background: white;
             border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 10px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            margin-bottom: 12px;
+        }
+
+        .btn-social:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         .btn-google:hover {
             background: #F9FAFB;
-            border-color: var(--light-purple);
+            border-color: #D1D5DB;
         }
 
         .btn-facebook {
-    border-color: #1877F2;
-}
+            border-color: #1877F2;
+        }
 
-.btn-facebook:hover {
-    background: #EFF6FF;
-    border-color: #1877F2;
-}
+        .btn-facebook:hover {
+            background: #EFF6FF;
+            border-color: #1877F2;
+        }
 
-.btn-phone {
-    border-color: #10B981;
-}
+        .btn-phone {
+            border-color: #10B981;
+        }
 
-.btn-phone:hover {
-    background: #ECFDF5;
-    border-color: #10B981;
-}
+        .btn-phone:hover {
+            background: #ECFDF5;
+            border-color: #10B981;
+        }
 
         .divider {
             text-align: center;
@@ -1507,7 +1585,6 @@ app.get('/login', (req, res) => {
             z-index: 2;
         }
 
-        /* Single Signup Section */
         .signup-section {
             text-align: center;
             margin-top: 25px;
@@ -1532,7 +1609,6 @@ app.get('/login', (req, res) => {
             text-decoration: underline;
         }
 
-        /* Cookie Links */
         .cookie-links {
             display: flex;
             justify-content: center;
@@ -1564,14 +1640,34 @@ app.get('/login', (req, res) => {
         .error-message.error {
             background: #FEE2E2;
             color: var(--error-red);
+            display: block;
         }
 
         .error-message.success {
             background: #D1FAE5;
             color: var(--success-green);
+            display: block;
         }
 
-        /* Mobile Responsive */
+        .error-message.urgent {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #92400E;
+    border-color: #F59E0B;
+    animation: pulse-warning 2s infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 6px rgba(245, 158, 11, 0.1);
+    }
+    50% {
+        transform: scale(1.02);
+        box-shadow: 0 6px 12px rgba(245, 158, 11, 0.3);
+    }
+}
+
+
         @media screen and (max-width: 768px) {
             body { padding: 15px; }
             .login-container { padding: 35px 30px; }
@@ -1592,7 +1688,6 @@ app.get('/login', (req, res) => {
     </style>
 </head>
 <body>
-    <!-- Back Button -->
     <a href="/" class="back-btn">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
@@ -1600,13 +1695,40 @@ app.get('/login', (req, res) => {
         Back
     </a>
 
-    <!-- Login Container -->
     <div class="login-container">
-        <h1>ZoneTrain</h1>
+        <h1>🏃 ZoneTrain</h1>
         <h2>Welcome Back</h2>
 
-        <div id="errorMessage" class="error-message"></div>
+        <div id="errorMessage" class="error-message">${error === 'facebook-failed' ? 'Facebook login failed. Please try again.' : error === 'google-failed' ? 'Google login failed. Please try again.' : ''}</div>
 
+        <!-- Social Login Buttons (Moved to Top) -->
+        <a href="/auth/google" class="btn-social btn-google">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+                <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            Continue with Google
+        </a>
+
+        <a href="/auth/facebook" class="btn-social btn-facebook">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+            </svg>
+            Continue with Facebook
+        </a>
+
+        <a href="/phone-login" class="btn-social btn-phone">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+            </svg>
+            Continue with Phone
+        </a>
+
+        <div class="divider"><span>OR</span></div>
+
+        <!-- Email/Password Login Form -->
         <form id="loginForm">
             <div class="form-group">
                 <label for="email">Email Address</label>
@@ -1624,125 +1746,193 @@ app.get('/login', (req, res) => {
             <button type="submit" class="btn btn-primary">Sign In</button>
         </form>
 
-        <!-- Divider -->
-        <div class="divider"><span>OR</span></div>
-
-        <!-- Google Login -->
-        <button class="btn-social btn-google" onclick="window.location.href='/auth/google'">
-    <svg width="18" height="18" viewBox="0 0 18 18">
-        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
-        <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
-        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
-    </svg>
-    Continue with Google
-</button>
-
-        <!-- Facebook Login Button -->
-<a href="/auth/facebook" class="btn-social btn-facebook">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
-        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-    </svg>
-    Continue with Facebook
-</a>
-
-<a href="/phone-login" class="btn-social btn-phone">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-    </svg>
-    Continue with Phone
-</a>
-
-        <!-- Single Signup Section -->
         <div class="signup-section">
             <p>Don't have an account? <a href="#" id="signup-link">Sign Up Here</a></p>
         </div>
 
-        <!-- Cookie Links -->
         <div class="cookie-links">
             <a href="/privacy">Privacy Policy</a>
             <a href="/cookie-policy">Cookie Policy</a>
         </div>
     </div>
 
-    <!-- Single JavaScript Section -->
-    <script>
-    // Check if already logged in
-    (function() {
-        const userToken = localStorage.getItem('userToken');
-        const userEmail = localStorage.getItem('userEmail');
-        if (userToken && userEmail) {
-            window.location.href = '/dashboard';
-        }
-    })();
-
-    // Login form handler
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const formData = new FormData(e.target);
-        const loginData = {
-            email: formData.get('email'),
-            password: formData.get('password')
-        };
-
-        try {
-            const response = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(loginData)
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                localStorage.setItem('userToken', result.token);
-                localStorage.setItem('userId', result.user.id);
-                localStorage.setItem('userEmail', result.user.email);
-                localStorage.setItem('userType', result.userType);
-                localStorage.setItem('userInfo', JSON.stringify(result.user));
-
-                const urlParams = new URLSearchParams(window.location.search);
-                const redirectParam = urlParams.get('redirect');
-
-                showMessage('Welcome back! Redirecting...', 'success');
-
-                setTimeout(() => {
-                    if (redirectParam === 'plans') {
-                        window.location.href = '/plans.html';
-                    } else {
-                        window.location.href = result.redirect || '/dashboard.html';
-                    }
-                }, 1000);
-            } else {
-                showMessage(result.message, 'error');
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            showMessage('Login failed. Please try again.', 'error');
-        }
-    });
-
-    // Signup link handler
-    document.getElementById('signup-link').addEventListener('click', function(e) {
-        e.preventDefault();
-        const params = new URLSearchParams(window.location.search);
-        const r = params.get('redirect');
-        window.location.href = r ? \`/signup?redirect=\${encodeURIComponent(r)}\` : '/signup';
-    });
-
-    function showMessage(message, type) {
-        const errorDiv = document.getElementById('errorMessage');
-        errorDiv.textContent = message;
-        errorDiv.className = 'error-message ' + type;
-        errorDiv.style.display = 'block';
-        setTimeout(() => errorDiv.style.display = 'none', type === 'success' ? 3000 : 5000);
+   <script>
+// Show error message from URL params
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    
+    const errorMessages = {
+        'facebook-failed': 'Facebook login failed. Please try again.',
+        'facebook-no-email': 'Facebook did not provide your email. Please allow email access or use another login method.',
+        'facebook-callback-failed': 'Facebook login callback failed. Please try again.',
+        'google-failed': 'Google login failed. Please try again.',
+        'google-no-email': 'Google did not provide your email. Please allow email access or use another login method.',
+        'google-callback-failed': 'Google login callback failed. Please try again.',
+        'phone-failed': 'Phone authentication failed. Please try again.',
+        'session-expired': 'Your session expired. Please login again.',
+        'auth-failed': 'Authentication failed. Please try again.',
+        'oauth_failed': 'Social login failed. Please try again or use email/password.',
+        'account-blocked': 'Your account has been blocked. Please contact support.',
+        'email-not-verified': 'Please verify your email address to continue.'
+    };
+    
+    if (error && errorMessages[error]) {
+        showMessage(errorMessages[error], 'error');
     }
-    </script>
+});
 
-    <!-- Cookie Banner (loaded once) -->
+// Check if already logged in
+(function() {
+    const userToken = localStorage.getItem('userToken');
+    const userEmail = localStorage.getItem('userEmail');
+    if (userToken && userEmail) {
+        window.location.href = '/dashboard';
+    }
+})();
+
+// Login form handler
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    const originalText = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = 'Signing in...';
+    
+    const formData = new FormData(e.target);
+    const loginData = {
+        email: formData.get('email'),
+        password: formData.get('password')
+    };
+
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify(loginData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Store user data
+            localStorage.setItem('userToken', result.token);
+            localStorage.setItem('userId', result.user.id);
+            localStorage.setItem('userEmail', result.user.email);
+            localStorage.setItem('userType', result.userType);
+            localStorage.setItem('userInfo', JSON.stringify(result.user));
+
+            // Check if email verification is required
+            if (result.requiresVerification) {
+                console.log('⚠️ Email verification required');
+                
+                let warningMessage = result.message || 'Please verify your email address.';
+                
+                // Add countdown warning based on hours remaining
+                if (result.hoursRemaining !== undefined) {
+                    if (result.hoursRemaining === 0) {
+                        warningMessage = '🚨 URGENT: Your account will be blocked soon! Verify your email immediately.';
+                    } else if (result.hoursRemaining < 2) {
+                        warningMessage = '⚠️ URGENT: Only ' + result.hoursRemaining + ' hour(s) left to verify your email!\n\nYour account will be blocked if not verified.';
+                    } else {
+                        warningMessage = '⏰ Please verify your email within ' + result.hoursRemaining + ' hours to keep your account active.';
+                    }
+                }
+                
+                // Show warning and redirect
+                showMessage(warningMessage, 'error');
+                
+                setTimeout(() => {
+                    window.location.href = result.redirect || '/dashboard?verify=required';
+                }, 2000);
+                
+                return;
+            }
+
+            // Email verified - proceed with normal login
+            const urlParams = new URLSearchParams(window.location.search);
+            const redirectParam = urlParams.get('redirect');
+
+            showMessage('✅ Welcome back! Redirecting...', 'success');
+
+            setTimeout(() => {
+                if (redirectParam === 'plans') {
+                    window.location.href = '/plans.html';
+                } else {
+                    window.location.href = result.redirect || '/dashboard';
+                }
+            }, 1000);
+            
+        } else if (result.blocked) {
+            // Account is blocked
+            console.error('🚫 Account blocked:', result.message);
+            
+            const blockedMessage = '🚫 Account Blocked\n\n' + result.message + '\n\n' + (result.help || 'Please contact support for assistance.');
+            showMessage(blockedMessage, 'error');
+            
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+            
+        } else {
+            // Login failed
+            showMessage(result.message || 'Login failed. Please check your credentials.', 'error');
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        }
+        
+    } catch (error) {
+        console.error('Login error:', error);
+        showMessage('❌ Login failed. Please try again.', 'error');
+        submitButton.disabled = false;
+        submitButton.textContent = originalText;
+    }
+});
+
+// Signup link handler
+document.getElementById('signup-link').addEventListener('click', function(e) {
+    e.preventDefault();
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get('redirect');
+    if (r) {
+        window.location.href = '/signup?redirect=' + encodeURIComponent(r);
+    } else {
+        window.location.href = '/signup';
+    }
+});
+
+// Enhanced message display function
+function showMessage(message, type) {
+    const errorDiv = document.getElementById('errorMessage');
+    
+    // Handle multi-line messages
+    const lines = message.split('\n');
+    if (lines.length > 1) {
+        errorDiv.innerHTML = lines.map(function(line) {
+            return '<div>' + line + '</div>';
+        }).join('');
+    } else {
+        errorDiv.textContent = message;
+    }
+    
+    errorDiv.className = 'error-message ' + type;
+    errorDiv.style.display = 'block';
+    
+    // Auto-hide only success messages
+    if (type === 'success') {
+        setTimeout(() => {
+            errorDiv.style.display = 'none';
+        }, 3000);
+    }
+}
+</script>
+
+
+
+    <!-- Cookie Banner -->
     <script src="js/cookies.js"></script>
-   
 </body>
 </html>
   `;
@@ -1772,7 +1962,6 @@ app.get('/signup', (req, res) => {
             padding: 20px;
         }
 
-        /* Back Button - Fixed Position */
         .back-btn {
             position: fixed;
             top: 20px;
@@ -1799,7 +1988,6 @@ app.get('/signup', (req, res) => {
             transform: translateX(-3px);
         }
 
-        /* Signup Container - Centered */
         .signup-container {
             background: white;
             border-radius: 20px;
@@ -1884,6 +2072,11 @@ app.get('/signup', (req, res) => {
             box-shadow: 0 8px 20px rgba(107, 70, 193, 0.4);
         }
 
+        .btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         .terms-agreement {
             font-size: 12px;
             color: #6B7280;
@@ -1913,30 +2106,6 @@ app.get('/signup', (req, res) => {
         .divider span { padding: 0 15px; }
 
         .btn-social {
-    width: 100%;
-    padding: 12px;
-    background: white;
-    border: 2px solid #E5E7EB;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    color: #374151;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: all 0.3s ease;
-    text-decoration: none;
-    margin-bottom: 12px;
-}
-
-.btn-social:hover {
-    background: #F9FAFB;
-    border-color: #D1D5DB;
-}
-        
-        .btn-google {
             width: 100%;
             padding: 12px;
             background: white;
@@ -1952,32 +2121,32 @@ app.get('/signup', (req, res) => {
             gap: 10px;
             transition: all 0.3s ease;
             text-decoration: none;
+            margin-bottom: 12px;
         }
 
-        .btn-google:hover {
+        .btn-social:hover {
             background: #F9FAFB;
             border-color: #D1D5DB;
         }
 
         .btn-facebook {
-    border-color: #1877F2;
-}
+            border-color: #1877F2;
+        }
 
-.btn-facebook:hover {
-    background: #EFF6FF;
-    border-color: #1877F2;
-}
+        .btn-facebook:hover {
+            background: #EFF6FF;
+            border-color: #1877F2;
+        }
 
-.btn-phone {
-    border-color: #10B981;
-}
+        .btn-phone {
+            border-color: #10B981;
+        }
 
-.btn-phone:hover {
-    background: #ECFDF5;
-    border-color: #10B981;
-}
+        .btn-phone:hover {
+            background: #ECFDF5;
+            border-color: #10B981;
+        }
 
-        /* Login Section */
         .login-section {
             text-align: center;
             margin-top: 25px;
@@ -2013,11 +2182,13 @@ app.get('/signup', (req, res) => {
         .error-message {
             background: #FEE2E2;
             color: #DC2626;
+            border: 1px solid #DC2626;
         }
 
         .success-message {
             background: #D1FAE5;
             color: #059669;
+            border: 1px solid #059669;
         }
 
         @media (max-width: 576px) {
@@ -2027,16 +2198,9 @@ app.get('/signup', (req, res) => {
             .welcome-text { font-size: 20px; }
             .form-row { flex-direction: column; gap: 0; }
         }
-
-        
-
-
-
-
     </style>
 </head>
 <body>
-    <!-- Back Button -->
     <a href="/" class="back-btn">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
@@ -2097,40 +2261,36 @@ app.get('/signup', (req, res) => {
 
         <div class="divider"><span>OR</span></div>
 
-        <button class="btn-social btn-google" onclick="window.location.href='/auth/google'">
-    <svg width="18" height="18" viewBox="0 0 18 18">
-        <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-        <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
-        <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
-        <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
-    </svg>
-    Continue with Google
-</button>
+        <a href="/auth/google" class="btn-social">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+                <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.04l3.007-2.333z"/>
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            Continue with Google
+        </a>
 
-        <!-- Facebook Login Button -->
-<a href="/auth/facebook" class="btn-social btn-facebook">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
-        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-    </svg>
-    Continue with Facebook
-</a>
+        <a href="/auth/facebook" class="btn-social btn-facebook">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+            </svg>
+            Continue with Facebook
+        </a>
 
-<a href="/phone-login" class="btn-social btn-phone">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-    </svg>
-    Continue with Phone
-</a>
+        <a href="/phone-login" class="btn-social btn-phone">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+            </svg>
+            Continue with Phone
+        </a>
 
-
-        <!-- Single Login Section -->
         <div class="login-section">
             <p>Already have an account? <a href="#" id="login-link">Login Here</a></p>
         </div>
     </div>
 
     <script>
-    // Check if already logged in
     (function() {
         const userToken = localStorage.getItem('userToken');
         const userEmail = localStorage.getItem('userEmail');
@@ -2139,7 +2299,6 @@ app.get('/signup', (req, res) => {
         }
     })();
 
-    // Signup form handler
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -2162,13 +2321,18 @@ app.get('/signup', (req, res) => {
             lastName: formData.get('lastName'),
             email: formData.get('email'),
             phoneNumber: formData.get('phoneNumber') || null,
-            password: password
+            password: password,
+            provider: 'email'
         };
         
-        const urlParams = new URLSearchParams(window.location.search);
-        const redirect = urlParams.get('redirect');
+        const submitButton = document.querySelector('#signupForm button[type="submit"]');
+        const originalButtonText = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.textContent = 'Creating account...';
         
         try {
+            console.log('📝 Attempting signup for:', signupData.email);
+            
             const response = await fetch('/api/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2176,54 +2340,58 @@ app.get('/signup', (req, res) => {
             });
             
             const result = await response.json();
+            console.log('Response:', result);
             
             if (result.success) {
+                console.log('✅ Signup successful');
+                
                 localStorage.setItem('userEmail', signupData.email);
                 localStorage.setItem('userName', signupData.firstName);
+                localStorage.setItem('userToken', result.token);
+                localStorage.setItem('userId', result.user.id);
                 
-                // Auto-login
-                const loginResponse = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        email: signupData.email, 
-                        password: password 
-                    })
-                });
-                
-                const loginData = await loginResponse.json();
-                
-                if (loginData.success) {
-                    localStorage.setItem('userToken', loginData.token);
-                    localStorage.setItem('userId', loginData.user.id);
-                    
+                if (result.emailVerificationSent) {
+                    showSuccess('Account created! Check your email (' + signupData.email + ') to verify your account. Redirecting...');
+                } else {
                     showSuccess('Account created successfully! Redirecting...');
-                    
-                    setTimeout(() => {
-                        if (redirect === 'plans') {
-                            window.location.href = '/plans.html';
-                        } else {
-                            window.location.href = '/dashboard.html';
-                        }
-                    }, 1500);
                 }
+                
+                setTimeout(() => {
+                    window.location.href = result.redirect || '/dashboard';
+                }, 3000);
+                
             } else {
-                showError(result.message);
+                console.error('❌ Signup failed:', result.message);
+                
+                if (result.message.includes('already exists')) {
+                    showError('An account with this email already exists. Please login instead.');
+                } else if (result.message.includes('domain does not exist')) {
+                    showError('Please use a valid email address. The email domain does not exist.');
+                } else if (result.message.includes('Disposable email')) {
+                    showError('Disposable email addresses are not allowed. Please use your regular email.');
+                } else {
+                    showError(result.message);
+                }
+                
+                submitButton.disabled = false;
+                submitButton.textContent = originalButtonText;
             }
+            
         } catch (error) {
-            console.error('Signup error:', error);
-            showError('Signup failed. Please try again.');
+            console.error('❌ Signup error:', error);
+            showError('Signup failed. Please check your connection and try again.');
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
         }
     });
 
-    // Login link handler
     const loginLink = document.getElementById('login-link');
     if (loginLink) {
         loginLink.addEventListener('click', function(e) {
             e.preventDefault();
             const params = new URLSearchParams(window.location.search);
             const r = params.get('redirect');
-            window.location.href = r ? \`/login?redirect=\${encodeURIComponent(r)}\` : '/login';
+            window.location.href = r ? '/login?redirect=' + encodeURIComponent(r) : '/login';
         });
     }
 
@@ -2257,6 +2425,40 @@ app.get('/signup', (req, res) => {
   `;
   res.send(html);
 });
+
+// Temporary admin endpoint - remove in production
+app.post('/api/admin/block-user', async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        const user = await userManager.getUserByEmail(email);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        
+        await userManager.updateUser(user.id, {
+            active: false,
+            blockedReason: 'Email not verified within 24 hours',
+            blockedAt: new Date()
+        });
+        
+        res.json({ 
+            success: true, 
+            message: 'User blocked successfully',
+            email: email 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
+// Add this temporarily to your app.js to verify env variables
+console.log('🔧 Email config check:');
+console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
+console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
+console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'Set ✅' : 'Missing ❌');
+console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'Set ✅' : 'Missing ❌');
 
 
 // Helper function to calculate training zone distribution
@@ -3595,7 +3797,7 @@ app.get('/terms', (req, res) => {
 });
 
 
-// Direct Strava connection route (bypasses login)
+
 // Make sure this route exists and works correctly
 app.get('/strava-connect', (req, res) => {
     const userToken = req.query.userToken;
@@ -3625,9 +3827,6 @@ app.get('/strava-connect', (req, res) => {
     console.log('🔗 Redirecting to Strava');
     res.redirect(stravaAuthUrl);
 });
-
-
-
 
 
 // Update your existing /login route to also redirect to Strava
@@ -6384,14 +6583,37 @@ console.log('✅ WhatsApp daily workout scheduler initialized');
 
 
 // Phone authentication endpoint
+// Phone Authentication Endpoint - COMPLETE VERSION
 app.post('/api/auth/phone-login', async (req, res) => {
     try {
         const { phoneNumber, firebaseUid, idToken } = req.body;
 
+        // Validate input
+        if (!phoneNumber || !firebaseUid || !idToken) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Missing required fields: phoneNumber, firebaseUid, or idToken' 
+            });
+        }
+
+        console.log('📱 Phone login attempt:', phoneNumber);
+
         // Verify Firebase ID token
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        let decodedToken;
+        try {
+            decodedToken = await admin.auth().verifyIdToken(idToken);
+            console.log('✅ Firebase token verified');
+        } catch (verifyError) {
+            console.error('❌ Token verification failed:', verifyError);
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid Firebase token' 
+            });
+        }
         
+        // Verify phone number matches token
         if (decodedToken.phone_number !== phoneNumber) {
+            console.error('❌ Phone number mismatch');
             return res.status(400).json({ 
                 success: false, 
                 message: 'Phone number mismatch' 
@@ -6402,49 +6624,97 @@ app.post('/api/auth/phone-login', async (req, res) => {
         let user = await userManager.getUserByPhone(phoneNumber);
 
         if (!user) {
-            // Create new user
+            // Create new user via phone
+            console.log('📝 Creating new user with phone:', phoneNumber);
+            
             user = await userManager.createUser({
                 phoneNumber: phoneNumber,
                 firebaseUid: firebaseUid,
                 email: `${phoneNumber.replace('+', '')}@phone.zonetrain.com`, // Temporary email
                 firstName: 'User',
-                provider: 'phone'
+                lastName: '',
+                provider: 'phone',
+                emailVerified: false,
+                subscriptionStatus: 'free',
+                currentPlan: null,
+                active: true
             });
 
             console.log('✅ New user created via phone:', user.id);
+            
+            // Track signup activity
+            try {
+                await userManager.trackActivity(user.id, 'phone_signup', {
+                    provider: 'phone',
+                    phoneNumber: phoneNumber
+                });
+            } catch (trackError) {
+                console.warn('⚠️ Failed to track activity:', trackError.message);
+            }
         } else {
-            // Update last login
+            // Update existing user's last login
+            console.log('👤 Existing user found:', user.id);
+            
             await userManager.updateUser(user.id, {
-                lastLogin: new Date()
+                lastLogin: new Date(),
+                loginCount: (user.loginCount || 0) + 1,
+                firebaseUid: firebaseUid // Update if changed
             });
+
+            // Track login activity
+            try {
+                await userManager.trackActivity(user.id, 'phone_login', {
+                    phoneNumber: phoneNumber
+                });
+            } catch (trackError) {
+                console.warn('⚠️ Failed to track activity:', trackError.message);
+            }
+
+            // Refresh user data
+            user = await userManager.getUserById(user.id);
         }
 
-        // Generate JWT
+        // Generate JWT token
         const token = jwt.sign(
             {
                 userId: user.id,
                 phoneNumber: phoneNumber,
-                plan: user.currentPlan,
-                status: user.subscriptionStatus
+                plan: user.currentPlan || null,
+                status: user.subscriptionStatus || 'free'
             },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
+        // Set HTTP-only cookie
+        res.cookie('userToken', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            sameSite: 'lax',
+            path: '/'
+        });
+
+        console.log('✅ Phone login successful for user:', user.id);
+
+        // Return success response
         res.json({
             success: true,
             token: token,
-            user: userManager.sanitizeUser(user)
+            user: userManager.sanitizeUser(user),
+            message: 'Login successful',
+            redirect: '/dashboard'
         });
 
     } catch (error) {
         console.error('❌ Phone login error:', error);
         res.status(500).json({
             success: false,
-            message: 'Phone authentication failed'
+            message: 'Phone authentication failed: ' + error.message
         });
     }
 });
+
 
 const WhatsAppService = require('./services/whatsappService');
 const whatsappService = new WhatsAppService();
@@ -7836,6 +8106,152 @@ app.post('/api/workouts/:workoutId/complete', authenticateToken, async (req, res
     }
 });
 
+// Email verification endpoint
+app.get('/verify-email', async (req, res) => {
+    try {
+        const { token } = req.query;
+
+        if (!token) {
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Verification Failed</title>
+                    <style>
+                        body { font-family: Arial; text-align: center; padding: 50px; }
+                        .error { color: #EF4444; }
+                    </style>
+                </head>
+                <body>
+                    <h1 class="error">❌ Verification Failed</h1>
+                    <p>No verification token provided.</p>
+                    <a href="/login">Go to Login</a>
+                </body>
+                </html>
+            `);
+        }
+
+        const result = await userManager.verifyEmailToken(token);
+
+        if (result.success) {
+            return res.send(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Email Verified</title>
+                    <style>
+                        body { 
+                            font-family: Arial; 
+                            text-align: center; 
+                            padding: 50px;
+                            background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
+                            color: white;
+                        }
+                        .success { 
+                            background: white; 
+                            color: #10B981; 
+                            padding: 40px; 
+                            border-radius: 10px;
+                            max-width: 500px;
+                            margin: 0 auto;
+                        }
+                        .button {
+                            display: inline-block;
+                            background: #6B46C1;
+                            color: white;
+                            padding: 15px 30px;
+                            text-decoration: none;
+                            border-radius: 5px;
+                            margin-top: 20px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="success">
+                        <h1>✅ Email Verified!</h1>
+                        <p>${result.alreadyVerified ? 'Your email was already verified.' : 'Your email has been successfully verified.'}</p>
+                        <p>You can now log in and start using ZoneTrain.</p>
+                        <a href="/login" class="button">Go to Login</a>
+                    </div>
+                </body>
+                </html>
+            `);
+        }
+
+    } catch (error) {
+        console.error('Verification error:', error);
+        
+        return res.status(400).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Verification Failed</title>
+                <style>
+                    body { font-family: Arial; text-align: center; padding: 50px; }
+                    .error { color: #EF4444; }
+                </style>
+            </head>
+            <body>
+                <h1 class="error">❌ Verification Failed</h1>
+                <p>${error.message}</p>
+                <a href="/resend-verification">Resend Verification Email</a>
+            </body>
+            </html>
+        `);
+    }
+});
+
+// Resend verification email endpoint
+app.post('/api/auth/resend-verification', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        await userManager.resendVerificationEmail(userId);
+
+        res.json({
+            success: true,
+            message: 'Verification email sent. Please check your inbox.'
+        });
+
+    } catch (error) {
+        console.error('Resend verification error:', error);
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Check email verification status
+app.get('/api/auth/email-verification-status', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const user = await userManager.getUserById(userId);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            emailVerified: user.emailVerified || false,
+            email: user.email
+        });
+
+    } catch (error) {
+        console.error('Check verification status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check verification status'
+        });
+    }
+});
+
+// Add node-cron for scheduled tasks
+// Add at the top with other requires
 
 
 app.listen(port, () => {
@@ -8257,53 +8673,124 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Complete Login Route with Block Check and Countdown
+
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         console.log('🔄 Login attempt for:', email);
         
+        // Authenticate user
         const result = await userManager.authenticateUser(email, password);
         
         if (result && result.user && result.token) {
-            console.log('✅ Login successful for:', email);
-            console.log('User subscription status:', result.user.subscriptionStatus);
+            console.log('✅ Authentication successful for:', email);
             
-            // ✨ NEW: Set token as HTTP-only cookie
+            // **CHECK IF ACCOUNT IS BLOCKED/INACTIVE**
+            if (result.user.active === false) {
+                console.log('🚫 Account blocked:', email);
+                
+                const blockReason = result.user.blockedReason || 'Account has been deactivated';
+                
+                return res.status(403).json({
+                    success: false,
+                    blocked: true,
+                    message: blockReason,
+                    help: 'Please contact support if you believe this is an error.'
+                });
+            }
+            
+            console.log('📧 Email verified:', result.user.emailVerified);
+            console.log('📊 Subscription status:', result.user.subscriptionStatus);
+            console.log('👤 Account active:', result.user.active !== false);
+            
+            // Set token as HTTP-only cookie
             res.cookie('userToken', result.token, {
-                httpOnly: true, // Prevents JavaScript access (XSS protection)
-                secure: false,
-                //secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
                 maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
                 sameSite: 'lax',
-                //sameSite: 'strict', // CSRF protection
-                path: '/' // Available across entire site
+                path: '/'
             });
             
             console.log('🍪 Token set as cookie');
             
+            // Check email verification status
+            const isEmailVerified = result.user.emailVerified || false;
+            const authProvider = result.user.authProvider || 'email';
+            
+            // OAuth users (Google/Facebook) are auto-verified, skip check
+            const requiresVerification = authProvider === 'email' && !isEmailVerified;
+            
+            if (requiresVerification) {
+                console.log('⚠️ Email not verified for:', email);
+                
+                // Calculate hours remaining until account block
+                let hoursRemaining = null;
+                if (result.user.createdAt) {
+                    const createdAt = result.user.createdAt.toDate 
+                        ? result.user.createdAt.toDate() 
+                        : new Date(result.user.createdAt);
+                    const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+                    hoursRemaining = Math.max(0, Math.floor(24 - hoursSinceCreation));
+                    
+                    console.log(`⏰ Hours remaining until block: ${hoursRemaining}`);
+                }
+                
+                return res.json({
+                    success: true,
+                    token: result.token,
+                    user: {
+                        id: result.user.id,
+                        email: result.user.email,
+                        firstName: result.user.firstName,
+                        subscriptionStatus: result.user.subscriptionStatus || 'free',
+                        currentPlan: result.user.currentPlan,
+                        emailVerified: false
+                    },
+                    emailVerified: false,
+                    requiresVerification: true,
+                    hoursRemaining: hoursRemaining,
+                    userType: result.user.subscriptionStatus === 'active' ? 'premium' : 'free',
+                    message: hoursRemaining !== null && hoursRemaining < 2 
+                        ? `⚠️ URGENT: Verify your email within ${hoursRemaining} hour(s) or your account will be blocked!`
+                        : 'Please verify your email address. Account will be blocked if not verified within 24 hours.',
+                    redirect: '/dashboard?verify=required'
+                });
+            }
+            
+            // Email is verified or OAuth login - full access
+            console.log('✅ Login complete for verified user:', email);
+            
             const response = {
-    success: true,
-    token: result.token,
-    user: {
-        id: result.user.id,
-        email: result.user.email,
-        firstName: result.user.firstName,
-        subscriptionStatus: result.user.subscriptionStatus || 'free',
-        currentPlan: result.user.currentPlan
-    },
-    userType: result.user.subscriptionStatus === 'active' ? 'premium' : 'free',
-    message: 'Login successful',
-    redirect: '/dashboard' // ✅ Already present
-};
+                success: true,
+                token: result.token,
+                user: {
+                    id: result.user.id,
+                    email: result.user.email,
+                    firstName: result.user.firstName,
+                    lastName: result.user.lastName,
+                    subscriptionStatus: result.user.subscriptionStatus || 'free',
+                    currentPlan: result.user.currentPlan,
+                    emailVerified: isEmailVerified
+                },
+                emailVerified: true,
+                requiresVerification: false,
+                userType: result.user.subscriptionStatus === 'active' ? 'premium' : 'free',
+                message: 'Login successful',
+                redirect: '/dashboard'
+            };
             
             return res.json(response);
+            
         } else {
-            console.log('❌ Login failed for:', email);
+            console.log('❌ Authentication failed for:', email);
             return res.status(401).json({ 
                 success: false, 
                 message: 'Invalid credentials' 
             });
         }
+        
     } catch (error) {
         console.error('❌ Login error:', error);
         return res.status(401).json({ 
@@ -8827,30 +9314,116 @@ app.get('/debug/test-token', async (req, res) => {
 });
 
 // Add this route (duplicate for compatibility)
+// Updated Signup Route with Email Verification
 app.post('/api/signup', async (req, res) => {
-  try {
-    const passwordValidation = validatePassword(req.body.password);
-    if (!passwordValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        message: passwordValidation.message
-      });
+    try {
+        const { email, password, firstName, lastName, referralCode } = req.body;
+        
+        console.log('📝 Signup attempt for:', email);
+
+        // Validate required fields
+        if (!email || !password || !firstName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email, password, and first name are required'
+            });
+        }
+
+        // Validate password strength
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: passwordValidation.message
+            });
+        }
+
+        // Create user (email validation happens inside createUser)
+        const user = await userManager.createUser({
+            email,
+            password,
+            firstName,
+            lastName: lastName || '',
+            referralCode: referralCode || null,
+            provider: 'email'
+        });
+
+        console.log('✅ User created successfully:', user.id);
+
+        // Generate JWT token for immediate login
+        const token = jwt.sign(
+            { 
+                userId: user.id, 
+                email: user.email,
+                plan: user.currentPlan,
+                status: user.subscriptionStatus
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        // Set token as HTTP-only cookie
+        res.cookie('userToken', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            sameSite: 'lax',
+            path: '/'
+        });
+
+        console.log('🍪 Token set as cookie');
+        console.log('📧 Verification email sent to:', email);
+
+        // Return success response
+        res.json({
+            success: true,
+            message: 'Account created successfully! Please check your email to verify your account.',
+            token: token,
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                emailVerified: false,
+                subscriptionStatus: user.subscriptionStatus
+            },
+            emailVerificationSent: true,
+            redirect: '/dashboard?verify=required'
+        });
+
+    } catch (error) {
+        console.error('❌ Signup error:', error);
+        
+        // Handle specific error cases
+        if (error.message.includes('already exists')) {
+            return res.status(400).json({
+                success: false,
+                message: 'An account with this email already exists. Please login instead.'
+            });
+        } else if (error.message.includes('domain does not exist')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please use a valid email address. The email domain does not exist.'
+            });
+        } else if (error.message.includes('Disposable email')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Disposable email addresses are not allowed. Please use a permanent email address.'
+            });
+        } else if (error.message.includes('email')) {
+            return res.status(400).json({
+                success: false,
+                message: error.message
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: 'Signup failed. Please try again later.'
+        });
     }
-    const user = await userManager.createUser(req.body);
-    res.json({
-      success: true,
-      message: 'Account created successfully!',
-      user: user,
-      redirect: '/dashboard'
-    });
-  } catch (error) {
-    console.error('Signup error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
 });
+
 
 // Add these helper functions first
 const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
@@ -9644,39 +10217,63 @@ passport.deserializeUser(async (id, done) => {
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: '/auth/google/callback'
+  callbackURL: `${process.env.BASE_URL || 'http://localhost:3000'}/auth/google/callback`,
+  userProfileURL: 'https://www.googleapis.com/oauth2/v3/userinfo'
 }, async (accessToken, refreshToken, profile, done) => {
   try {
-    // Check if user already exists
-    let user = await userManager.getUserByEmail(profile.emails[0].value);
+    console.log('🔵 Google OAuth callback received');
+    console.log('Profile ID:', profile.id);
+    
+    if (!profile.emails || !profile.emails[0]) {
+      console.error('❌ No email provided by Google');
+      return done(new Error('EMAIL_NOT_PROVIDED'), null);
+    }
+    
+    const email = profile.emails[0].value;
+    console.log('📧 Email:', email);
+    
+    let user = await userManager.getUserByEmail(email);
     
     if (user) {
-      // User exists, update their info and login
+      console.log('👤 Existing user found:', user.id);
+      
       await userManager.updateUser(user.id, {
         googleId: profile.id,
-        firstName: profile.name.givenName,
-        lastName: profile.name.familyName,
-        avatar: profile.photos[0].value,
-        lastLogin: new Date()
+        firstName: profile.name?.givenName || user.firstName,
+        lastName: profile.name?.familyName || user.lastName,
+        avatar: profile.photos?.[0]?.value || user.avatar,
+        lastLogin: new Date(),
+        loginCount: (user.loginCount || 0) + 1,
+        emailVerified: true,
+        authProvider: 'google'
       });
+      
       user = await userManager.getUserById(user.id);
+      await userManager.trackActivity(user.id, 'google_login', { provider: 'google' });
+      
+      console.log('✅ Existing user logged in via Google');
       return done(null, user);
+      
     } else {
-      // Create new user with proper OAuth data
+      console.log('📝 Creating new user with Google data');
+      
       const newUser = await userManager.createOAuthUser({
         googleId: profile.id,
-        email: profile.emails[0].value,
-        firstName: profile.name.givenName,
-        lastName: profile.name.familyName,
-        avatar: profile.photos[0].value,
+        email: email,
+        firstName: profile.name?.givenName || 'User',
+        lastName: profile.name?.familyName || '',
+        avatar: profile.photos?.[0]?.value || null,
         provider: 'google'
       });
       
+      console.log('✅ New user created via Google:', newUser.id);
       await userManager.trackActivity(newUser.id, 'google_signup', { provider: 'google' });
+      
       return done(null, newUser);
     }
+    
   } catch (error) {
-    console.error('Google OAuth error:', error);
+    console.error('❌ Google OAuth error:', error);
     return done(error, null);
   }
 }));
@@ -9691,97 +10288,360 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // Google OAuth routes
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
 
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login?error=oauth_failed' }),
-  async (req, res) => {
-    // Successful authentication
-    const user = req.user;
+
+// Google OAuth Strategy - Improved with error handling
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: `${process.env.BASE_URL || 'http://localhost:3000'}/auth/google/callback`,
+  userProfileURL: 'https://www.googleapis.com/oauth2/v3/userinfo'
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    console.log('🔵 Google OAuth callback received');
+    console.log('Profile ID:', profile.id);
+    console.log('Profile emails:', profile.emails);
     
-    // Generate JWT token for frontend
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email,
-        plan: user.currentPlan,
-        status: user.subscriptionStatus
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // Set user data in session for the redirect
-    req.session.authData = {
-      token: token,
-      user: userManager.sanitizeUser(user)
-    };
-
-    res.redirect('/auth/success');
+    // Validate email exists
+    if (!profile.emails || !profile.emails[0]) {
+      console.error('❌ No email provided by Google');
+      return done(new Error('EMAIL_NOT_PROVIDED'), null);
+    }
+    
+    const email = profile.emails[0].value;
+    console.log('📧 Email:', email);
+    
+    // Check if user already exists
+    let user = await userManager.getUserByEmail(email);
+    
+    if (user) {
+      // User exists, update their info
+      console.log('👤 Existing user found:', user.id);
+      
+      await userManager.updateUser(user.id, {
+        googleId: profile.id,
+        firstName: profile.name?.givenName || user.firstName,
+        lastName: profile.name?.familyName || user.lastName,
+        avatar: profile.photos?.[0]?.value || user.avatar,
+        lastLogin: new Date(),
+        loginCount: (user.loginCount || 0) + 1,
+        emailVerified: true,
+        authProvider: 'google'
+      });
+      
+      // Refresh user data
+      user = await userManager.getUserById(user.id);
+      
+      // Track login activity
+      await userManager.trackActivity(user.id, 'google_login', {
+        provider: 'google'
+      });
+      
+      console.log('✅ Existing user logged in via Google');
+      return done(null, user);
+      
+    } else {
+      // Create new user with proper OAuth data
+      console.log('📝 Creating new user with Google data');
+      
+      const newUser = await userManager.createOAuthUser({
+        googleId: profile.id,
+        email: email,
+        firstName: profile.name?.givenName || 'User',
+        lastName: profile.name?.familyName || '',
+        avatar: profile.photos?.[0]?.value || null,
+        provider: 'google'
+      });
+      
+      console.log('✅ New user created via Google:', newUser.id);
+      
+      // Track signup activity
+      await userManager.trackActivity(newUser.id, 'google_signup', { 
+        provider: 'google' 
+      });
+      
+      return done(null, newUser);
+    }
+    
+  } catch (error) {
+    console.error('❌ Google OAuth error:', error);
+    return done(error, null);
   }
-);
+}));
+
+// Serialize user for session
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+// Deserialize user from session
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await userManager.getUserById(id);
+    done(null, user);
+  } catch (error) {
+    console.error('❌ Deserialize user error:', error);
+    done(error, null);
+  }
+});
+
+// ==================== GOOGLE OAUTH ROUTES ====================
+
+// Initiate Google OAuth
+app.get('/auth/google', (req, res, next) => {
+  console.log('🚀 Initiating Google OAuth flow');
+  passport.authenticate('google', { 
+    scope: ['profile', 'email'],
+    session: false
+  })(req, res, next);
+});
+
+app.get('/auth/google/callback', (req, res, next) => {
+  passport.authenticate('google', { 
+    session: false,
+    failureRedirect: '/login?error=google-failed'
+  }, async (err, user, info) => {
+    try {
+      if (err) {
+        console.error('❌ Google OAuth error:', err.message);
+        
+        if (err.message === 'EMAIL_NOT_PROVIDED') {
+          return res.redirect('/login?error=google-no-email');
+        }
+        
+        return res.redirect('/login?error=google-failed');
+      }
+      
+      if (!user) {
+        console.error('❌ No user returned from Google OAuth');
+        return res.redirect('/login?error=google-failed');
+      }
+      
+      console.log('✅ Google OAuth successful for user:', user.id);
+      
+      const token = jwt.sign(
+        { 
+          userId: user.id, 
+          email: user.email,
+          plan: user.currentPlan || null,
+          status: user.subscriptionStatus || 'free'
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      
+      res.cookie('userToken', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        sameSite: 'lax',
+        path: '/'
+      });
+      
+      console.log('✅ Token set, redirecting to dashboard');
+      res.redirect('/dashboard?login=google');
+      
+    } catch (error) {
+      console.error('❌ Google callback error:', error);
+      res.redirect('/login?error=google-callback-failed');
+    }
+  })(req, res, next);
+});
+
 
 // Success page that transfers data to localStorage
 app.get('/auth/success', (req, res) => {
   const authData = req.session.authData;
   
   if (!authData) {
-    return res.redirect('/login?error=session_expired');
+    console.error('❌ No auth data in session');
+    return res.redirect('/login?error=session-expired');
   }
+  
+  console.log('✅ Auth success page loaded for user:', authData.user.id);
 
   // Clear session data after use
   delete req.session.authData;
 
   const html = `
   <!DOCTYPE html>
-  <html>
+  <html lang="en">
   <head>
-  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Successful - ZoneTrain</title>
+    <link rel="stylesheet" href="css/cookies.css">
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
       body { 
-        font-family: Arial, sans-serif; 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         background: linear-gradient(135deg, #6B46C1, #8B5CF6);
         color: white; 
-        text-align: center; 
-        padding: 50px; 
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 20px;
       }
-      .container { background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; }
-      .spinner { font-size: 2rem; animation: spin 1s linear infinite; }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      
+      .container { 
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        padding: 60px 40px;
+        border-radius: 20px;
+        text-align: center;
+        max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      }
+      
+      .spinner { 
+        font-size: 4rem;
+        animation: bounce 1s ease-in-out infinite;
+        margin-bottom: 20px;
+      }
+      
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-20px); }
+      }
+      
+      h2 {
+        font-size: 2rem;
+        margin-bottom: 15px;
+        font-weight: 600;
+      }
+      
+      p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+      }
+      
+      .progress-bar {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+        margin-top: 30px;
+        overflow: hidden;
+      }
+      
+      .progress-fill {
+        height: 100%;
+        background: white;
+        animation: progress 2s ease-in-out;
+        border-radius: 2px;
+      }
+      
+      @keyframes progress {
+        0% { width: 0%; }
+        100% { width: 100%; }
+      }
+      
+      .error-container {
+        display: none;
+        background: rgba(239, 68, 68, 0.1);
+        border: 2px solid #EF4444;
+        padding: 20px;
+        border-radius: 12px;
+        margin-top: 20px;
+      }
+      
+      .retry-btn {
+        margin-top: 20px;
+        padding: 12px 30px;
+        background: white;
+        color: #6B46C1;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+      
+      .retry-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <div class="spinner">🏃‍♂️</div>
       <h2>Login Successful!</h2>
-      <p>Redirecting to your dashboard...</p>
+      <p>Setting up your dashboard...</p>
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+      
+      <div class="error-container" id="errorContainer">
+        <p>⚠️ Something went wrong. Redirecting to login...</p>
+        <a href="/login" class="retry-btn">Try Again</a>
+      </div>
     </div>
 
     <script>
-      // Store auth data in localStorage
-      localStorage.setItem('userToken', '${authData.token}');
-      localStorage.setItem('userId', '${authData.user.id}');
-      localStorage.setItem('userEmail', '${authData.user.email}');
-      
-      // Redirect to dashboard
-      setTimeout(() => {
-        window.location.href = '/dashboard.html';
-      }, 2000);
+      (function() {
+        try {
+          // Validate auth data exists
+          const authData = ${JSON.stringify(authData)};
+          
+          if (!authData || !authData.token || !authData.user) {
+            throw new Error('Invalid auth data');
+          }
+          
+          console.log('✅ Auth data received:', {
+            userId: authData.user.id,
+            email: authData.user.email
+          });
+          
+          // Store auth data in localStorage
+          localStorage.setItem('userToken', authData.token);
+          localStorage.setItem('userId', authData.user.id);
+          localStorage.setItem('userEmail', authData.user.email);
+          localStorage.setItem('userType', authData.user.subscriptionStatus || 'free');
+          localStorage.setItem('userInfo', JSON.stringify(authData.user));
+          
+          console.log('✅ Auth data stored in localStorage');
+          
+          // Redirect to dashboard after animation
+          setTimeout(() => {
+            console.log('🚀 Redirecting to dashboard...');
+            window.location.href = '/dashboard.html';
+          }, 2000);
+          
+        } catch (error) {
+          console.error('❌ Auth success page error:', error);
+          
+          // Show error message
+          document.querySelector('.spinner').style.display = 'none';
+          document.querySelector('h2').textContent = 'Oops!';
+          document.querySelector('p').textContent = 'Something went wrong.';
+          document.getElementById('errorContainer').style.display = 'block';
+          
+          // Redirect to login after 5 seconds
+          setTimeout(() => {
+            window.location.href = '/login?error=auth-failed';
+          }, 5000);
+        }
+      })();
     </script>
+    
     <script src="/components/nav-header.js"></script>
+    <script src="js/cookies.js"></script>
   </body>
   </html>
   `;
   
   res.send(html);
 });
+
 
 const FacebookStrategy = require('passport-facebook').Strategy;
 
@@ -9790,42 +10650,51 @@ passport.use(new FacebookStrategy({
     clientID: process.env.FACEBOOK_APP_ID,
     clientSecret: process.env.FACEBOOK_APP_SECRET,
     callbackURL: `${process.env.BASE_URL || 'http://localhost:3000'}/auth/facebook/callback`,
-    profileFields: ['id', 'emails', 'name', 'photos']
+    profileFields: ['id', 'emails', 'name', 'photos', 'displayName'],
+    enableProof: true
 }, async (accessToken, refreshToken, profile, done) => {
     try {
-        console.log('✅ Facebook OAuth callback received:', profile.id);
+        console.log('📘 Facebook OAuth callback received');
+        console.log('Profile ID:', profile.id);
         
-        // Check if user email exists
-        if (!profile.emails || !profile.emails[0]) {
-            return done(new Error('No email provided by Facebook'), null);
+        if (!profile.emails || profile.emails.length === 0) {
+            console.error('❌ No email provided by Facebook');
+            return done(new Error('EMAIL_NOT_PROVIDED'), null);
         }
         
         const email = profile.emails[0].value;
+        console.log('📧 Email:', email);
         
-        // Check if user already exists
         let user = await userManager.getUserByEmail(email);
         
         if (user) {
-            // User exists, update their Facebook info
+            console.log('👤 Existing user found:', user.id);
+            
             await userManager.updateUser(user.id, {
                 facebookId: profile.id,
-                firstName: profile.name.givenName || user.firstName,
-                lastName: profile.name.familyName || user.lastName,
-                avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : user.avatar,
-                lastLogin: new Date()
+                firstName: profile.name?.givenName || user.firstName,
+                lastName: profile.name?.familyName || user.lastName,
+                avatar: profile.photos?.[0]?.value || user.avatar,
+                lastLogin: new Date(),
+                loginCount: (user.loginCount || 0) + 1,
+                authProvider: 'facebook'
             });
             
             user = await userManager.getUserById(user.id);
+            await userManager.trackActivity(user.id, 'facebook_login', { provider: 'facebook' });
+            
             console.log('✅ Existing user logged in via Facebook');
             return done(null, user);
+            
         } else {
-            // Create new user with Facebook OAuth data
+            console.log('📝 Creating new user with Facebook data');
+            
             const newUser = await userManager.createOAuthUser({
                 facebookId: profile.id,
                 email: email,
-                firstName: profile.name.givenName || 'User',
-                lastName: profile.name.familyName || '',
-                avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
+                firstName: profile.name?.givenName || profile.displayName?.split(' ')[0] || 'User',
+                lastName: profile.name?.familyName || profile.displayName?.split(' ')[1] || '',
+                avatar: profile.photos?.[0]?.value || null,
                 provider: 'facebook'
             });
             
@@ -9834,44 +10703,76 @@ passport.use(new FacebookStrategy({
             
             return done(null, newUser);
         }
+        
     } catch (error) {
         console.error('❌ Facebook OAuth error:', error);
         return done(error, null);
     }
 }));
 
-// Facebook OAuth routes
-app.get('/auth/facebook', passport.authenticate('facebook', { 
-    scope: ['email', 'public_profile'] 
-}));
 
-app.get('/auth/facebook/callback', 
-    passport.authenticate('facebook', { failureRedirect: '/login?error=oauth_failed' }),
-    async (req, res) => {
-        // Successful authentication
-        const user = req.user;
-        
-        // Generate JWT token
-        const token = jwt.sign(
-            { 
-                userId: user.id, 
-                email: user.email,
-                plan: user.currentPlan,
-                status: user.subscriptionStatus 
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-        
-        // Set session data
-        req.session.authData = {
-            token: token,
-            user: userManager.sanitizeUser(user)
-        };
-        
-        res.redirect('/auth/success');
-    }
-);
+// Initiate Facebook login
+app.get('/auth/facebook', (req, res, next) => {
+  console.log('🚀 Initiating Facebook OAuth flow');
+  passport.authenticate('facebook', { 
+    scope: ['email', 'public_profile'],
+    session: false
+  })(req, res, next);
+});
+
+// Facebook OAuth callback with comprehensive error handling
+app.get('/auth/facebook/callback', (req, res, next) => {
+    passport.authenticate('facebook', { 
+        session: false,
+        failureRedirect: '/login?error=facebook-failed'
+    }, async (err, user, info) => {
+        try {
+            if (err) {
+                console.error('❌ Facebook OAuth error:', err.message);
+                
+                if (err.message === 'EMAIL_NOT_PROVIDED') {
+                    return res.redirect('/login?error=facebook-no-email');
+                }
+                
+                return res.redirect('/login?error=facebook-failed');
+            }
+            
+            if (!user) {
+                console.error('❌ No user returned from Facebook OAuth');
+                return res.redirect('/login?error=facebook-failed');
+            }
+            
+            console.log('✅ Facebook OAuth successful for user:', user.id);
+            
+            const token = jwt.sign(
+                { 
+                    userId: user.id, 
+                    email: user.email,
+                    plan: user.currentPlan || null,
+                    status: user.subscriptionStatus || 'free'
+                },
+                process.env.JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+            
+            res.cookie('userToken', token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                sameSite: 'lax',
+                path: '/'
+            });
+            
+            console.log('✅ Token set, redirecting to dashboard');
+            res.redirect('/dashboard?login=facebook');
+            
+        } catch (error) {
+            console.error('❌ Facebook callback error:', error);
+            res.redirect('/login?error=facebook-callback-failed');
+        }
+    })(req, res, next);
+});
+
 
 
 

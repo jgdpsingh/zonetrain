@@ -321,6 +321,20 @@
     </style>
 </head>
 <body>
+
+    <div id="verification-banner" style="display: none; background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); color: #92400E; padding: 20px; text-align: center; border-bottom: 3px solid #F59E0B; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; right: 0; z-index: 9999;">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <strong style="font-size: 18px;">⚠️ Email Not Verified</strong>
+            <p style="margin: 10px 0; font-size: 14px;">Please verify your email address to access all features and ensure account security.</p>
+            <button onclick="resendVerification()" style="background: #F59E0B; color: white; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: 600; margin: 5px; font-size: 14px;">
+                📧 Resend Verification Email
+            </button>
+            <button onclick="dismissBanner()" style="background: #6B7280; color: white; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: 600; margin: 5px; font-size: 14px;">
+                Dismiss
+            </button>
+        </div>
+    </div>
+
     <div class="dashboard-container">
         <div class="dashboard-header">
             <h1>Welcome to ZoneTrain 👋</h1>
@@ -422,48 +436,156 @@
 </style>
 
 <script>
-function connectStrava() {
-    const token = localStorage.getItem('userToken');
+    // ==================== STRAVA CONNECTION ====================
     
-    if (!token) {
-        alert('Please log in first');
-        window.location.href = '/login';
-        return;
-    }
-
-    // Redirect to Strava OAuth
-    window.location.href = '/auth/strava';
-}
-
-// Check if Strava is already connected
-async function checkStravaConnection() {
-    const token = localStorage.getItem('userToken');
-    
-    try {
-        const response = await fetch('/api/strava/status', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        const data = await response.json();
-
-        if (data.connected) {
-            const statusDiv = document.getElementById('strava-status');
-            statusDiv.style.display = 'block';
-            statusDiv.className = 'strava-status success';
-            statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
-            
-            document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
+    function connectStrava() {
+        const token = localStorage.getItem('userToken');
+        
+        if (!token) {
+            alert('Please log in first');
+            window.location.href = '/login';
+            return;
         }
-    } catch (error) {
-        console.error('Failed to check Strava status:', error);
-    }
-}
 
-// Check on page load
-document.addEventListener('DOMContentLoaded', checkStravaConnection);
+        // Redirect to Strava OAuth
+        window.location.href = '/auth/strava';
+    }
+
+    // Check if Strava is already connected
+    async function checkStravaConnection() {
+        const token = localStorage.getItem('userToken');
+        
+        try {
+            const response = await fetch('/api/strava/status', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.connected) {
+                const statusDiv = document.getElementById('strava-status');
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'strava-status success';
+                statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
+                
+                document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
+            }
+        } catch (error) {
+            console.error('Failed to check Strava status:', error);
+        }
+    }
+
+    // ==================== OAUTH LOGIN NOTIFICATION ====================
+    
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <span>${message}</span>
+            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
+        `;
+        
+        // Add styles if not already defined
+        if (!document.getElementById('notification-styles')) {
+            const style = document.createElement('style');
+            style.id = 'notification-styles';
+            style.textContent = `
+                .notification {
+                    position: fixed;
+                    top: 100px;
+                    right: 20px;
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    min-width: 300px;
+                    animation: slideIn 0.3s ease-out;
+                }
+                
+                .notification-success {
+                    background: #10B981;
+                    color: white;
+                }
+                
+                .notification-error {
+                    background: #EF4444;
+                    color: white;
+                }
+                
+                .notification-info {
+                    background: #3B82F6;
+                    color: white;
+                }
+                
+                @keyframes slideIn {
+                    from {
+                        transform: translateX(400px);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+                
+                @keyframes slideOut {
+                    from {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateX(400px);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Add to page
+        document.body.appendChild(notification);
+        
+        // Auto-remove after 4 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 4000);
+    }
+
+    // ==================== PAGE INITIALIZATION ====================
+    
+    // Single DOMContentLoaded listener that handles everything
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Dashboard Free - Initializing...');
+        
+        // 1. Check OAuth login status and show notification
+        const urlParams = new URLSearchParams(window.location.search);
+        const loginMethod = urlParams.get('login');
+        
+        if (loginMethod === 'google') {
+            showNotification('✅ Successfully logged in with Google!', 'success');
+        } else if (loginMethod === 'facebook') {
+            showNotification('✅ Successfully logged in with Facebook!', 'success');
+        }
+        
+        // Clean URL (remove ?login=google from address bar)
+        if (loginMethod) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        
+        // 2. Check Strava connection status
+        checkStravaConnection();
+        
+        console.log('✅ Dashboard Free - Initialized');
+    });
 </script>
+
 
 
         <!-- ✅ NEW: Enhanced Upgrade Section -->
@@ -607,6 +729,87 @@ document.addEventListener('DOMContentLoaded', checkStravaConnection);
     <script src="/components/nav-header.js"></script>
     <script src="/components/dashboard-widgets.js"></script>
     <script>
+        // Check verification status on page load
+        async function checkVerificationStatus() {
+            try {
+                const token = getCookie('userToken');
+                if (!token) {
+                    console.log('No token found');
+                    return;
+                }
+
+                const response = await fetch('/api/auth/email-verification-status', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                console.log('Verification status:', data);
+                
+                // Only show banner for email auth users who haven't verified
+                if (data.authProvider === 'email' && !data.emailVerified) {
+                    document.getElementById('verification-banner').style.display = 'block';
+                    // Adjust page padding to account for fixed banner
+                    document.body.style.paddingTop = '160px';
+                }
+            } catch (error) {
+                console.error('Check verification error:', error);
+            }
+        }
+
+        async function resendVerification() {
+            try {
+                const token = getCookie('userToken');
+                
+                const response = await fetch('/api/auth/resend-verification', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('Resend error:', error);
+                alert('❌ Failed to resend verification email. Please try again.');
+            }
+        }
+
+        function dismissBanner() {
+            document.getElementById('verification-banner').style.display = 'none';
+            document.body.style.paddingTop = '90px';
+            sessionStorage.setItem('verificationBannerDismissed', 'true');
+        }
+
+        // Helper function to get cookie value
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+
+        // Check if banner was dismissed in this session
+        if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
+            checkVerificationStatus();
+        }
+
+        // Also check when page URL has ?verify=required parameter
+        if (window.location.search.includes('verify=required')) {
+            checkVerificationStatus();
+        }
+        </script>
+    <script>
         // Plan selection function
         function selectPlan(plan) {
             // Store selected plan and redirect to plans page
@@ -620,6 +823,8 @@ document.addEventListener('DOMContentLoaded', checkStravaConnection);
             if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
                 window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
             }
+
+            
 
             // Check if user came from a specific plan recommendation
             const recommendedPlan = sessionStorage.getItem('recommendedPlan');

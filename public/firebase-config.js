@@ -1,4 +1,4 @@
-// Firebase Configuration
+// firebase-config.js
 const firebaseConfig = {
   apiKey: "AIzaSyA7ObtiHy7KEXeVR6WiXP8u-EjCM7voRGo",
   authDomain: "fitness-app-14.firebaseapp.com",
@@ -9,4 +9,4 @@ const firebaseConfig = {
   measurementId: "G-QKR6KXXCJ7"
 };
 
-export { firebaseConfig };
+module.exports = { firebaseConfig };

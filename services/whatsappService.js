@@ -286,58 +286,96 @@ async sendSupportTicket(phoneNumber, ticketNumber, issueSummary, trackingLink) {
 
 
     // ✅ 9. Payment Reminder (UTILITY)
-    async sendPaymentReminder(phoneNumber, daysLeft, amount) {
-        return this.sendTemplate(phoneNumber, 'payment_reminder_3days', 'en', [
+    // Payment Reminder (3 days before expiry)
+async sendPaymentReminder(phoneNumber, planName, expiryDate, planTier, amount, billingCycle, paymentLink) {
+    return this.sendTemplate(
+        phoneNumber,
+        'payment_reminder_3days',
+        'en',
+        [
             {
                 type: 'body',
                 parameters: [
-                    { type: 'text', text: daysLeft },
-                    { type: 'text', text: amount }
+                    { type: 'text', text: planName },       // {{1}} - "Race Coach"
+                    { type: 'text', text: expiryDate },     // {{2}} - "31 Oct 2025"
+                    { type: 'text', text: planTier },       // {{3}} - "Premium"
+                    { type: 'text', text: amount },         // {{4}} - "299"
+                    { type: 'text', text: billingCycle },   // {{5}} - "month"
+                    { type: 'text', text: paymentLink }     // {{6}} - "https://zonetrain.app/renew"
                 ]
             }
-        ]);
-    }
+        ]
+    );
+}
+
 
     // ✅ 10. Payment Success (UTILITY)
-    async sendPaymentSuccess(phoneNumber, amount, plan, nextBilling) {
-        return this.sendTemplate(phoneNumber, 'payment_success', 'en', [
+    // 10. Payment Success
+async sendPaymentSuccess(phoneNumber, amount, plan, validUntil, invoiceNumber, dashboardLink) {
+    return this.sendTemplate(
+        phoneNumber,
+        'payment_success',
+        'en',
+        [
             {
                 type: 'body',
                 parameters: [
-                    { type: 'text', text: amount },
-                    { type: 'text', text: plan },
-                    { type: 'text', text: nextBilling }
+                    { type: 'text', text: amount },          // {{1}} - "₹499"
+                    { type: 'text', text: plan },            // {{2}} - "Basic Coach (Monthly)"
+                    { type: 'text', text: validUntil },      // {{3}} - "28 Nov 2025"
+                    { type: 'text', text: invoiceNumber },   // {{4}} - "INV-2025-001234"
+                    { type: 'text', text: dashboardLink }    // {{5}} - "https://zonetrain.app/dashboard"
                 ]
             }
-        ]);
-    }
+        ]
+    );
+}
+
 
     // ✅ 11. Payment Failed (UTILITY)
-    async sendPaymentFailed(phoneNumber, amount, reason) {
-        return this.sendTemplate(phoneNumber, 'payment_failed', 'en', [
+    // 11. Payment Failed
+async sendPaymentFailed(phoneNumber, amount, reason, updateLink, expiryDate) {
+    return this.sendTemplate(
+        phoneNumber,
+        'payment_failed',
+        'en',
+        [
             {
                 type: 'body',
                 parameters: [
-                    { type: 'text', text: amount },
-                    { type: 'text', text: reason }
+                    { type: 'text', text: amount },        // {{1}} - "₹999"
+                    { type: 'text', text: reason },        // {{2}} - "Card declined"
+                    { type: 'text', text: updateLink },    // {{3}} - "https://zonetrain.app/payment"
+                    { type: 'text', text: expiryDate }     // {{4}} - "Nov 5, 2025"
                 ]
             }
-        ]);
-    }
+        ]
+    );
+}
+
 
 
     // ✅ 13. Subscription Expired (Will be MARKETING - use carefully)
-    async sendSubscriptionExpired(phoneNumber, expiryDate, renewLink) {
-        return this.sendTemplate(phoneNumber, 'subscription_expired', 'en', [
+    // 12. Subscription Expired (MARKETING - Use carefully)
+async sendSubscriptionExpired(phoneNumber, planName, expiryDate, lastActiveDate, renewalLink) {
+    return this.sendTemplate(
+        phoneNumber,
+        'subscription_expired',
+        'en',
+        [
             {
                 type: 'body',
                 parameters: [
-                    { type: 'text', text: expiryDate },
-                    { type: 'text', text: renewLink }
+                    { type: 'text', text: planName },        // {{1}} - "Race Coach"
+                    { type: 'text', text: expiryDate },      // {{2}} - "Oct 15, 2025"
+                    { type: 'text', text: lastActiveDate },  // {{3}} - "Oct 14, 2025"
+                    { type: 'text', text: renewalLink }      // {{4}} - "https://zonetrain.app/renew"
                 ]
             }
-        ]);
-    }
+        ]
+    );
+}
+
 
     // ✅ Generic Hello World (for testing)
     async sendHelloWorld(phoneNumber) {
