@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Race Coach - ZoneTrain</title>
     <link rel="stylesheet" href="/css/widgets.css">
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="/js/payment.js"></script>
     <style>
         * {
             margin: 0;
@@ -306,9 +308,10 @@
                 <a href="/subscription" class="btn-manage">
                     ⚙️ Manage Subscription
                 </a>
-                <button class="btn-downgrade" onclick="confirmDowngrade()">
-                    ⬇️ Downgrade to Basic Coach
-                </button>
+                <button class="btn-action" onclick="handleDowngrade()" style="background: #dc2626;">
+    Downgrade to Basic Coach
+</button>
+
             </div>
         </div>
 
@@ -892,63 +895,73 @@
     }
 
     // Downgrade confirmation
-    async function confirmDowngrade() {
-        const confirmed = confirm(
-            '⚠️ Downgrade to Basic Coach?\n\n' +
-            '• Change takes effect from your next billing date\n' +
-            '• You will lose access to:\n' +
-            '  - Race training plans\n' +
-            '  - Advanced performance analytics\n' +
-            '  - Pace optimization\n' +
-            '  - Race day strategies\n\n' +
-            '• No refund for current billing period\n' +
-            '• You can upgrade again anytime\n\n' +
-            'Continue with downgrade?'
-        );
+    // REPLACE the existing confirmDowngrade function with this
+async function handleDowngrade() {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    `;
+    
+    modal.innerHTML = `
+        <div style="background: white; padding: 40px; border-radius: 16px; max-width: 500px; margin: 20px;">
+            <h2 style="color: #DC2626; margin-bottom: 20px;">⚠️ Downgrade to Basic Coach?</h2>
+            <p style="color: #6B7280; margin-bottom: 15px; line-height: 1.6;">
+                This downgrade will take effect from your next billing date.
+            </p>
+            <div style="background: #FEF3C2; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="color: #92400E; margin-bottom: 10px; font-size: 14px;">You will lose access to:</h3>
+                <ul style="color: #92400E; margin-left: 20px; line-height: 1.8;">
+                    <li>Race-specific training plans</li>
+                    <li>Advanced performance analytics</li>
+                    <li>Pace optimization tools</li>
+                    <li>Race day strategies</li>
+                    <li>Priority support</li>
+                </ul>
+            </div>
+            <p style="color: #10B981; font-weight: 600; margin-bottom: 20px;">
+                ✅ You'll get credited days added to your new plan!
+            </p>
+            <div style="display: flex; gap: 15px;">
+                <button onclick="this.closest('div').parentElement.remove()" 
+                    style="flex: 1; padding: 12px; border: 2px solid #DC2626; background: white; color: #DC2626; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                    Cancel
+                </button>
+                <button onclick="proceedWithDowngrade()" 
+                    style="flex: 1; padding: 12px; border: none; background: #DC2626; color: white; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                    Confirm Downgrade
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
 
-        if (!confirmed) return;
-
-        const token = localStorage.getItem('userToken');
-        const downgradeBtn = event.target;
-        downgradeBtn.disabled = true;
-        downgradeBtn.textContent = 'Processing...';
-        
-        try {
-            const response = await fetch('/api/subscription/downgrade', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ newPlan: 'basic' })
-            });
-
-            const data = await response.json();
-            
-            if (data.success) {
-                showNotification(
-                    '✅ Downgrade Scheduled! Effective from: ' + 
-                    new Date(data.effectiveDate).toLocaleDateString('en-IN', { 
-                        day: 'numeric', 
-                        month: 'long', 
-                        year: 'numeric' 
-                    }),
-                    'success'
-                );
-                
-                setTimeout(() => location.reload(), 2000);
-            } else {
-                showNotification('❌ Downgrade failed: ' + data.message, 'error');
-                downgradeBtn.disabled = false;
-                downgradeBtn.textContent = '⬇️ Downgrade to Basic Coach';
-            }
-        } catch (error) {
-            console.error('Downgrade error:', error);
-            showNotification('Failed to process downgrade. Please try again or contact support.', 'error');
-            downgradeBtn.disabled = false;
-            downgradeBtn.textContent = '⬇️ Downgrade to Basic Coach';
-        }
+async function proceedWithDowngrade() {
+    // Close modal
+    document.querySelector('[style*="rgba(0,0,0,0.7)"]')?.remove();
+    
+    // Show loading message
+    showNotification('Processing downgrade...', 'info');
+    
+    try {
+        // Use the payment.js downgradeSubscription function
+        await downgradeSubscription('basic');
+    } catch (error) {
+        console.error('Downgrade error:', error);
+        showNotification('Failed to downgrade. Please try again.', 'error');
     }
+}
+
 </script>
 
 </body>

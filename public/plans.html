@@ -496,6 +496,10 @@
 
     </style>
     <link rel="stylesheet" href="css/cookies.css">
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    
+    <!-- Add payment.js BEFORE your existing script -->
+    <script src="/js/payment.js"></script>
 </head>
 <body>
     <a href="#" class="back-btn-plans" onclick="smartBack(event)">
@@ -660,58 +664,66 @@ function smartBack(e) {
         race: 199
     };
 
-    async function applyPromoCode() {
-        const promoInput = document.getElementById('promoCode');
-        const promoMessage = document.getElementById('promoMessage');
-        const promoCode = promoInput.value.trim();
-
-        if (!promoCode) {
-            showPromoMessage('Please enter a promo code', 'error');
-            return;
-        }
-
-        showPromoMessage('Validating promo code...', 'info');
-
-        try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            if (promoCode.toUpperCase() === 'LAUNCH50') {
-                if (promoApplied) {
-                    showPromoMessage('Promo code already applied!', 'info');
-                    return;
-                }
-
-                promoApplied = true;
-                applyDiscountToUI();
-                showPromoMessage('🎉 LAUNCH50 applied! 50% off your first month!', 'success');
-                
-                sessionStorage.setItem('promoApplied', 'true');
-                sessionStorage.setItem('promoCode', 'LAUNCH50');
-            } else {
-                showPromoMessage('Invalid promo code. Try LAUNCH50!', 'error');
-            }
-        } catch (error) {
-            console.error('Error validating promo:', error);
-            showPromoMessage('Error validating promo code. Please try again.', 'error');
-        }
+    
+async function applyPromoCode() {
+    const promoInput = document.getElementById('promoCode');
+    const promoCode = promoInput.value.trim();
+    
+    if (!promoCode) {
+        showPromoMessage('Please enter a promo code', 'error');
+        return;
     }
-
-    function applyDiscountToUI() {
-        document.getElementById('fitness-original').style.display = 'block';
-        document.getElementById('fitness-price').textContent = '₹99';
-        document.getElementById('fitness-badge').style.display = 'block';
-        document.getElementById('fitness-savings').style.display = 'block';
-
-        document.getElementById('race-original').style.display = 'block';
-        document.getElementById('race-price').textContent = '₹199';
-        document.getElementById('race-badge').style.display = 'block';
-        document.getElementById('race-savings').style.display = 'block';
-
-        const priceElements = document.querySelectorAll('.plan-price');
-        priceElements.forEach(el => {
-            el.style.animation = 'pulse 0.5s ease-in-out';
-        });
+    
+    showPromoMessage('Validating promo code...', 'info');
+    
+    try {
+        // Use the validation from payment.js
+        const result = await window.applyPromoCode(promoCode, 'fitness', 'monthly');
+        
+        if (result && result.success) {
+            // Apply discount to both plans
+            applyDiscountToUI(result);
+            
+            // Store promo code
+            sessionStorage.setItem('promoCode', promoCode);
+            sessionStorage.setItem('promoApplied', 'true');
+            
+            showPromoMessage(`✅ ${promoCode} applied! You save ₹${result.discountAmount}`, 'success');
+        } else {
+            showPromoMessage('❌ Invalid promo code', 'error');
+        }
+    } catch (error) {
+        console.error('Error validating promo:', error);
+        showPromoMessage('❌ Error validating promo code', 'error');
     }
+}
+
+function applyDiscountToUI(promoResult) {
+    // Fitness Plan
+    document.getElementById('fitness-original').style.display = 'block';
+    document.getElementById('fitness-original').textContent = '₹' + promoResult.originalAmount;
+    document.getElementById('fitness-price').textContent = '₹' + promoResult.discountedAmount;
+    document.getElementById('fitness-badge').style.display = 'block';
+    document.getElementById('fitness-badge').textContent = promoResult.discountPercent + '% OFF';
+    document.getElementById('fitness-savings').style.display = 'block';
+    
+    // Race Plan (calculate for race plan too)
+    const raceDiscount = Math.round((399 * promoResult.discountPercent) / 100);
+    const raceDiscounted = 399 - raceDiscount;
+    
+    document.getElementById('race-original').style.display = 'block';
+    document.getElementById('race-original').textContent = '₹399';
+    document.getElementById('race-price').textContent = '₹' + raceDiscounted;
+    document.getElementById('race-badge').style.display = 'block';
+    document.getElementById('race-badge').textContent = promoResult.discountPercent + '% OFF';
+    document.getElementById('race-savings').style.display = 'block';
+    
+    // Animation
+    const priceElements = document.querySelectorAll('.plan-price');
+    priceElements.forEach(el => {
+        el.style.animation = 'pulse 0.5s ease-in-out';
+    });
+}
 
     function showPromoMessage(message, type) {
         const promoMessage = document.getElementById('promoMessage');
@@ -732,72 +744,67 @@ function smartBack(e) {
     // ✅ REAL RAZORPAY PAYMENT INTEGRATION
     // ============================================
     
-    async function selectPlan(planType, actionType) {
-        const userToken = localStorage.getItem('userToken');
-        
-        // Check if user is logged in
-        if (!userToken) {
-            showLoginPrompt(planType, actionType);
-            return;
-        }
-
-        const promoCode = sessionStorage.getItem('promoCode');
-        const currentPrice = promoApplied ? discountedPrices[planType] : originalPrices[planType];
-        
-        const planData = {
-            planType: planType,
-            actionType: actionType,
-            price: currentPrice,
-            originalPrice: originalPrices[planType],
-            promoCode: promoCode,
-            promoApplied: promoApplied
-        };
-
-        if (actionType === 'trial') {
-            // For trial, skip payment and go to onboarding
-            console.log('Starting free trial for', planType);
-            
-            const button = event.target;
-            const originalText = button.textContent;
-            button.innerHTML = '🔄 Activating Trial...';
-            button.disabled = true;
-            
-            try {
-                // Activate trial on server
-                const response = await fetch('/api/activate-trial', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + userToken
-                    },
-                    body: JSON.stringify({ planType })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Redirect to onboarding
-                    const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
-                    window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
-                } else {
-                    alert('Trial activation failed. Please try again.');
-                    button.innerHTML = originalText;
-                    button.disabled = false;
-                }
-            } catch (error) {
-                console.error('Trial activation error:', error);
-                alert('Error activating trial');
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-            
-        } else if (actionType === 'subscribe') {
-            // Real Razorpay payment
-            await initializeRazorpayPayment(planData);
-        }
+   async function selectPlan(planType, actionType) {
+    const userToken = localStorage.getItem('userToken');
+    
+    // Check if user is logged in
+    if (!userToken) {
+        showLoginPrompt(planType, actionType);
+        return;
     }
+    
+    const promoCode = sessionStorage.getItem('promoCode');
+    
+    if (actionType === 'trial') {
+        // Start free trial (no payment)
+        await startFreeTrial(planType);
+    } else if (actionType === 'subscribe') {
+        // Use the payment.js function for subscription
+        await purchaseSubscription(planType, 'monthly', promoCode);
+    }
+}
+    
+async function startFreeTrial(planType) {
+    const button = event.target;
+    const originalText = button.textContent;
+    button.innerHTML = '⏳ Activating Trial...';
+    button.disabled = true;
+    
+    try {
+        const token = localStorage.getItem('userToken');
+        
+        const response = await fetch('/api/activate-trial', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ planType })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Show success and redirect
+            showMessage('✅ Trial activated! Redirecting...', 'success');
+            setTimeout(() => {
+                const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
+                window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
+            }, 1500);
+        } else {
+            showMessage('❌ ' + data.message, 'error');
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    } catch (error) {
+        console.error('Trial activation error:', error);
+        showMessage('❌ Failed to activate trial', 'error');
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
 
-    async function initializeRazorpayPayment(planData) {
+async function initializeRazorpayPayment(planData) {
         try {
             console.log('💳 Initializing Razorpay payment for', planData.planType);
             

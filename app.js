@@ -3,7 +3,7 @@ const express = require('express');
 // AI SERVICE INTEGRATION - Add after your existing requires
 const { AIService } = require('./services/aiService');
 const aiService = new AIService();
-const razorpayService = require('./services/razorpayService');
+
 
 const admin = require('firebase-admin');
 admin.initializeApp({
@@ -1747,7 +1747,7 @@ app.get('/login', (req, res) => {
         </form>
 
         <div class="signup-section">
-            <p>Don't have an account? <a href="#" id="signup-link">Sign Up Here</a></p>
+            <p>Don't have an account? <a href="/signup">Sign Up Here</a></p>
         </div>
 
         <div class="cookie-links">
@@ -2452,13 +2452,99 @@ app.post('/api/admin/block-user', async (req, res) => {
     }
 });
 
+// Test email configuration endpoint
+// Fixed test email configuration endpoint
+app.get('/test-email-config', async (req, res) => {
+    try {
+        const nodemailer = require('nodemailer');
+        
+        console.log('📧 Testing email configuration...');
+        console.log('Host:', process.env.EMAIL_HOST);
+        console.log('Port:', process.env.EMAIL_PORT);
+        console.log('User:', process.env.ZOHO_EMAIL);
+        console.log('Password set:', !!process.env.ZOHO_PASSWORD);
+        
+        if (!process.env.ZOHO_EMAIL || !process.env.ZOHO_PASSWORD) {
+            return res.json({
+                success: false,
+                error: 'Email credentials not configured',
+                details: {
+                    ZOHO_EMAIL: process.env.ZOHO_EMAIL ? 'Set' : 'Missing',
+                    ZOHO_PASSWORD: process.env.ZOHO_PASSWORD ? 'Set' : 'Missing',
+                    EMAIL_HOST: process.env.EMAIL_HOST || 'Missing',
+                    EMAIL_PORT: process.env.EMAIL_PORT || 'Missing'
+                }
+            });
+        }
+        
+        // Create transporter
+        const transporter = nodemailer.createTransport({
+            host: process.env.EMAIL_HOST,
+            port: parseInt(process.env.EMAIL_PORT),
+            secure: true,
+            auth: {
+                user: process.env.ZOHO_EMAIL,
+                pass: process.env.ZOHO_PASSWORD
+            },
+            tls: {
+                rejectUnauthorized: true,
+                minVersion: 'TLSv1.2'
+            }
+        });
+
+        // Verify connection
+        console.log('🔍 Verifying SMTP connection...');
+        await transporter.verify();
+        console.log('✅ SMTP connection verified successfully');
+
+        // Send test email
+        console.log('📨 Sending test email...');
+        const info = await transporter.sendMail({
+            from: `"ZoneTrain Test" <${process.env.ZOHO_EMAIL}>`,
+            to: process.env.ZOHO_EMAIL,
+            subject: 'ZoneTrain Email Test - ' + new Date().toLocaleString(),
+            text: 'If you receive this, your Zoho SMTP configuration is working!',
+            html: '<b>✅ Success!</b><p>Your Zoho SMTP is working correctly!</p>'
+        });
+
+        console.log('✅ Test email sent:', info.messageId);
+        
+        res.json({
+            success: true,
+            message: 'Email sent successfully! Check your inbox at ' + process.env.ZOHO_EMAIL,
+            messageId: info.messageId,
+            config: {
+                host: process.env.EMAIL_HOST,
+                port: process.env.EMAIL_PORT,
+                from: process.env.ZOHO_EMAIL
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Email test failed:', error);
+        
+        res.json({
+            success: false,
+            error: error.message,
+            code: error.code,
+            response: error.response,
+            command: error.command,
+            details: {
+                EMAIL_HOST: process.env.EMAIL_HOST,
+                EMAIL_PORT: process.env.EMAIL_PORT,
+                ZOHO_EMAIL: process.env.ZOHO_EMAIL,
+                ZOHO_PASSWORD_SET: !!process.env.ZOHO_PASSWORD
+            }
+        });
+    }
+});
 
 // Add this temporarily to your app.js to verify env variables
 console.log('🔧 Email config check:');
 console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
 console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
-console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'Set ✅' : 'Missing ❌');
-console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'Set ✅' : 'Missing ❌');
+console.log('ZOHO_EMAIL:', process.env.ZOHO_EMAIL ? 'Set ✅' : 'Missing ❌');
+console.log('ZOHO_PASSWORD:', process.env.ZOHO_PASSWORD ? 'Set ✅' : 'Missing ❌');
 
 
 // Helper function to calculate training zone distribution
@@ -7435,33 +7521,79 @@ app.get('/test/whatsapp-custom', async (req, res) => {
     }
 });
 
-const SubscriptionService = require('./services/subscriptionService');
-const subscriptionService = new SubscriptionService(db, razorpayService);
+// ==================== SUBSCRIPTION & PAYMENT ROUTES ====================
 
-// Calculate upgrade cost (pro-rata)
+// Import services at the top of app.js
+
+const SubscriptionService = require('./services/subscriptionService');
+const PaymentReminderService = require('./services/paymentReminderService');
+
+const razorpayService = require('./services/razorpayService');
+const subscriptionService = new SubscriptionService(db, razorpayService);
+const reminderService = new PaymentReminderService(db, subscriptionService);
+
+// Start payment reminder scheduler
+reminderService.start();
+console.log('✅ Payment reminder service started');
+
+// ==================== PROMO CODE VALIDATION ====================
+
+// Validate promo code
+app.post('/api/subscription/validate-promo', async (req, res) => {
+    try {
+        const { promoCode, transactionType, plan, billingCycle } = req.body;
+
+        console.log('🎟️ Validating promo code:', promoCode);
+
+        const validation = subscriptionService.validatePromoCode(promoCode, transactionType);
+        
+        if (!validation.valid) {
+            return res.json({ 
+                success: false, 
+                message: validation.error 
+            });
+        }
+
+        // Calculate discount
+        const originalAmount = subscriptionService.pricing[plan][billingCycle];
+        const discountResult = subscriptionService.applyPromoCode(originalAmount, promoCode);
+
+        res.json({
+            success: true,
+            valid: true,
+            description: validation.description,
+            originalAmount: originalAmount,
+            discountAmount: discountResult.discountAmount,
+            discountedAmount: discountResult.discountedAmount,
+            discountPercent: discountResult.discountPercent
+        });
+    } catch (error) {
+        console.error('Validate promo error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== UPGRADE FLOW ====================
+
+// Calculate upgrade cost (pro-rata with promo support)
 app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;  // ✅ Add promoCode here
+        const { newPlan, billingCycle, promoCode } = req.body;
 
-        console.log('📊 Calculate upgrade request:');
-        console.log('   User:', userId);
-        console.log('   New plan:', newPlan);
-        console.log('   Billing cycle:', billingCycle);
-        console.log('   Promo code:', promoCode);  // ✅ Log it
+        console.log('📊 Calculate upgrade request:', { userId, newPlan, billingCycle, promoCode });
 
         const userDoc = await db.collection('users').doc(userId).get();
         const user = { id: userDoc.id, ...userDoc.data() };
 
-        // ✅ Pass promoCode as 4th parameter
         const calculation = subscriptionService.calculateProRataUpgrade(
             user, 
             newPlan, 
             billingCycle,
-            promoCode  // ✅ Add this
+            promoCode || null
         );
 
-        console.log('✅ Calculation result:', JSON.stringify(calculation, null, 2));
+        console.log('✅ Calculation result:', calculation);
 
         res.json({
             success: true,
@@ -7476,43 +7608,46 @@ app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, r
     }
 });
 
-
-// Process upgrade
+// Process upgrade (create order)
 app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;  // ✅ ADD promoCode
+        const { newPlan, billingCycle, promoCode } = req.body;
+
+        console.log('💰 Processing upgrade:', { userId, newPlan, billingCycle, promoCode });
 
         const userDoc = await db.collection('users').doc(userId).get();
         const user = { id: userDoc.id, ...userDoc.data() };
 
-        // ✅ PASS promoCode to calculation
-        const calculation = subscriptionService.calculateProRataUpgrade(user, newPlan, billingCycle, promoCode);
+        // Calculate final amount with promo
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user, 
+            newPlan, 
+            billingCycle,
+            promoCode || null
+        );
 
-        console.log('💰 Upgrade calculation:', {
-            amountToPay: calculation.amountToPay,
-            originalAmount: calculation.originalAmount,
-            promoApplied: calculation.promoApplied
-        });
+        console.log('Calculated amount to pay:', calculation.amountToPay);
 
-        // Create Razorpay order with discounted amount
+        // Create Razorpay order
         const order = await razorpayService.createOrder({
-            amount: calculation.amountToPay,  // ✅ This is now the discounted amount
+            amount: calculation.amountToPay,
             currency: 'INR',
             receipt: `upgrade_${userId}_${Date.now()}`,
             notes: {
                 userId,
                 type: 'upgrade',
-                fromPlan: user.currentPlan,
+                fromPlan: user.currentPlan || 'free',
                 toPlan: newPlan,
                 billingCycle,
-                // ✅ ADD promo code info to notes
                 promoCode: promoCode || 'none',
                 originalAmount: calculation.originalAmount || calculation.proRataCharge,
                 discountAmount: calculation.promoApplied?.discountAmount || 0,
                 discountPercent: calculation.promoApplied?.discount || 0
             }
         });
+
+        console.log('✅ Order created:', order.id);
 
         res.json({
             success: true,
@@ -7522,15 +7657,15 @@ app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
                 currency: order.currency,
                 razorpayKeyId: process.env.RAZORPAY_KEY_ID,
                 plan: newPlan,
+                billingCycle: billingCycle,
                 email: user.email
             }
         });
     } catch (error) {
-        console.error('Upgrade error:', error);
+        console.error('❌ Upgrade error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
-
 
 // Verify upgrade payment
 app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res) => {
@@ -7538,46 +7673,53 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
         const userId = req.user.userId;
         const { paymentId, orderId, signature } = req.body;
 
+        console.log('🔍 Verifying upgrade payment:', { userId, paymentId, orderId });
+
         // Verify signature
         const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
 
         if (!isValid) {
-            return res.status(400).json({ success: false, message: 'Invalid signature' });
+            console.error('❌ Invalid signature');
+            return res.status(400).json({ success: false, message: 'Invalid payment signature' });
         }
 
         // Get order details
         const order = await razorpayService.getOrder(orderId);
-        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;  // ✅ Extract promo info
+        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;
 
-        // Update user subscription
+        console.log('Order details:', order.notes);
+
+        // Calculate new subscription end date
         const subscriptionEndDate = new Date();
         const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
         subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + months);
 
+        // Update user subscription
         await db.collection('users').doc(userId).update({
             currentPlan: toPlan,
             billingCycle: billingCycle,
             subscriptionStatus: 'active',
+            subscriptionStartDate: new Date(),
             subscriptionEndDate: subscriptionEndDate,
             lastPaymentDate: new Date(),
             lastPaymentAmount: order.amount / 100,
             renewalReminderSent: false,
-            // ✅ ADD promo code tracking
             lastPromoCodeUsed: promoCode !== 'none' ? promoCode : null,
             lastPromoDiscount: parseInt(discountAmount) || 0,
-            totalSavingsFromPromos: admin.firestore.FieldValue.increment(parseInt(discountAmount) || 0)
+            totalSavingsFromPromos: admin.firestore.FieldValue.increment(parseInt(discountAmount) || 0),
+            updatedAt: new Date()
         });
 
-        // Log transaction with promo details
+        // Log transaction
         await db.collection('transactions').add({
             userId,
             type: 'upgrade',
             fromPlan: order.notes.fromPlan,
             toPlan: toPlan,
-            amount: order.amount / 100,  // Final amount paid
-            originalAmount: parseInt(originalAmount) || (order.amount / 100),  // ✅ Original price
-            discountAmount: parseInt(discountAmount) || 0,  // ✅ Discount applied
-            promoCode: promoCode !== 'none' ? promoCode : null,  // ✅ Promo code used
+            amount: order.amount / 100,
+            originalAmount: parseInt(originalAmount) || (order.amount / 100),
+            discountAmount: parseInt(discountAmount) || 0,
+            promoCode: promoCode !== 'none' ? promoCode : null,
             currency: 'INR',
             paymentId,
             orderId,
@@ -7586,26 +7728,38 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
             createdAt: new Date()
         });
 
-        res.json({ success: true, message: 'Upgrade successful' });
+        console.log('✅ Upgrade verified and applied');
+
+        res.json({ 
+            success: true, 
+            message: 'Upgrade successful! Your new plan is now active.',
+            newPlan: toPlan,
+            validUntil: subscriptionEndDate
+        });
     } catch (error) {
-        console.error('Verify upgrade error:', error);
+        console.error('❌ Verify upgrade error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
+// ==================== DOWNGRADE FLOW ====================
 
-// Downgrade (effective next billing cycle)
+// Downgrade (effective next billing cycle with credit)
 app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const { newPlan } = req.body;
 
+        console.log('📉 Processing downgrade:', { userId, newPlan });
+
         const userDoc = await db.collection('users').doc(userId).get();
         const user = { id: userDoc.id, ...userDoc.data() };
 
-        const calculation = subscriptionService.calculateDowngradeWithCredit(user, newPlan)
+        const calculation = subscriptionService.calculateDowngradeWithCredit(user, newPlan);
 
-        // Schedule downgrade
+        console.log('Downgrade calculation:', calculation);
+
+        // Update user subscription
         await db.collection('users').doc(userId).update({
             currentPlan: newPlan,
             subscriptionEndDate: calculation.extendedEndDate,
@@ -7615,6 +7769,7 @@ app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
             lastModified: new Date()
         });
 
+        // Log transaction
         await db.collection('transactions').add({
             userId,
             type: 'downgrade',
@@ -7628,6 +7783,8 @@ app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
             createdAt: new Date()
         });
 
+        console.log('✅ Downgrade completed');
+
         res.json({
             success: true,
             message: calculation.message,
@@ -7639,21 +7796,19 @@ app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Downgrade error:', error);
+        console.error('❌ Downgrade error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-const PaymentReminderService = require('./services/paymentReminderService');
-const reminderService = new PaymentReminderService(db, subscriptionService);
-
-// Start payment reminder scheduler
-reminderService.start();
+// ==================== RENEWAL FLOW ====================
 
 // Get renewal information
 app.get('/api/subscription/renewal-info', async (req, res) => {
     try {
         const { token } = req.query;
+
+        console.log('📋 Getting renewal info for token:', token);
 
         // Validate token
         const validation = await reminderService.validateRenewalToken(token);
@@ -7685,7 +7840,7 @@ app.get('/api/subscription/renewal-info', async (req, res) => {
             daysRemaining
         });
     } catch (error) {
-        console.error('Renewal info error:', error);
+        console.error('❌ Renewal info error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -7694,6 +7849,8 @@ app.get('/api/subscription/renewal-info', async (req, res) => {
 app.post('/api/subscription/create-renewal-order', async (req, res) => {
     try {
         const { token, plan, billingCycle } = req.body;
+
+        console.log('💳 Creating renewal order:', { token, plan, billingCycle });
 
         const validation = await reminderService.validateRenewalToken(token);
         if (!validation.valid) {
@@ -7721,6 +7878,8 @@ app.post('/api/subscription/create-renewal-order', async (req, res) => {
             }
         });
 
+        console.log('✅ Renewal order created:', order.id);
+
         res.json({
             success: true,
             order: {
@@ -7728,11 +7887,12 @@ app.post('/api/subscription/create-renewal-order', async (req, res) => {
                 amount: order.amount,
                 currency: order.currency,
                 razorpayKeyId: process.env.RAZORPAY_KEY_ID,
-                plan
+                plan,
+                email: user.email
             }
         });
     } catch (error) {
-        console.error('Create renewal order error:', error);
+        console.error('❌ Create renewal order error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -7742,10 +7902,12 @@ app.post('/api/subscription/verify-renewal', async (req, res) => {
     try {
         const { token, paymentId, orderId, signature } = req.body;
 
+        console.log('🔍 Verifying renewal payment:', { token, paymentId, orderId });
+
         // Verify signature
         const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
         if (!isValid) {
-            return res.status(400).json({ success: false, message: 'Invalid signature' });
+            return res.status(400).json({ success: false, message: 'Invalid payment signature' });
         }
 
         const validation = await reminderService.validateRenewalToken(token);
@@ -7771,11 +7933,15 @@ app.post('/api/subscription/verify-renewal', async (req, res) => {
             subscriptionEndDate: newEndDate,
             lastPaymentDate: new Date(),
             lastPaymentAmount: order.amount / 100,
-            renewalReminderSent: false
+            renewalReminderSent: false,
+            updatedAt: new Date()
         });
 
         // Mark token as used
-        await db.collection('renewal_tokens').doc(token).update({ used: true });
+        await db.collection('renewal_tokens').doc(token).update({ 
+            used: true,
+            usedAt: new Date()
+        });
 
         // Log transaction
         await db.collection('transactions').add({
@@ -7791,118 +7957,107 @@ app.post('/api/subscription/verify-renewal', async (req, res) => {
             createdAt: new Date()
         });
 
-        res.json({ success: true, message: 'Subscription renewed successfully' });
+        console.log('✅ Renewal verified and applied');
+
+        res.json({ 
+            success: true, 
+            message: 'Subscription renewed successfully!',
+            validUntil: newEndDate
+        });
     } catch (error) {
-        console.error('Verify renewal error:', error);
+        console.error('❌ Verify renewal error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Calculate upgrade cost with promo code support
-app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
+// ==================== SUBSCRIPTION MANAGEMENT ====================
+
+// Get subscription details
+app.get('/api/subscription/details', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;
 
         const userDoc = await db.collection('users').doc(userId).get();
-        const user = { id: userDoc.id, ...userDoc.data() };
+        const user = userDoc.data();
 
-        const calculation = subscriptionService.calculateProRataUpgrade(
-            user, 
-            newPlan, 
-            billingCycle,
-            promoCode || null
-        );
+        // Get latest transaction
+        const transactionsSnapshot = await db.collection('transactions')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .limit(5)
+            .get();
+
+        const transactions = transactionsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
 
         res.json({
             success: true,
-            calculation
+            subscription: {
+                status: user.subscriptionStatus || 'free',
+                currentPlan: user.currentPlan || null,
+                billingCycle: user.billingCycle || null,
+                subscriptionEndDate: user.subscriptionEndDate || null,
+                lastPaymentDate: user.lastPaymentDate || null,
+                lastPaymentAmount: user.lastPaymentAmount || null,
+                totalSavingsFromPromos: user.totalSavingsFromPromos || 0
+            },
+            transactions: transactions
         });
     } catch (error) {
-        console.error('Calculate upgrade error:', error);
+        console.error('Get subscription details error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Process upgrade with promo code
-app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
+// Cancel subscription
+app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;
+        const { reason } = req.body;
+
+        console.log('❌ Cancelling subscription:', { userId, reason });
 
         const userDoc = await db.collection('users').doc(userId).get();
-        const user = { id: userDoc.id, ...userDoc.data() };
+        const user = userDoc.data();
 
-        const calculation = subscriptionService.calculateProRataUpgrade(
-            user, 
-            newPlan, 
-            billingCycle,
-            promoCode || null
-        );
-
-        // Create Razorpay order with final discounted amount
-        const order = await razorpayService.createOrder({
-            amount: calculation.amountToPay,
-            currency: 'INR',
-            receipt: `upgrade_${userId}_${Date.now()}`,
-            notes: {
-                userId,
-                type: 'upgrade',
-                fromPlan: user.currentPlan,
-                toPlan: newPlan,
-                billingCycle,
-                promoCode: promoCode || null,
-                promoApplied: calculation.promoApplied ? true : false
-            }
+        await db.collection('users').doc(userId).update({
+            subscriptionStatus: 'cancelled',
+            cancelledAt: new Date(),
+            cancelReason: reason || 'Not provided',
+            // Keep access until end of billing period
+            accessUntil: user.subscriptionEndDate || new Date()
         });
+
+        // Log cancellation
+        await db.collection('transactions').add({
+            userId,
+            type: 'cancellation',
+            plan: user.currentPlan,
+            reason: reason,
+            cancelledAt: new Date(),
+            accessUntil: user.subscriptionEndDate,
+            status: 'completed',
+            createdAt: new Date()
+        });
+
+        console.log('✅ Subscription cancelled');
 
         res.json({
             success: true,
-            paymentOrder: {
-                orderId: order.id,
-                amount: order.amount,
-                currency: order.currency,
-                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
-                plan: newPlan,
-                email: user.email
-            }
+            message: 'Subscription cancelled. You will have access until ' + 
+                     (user.subscriptionEndDate ? new Date(user.subscriptionEndDate).toLocaleDateString() : 'end of billing period'),
+            accessUntil: user.subscriptionEndDate
         });
     } catch (error) {
-        console.error('Upgrade error:', error);
+        console.error('Cancel subscription error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Validate promo code
-app.post('/api/subscription/validate-promo', async (req, res) => {
-    try {
-        const { promoCode, transactionType, plan, billingCycle } = req.body;
+console.log('✅ All subscription routes initialized');
 
-        const validation = subscriptionService.validatePromoCode(promoCode, transactionType);
-        
-        if (!validation.valid) {
-            return res.json({ 
-                success: false, 
-                message: validation.error 
-            });
-        }
-
-        // Calculate discount
-        const originalAmount = subscriptionService.pricing[plan][billingCycle];
-        const discountResult = subscriptionService.applyPromoCode(originalAmount, promoCode);
-
-        res.json({
-            success: true,
-            description: validation.description,
-            originalAmount: originalAmount,
-            discountAmount: discountResult.discountAmount,
-            discountedAmount: discountResult.discountedAmount,
-            discountPercent: discountResult.discountPercent
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
 
 // Notification endpoints
 app.get('/api/notifications', authenticateToken, async (req, res) => {

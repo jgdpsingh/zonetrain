@@ -6,6 +6,8 @@
     <title>Dashboard - ZoneTrain</title>
     <link rel="stylesheet" href="/css/widgets.css">
     <link rel="stylesheet" href="css/responsive.css">
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="/js/payment.js"></script>
     <style>
         * {
             margin: 0;
@@ -729,7 +731,8 @@
     <script src="/components/nav-header.js"></script>
     <script src="/components/dashboard-widgets.js"></script>
     <script>
-        // Check verification status on page load
+        // ==================== VERIFICATION BANNER ====================
+        
         async function checkVerificationStatus() {
             try {
                 const token = getCookie('userToken');
@@ -749,10 +752,8 @@
                 const data = await response.json();
                 console.log('Verification status:', data);
                 
-                // Only show banner for email auth users who haven't verified
                 if (data.authProvider === 'email' && !data.emailVerified) {
                     document.getElementById('verification-banner').style.display = 'block';
-                    // Adjust page padding to account for fixed banner
                     document.body.style.paddingTop = '160px';
                 }
             } catch (error) {
@@ -791,7 +792,6 @@
             sessionStorage.setItem('verificationBannerDismissed', 'true');
         }
 
-        // Helper function to get cookie value
         function getCookie(name) {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
@@ -799,51 +799,456 @@
             return null;
         }
 
-        // Check if banner was dismissed in this session
-        if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
-            checkVerificationStatus();
-        }
-
-        // Also check when page URL has ?verify=required parameter
-        if (window.location.search.includes('verify=required')) {
-            checkVerificationStatus();
-        }
-        </script>
-    <script>
-        // Plan selection function
+        // ==================== PLAN SELECTION (PAYMENT) ====================
+        
+        // ✅ UPDATED: Now uses real payment integration
         function selectPlan(plan) {
-            // Store selected plan and redirect to plans page
-            sessionStorage.setItem('selectedPlan', plan);
-            sessionStorage.setItem('selectedBilling', 'monthly');
-            window.location.href = '/plans';
+            const userToken = localStorage.getItem('userToken');
+            
+            // Check if user is logged in
+            if (!userToken) {
+                alert('Please log in to subscribe');
+                window.location.href = '/login?redirect=plans';
+                return;
+            }
+            
+            // Get any stored promo code
+            const promoCode = sessionStorage.getItem('promoCode') || null;
+            const billingCycle = sessionStorage.getItem('selectedBilling') || 'monthly';
+            
+            console.log('🛒 Initiating purchase:', { plan, billingCycle, promoCode });
+            
+            // Use payment.js function to handle the purchase
+            // This will open Razorpay checkout popup
+            purchaseSubscription(plan, billingCycle, promoCode);
         }
 
+        // ==================== PAGE INITIALIZATION ====================
+        
         document.addEventListener('DOMContentLoaded', function() {
-            // Show weather widget for free users
+            console.log('🚀 Dashboard Free - Initializing...');
+            
+            // 1. Check verification status
+            if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
+                checkVerificationStatus();
+            }
+            
+            if (window.location.search.includes('verify=required')) {
+                checkVerificationStatus();
+            }
+            
+            // 2. Check OAuth login status
+            const urlParams = new URLSearchParams(window.location.search);
+            const loginMethod = urlParams.get('login');
+            
+            if (loginMethod === 'google') {
+                showNotification('✅ Successfully logged in with Google!', 'success');
+            } else if (loginMethod === 'facebook') {
+                showNotification('✅ Successfully logged in with Facebook!', 'success');
+            }
+            
+            // Check payment success
+            const paymentStatus = urlParams.get('payment');
+            if (paymentStatus === 'success') {
+                showNotification('✅ Payment successful! Your subscription is now active.', 'success');
+                // Redirect to appropriate dashboard after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 2000);
+            }
+            
+            // Clean URL
+            if (loginMethod || paymentStatus) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            
+            // 3. Check Strava connection
+            checkStravaConnection();
+            
+            // 4. Show weather widget
             if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
                 window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
             }
-
             
-
-            // Check if user came from a specific plan recommendation
+            // 5. Highlight recommended plan if any
             const recommendedPlan = sessionStorage.getItem('recommendedPlan');
             if (recommendedPlan) {
-                // Highlight the recommended plan
                 const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
                 if (planCard) {
                     planCard.style.animation = 'pulse 2s ease-in-out 3';
                 }
                 sessionStorage.removeItem('recommendedPlan');
             }
+            
+            console.log('✅ Dashboard Free - Initialized');
         });
+        
+        // ==================== STRAVA CONNECTION ====================
+        
+        function connectStrava() {
+            const token = localStorage.getItem('userToken');
+            
+            if (!token) {
+                alert('Please log in first');
+                window.location.href = '/login';
+                return;
+            }
+
+            window.location.href = '/auth/strava';
+        }
+
+        async function checkStravaConnection() {
+            const token = localStorage.getItem('userToken');
+            
+            try {
+                const response = await fetch('/api/strava/status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.connected) {
+                    const statusDiv = document.getElementById('strava-status');
+                    statusDiv.style.display = 'block';
+                    statusDiv.className = 'strava-status success';
+                    statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
+                    
+                    document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
+                }
+            } catch (error) {
+                console.error('Failed to check Strava status:', error);
+            }
+        }
+        
+        // ==================== NOTIFICATION SYSTEM ====================
+        
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
+            `;
+            
+            if (!document.getElementById('notification-styles')) {
+                const style = document.createElement('style');
+                style.id = 'notification-styles';
+                style.textContent = `
+                    .notification {
+                        position: fixed;
+                        top: 100px;
+                        right: 20px;
+                        padding: 15px 20px;
+                        border-radius: 10px;
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                        z-index: 10000;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        min-width: 300px;
+                        animation: slideIn 0.3s ease-out;
+                    }
+                    
+                    .notification-success {
+                        background: #10B981;
+                        color: white;
+                    }
+                    
+                    .notification-error {
+                        background: #EF4444;
+                        color: white;
+                    }
+                    
+                    .notification-info {
+                        background: #3B82F6;
+                        color: white;
+                    }
+                    
+                    @keyframes slideIn {
+                        from {
+                            transform: translateX(400px);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => notification.remove(), 300);
+            }, 4000);
+        }
     </script>
 
     <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+    </style>
+    <script>
+    // ==================== VERIFICATION BANNER ====================
+    
+    async function checkVerificationStatus() {
+        try {
+            const token = getCookie('userToken');
+            if (!token) return;
+
+            const response = await fetch('/api/auth/email-verification-status', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.authProvider === 'email' && !data.emailVerified) {
+                document.getElementById('verification-banner').style.display = 'block';
+                document.body.style.paddingTop = '160px';
+            }
+        } catch (error) {
+            console.error('Check verification error:', error);
+        }
+    }
+
+    async function resendVerification() {
+        try {
+            const token = getCookie('userToken');
+            
+            const response = await fetch('/api/auth/resend-verification', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('✅ ' + data.message);
+            } else {
+                alert('❌ ' + data.message);
+            }
+        } catch (error) {
+            console.error('Resend error:', error);
+            alert('❌ Failed to resend verification email. Please try again.');
+        }
+    }
+
+    function dismissBanner() {
+        document.getElementById('verification-banner').style.display = 'none';
+        document.body.style.paddingTop = '90px';
+        sessionStorage.setItem('verificationBannerDismissed', 'true');
+    }
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    // ==================== PLAN SELECTION (PAYMENT) ====================
+    
+    // ✅ KEEP THIS ONE - Uses payment.js
+    function selectPlan(plan) {
+        const userToken = localStorage.getItem('userToken');
+        
+        if (!userToken) {
+            alert('Please log in to subscribe');
+            window.location.href = '/login?redirect=plans';
+            return;
+        }
+        
+        const promoCode = sessionStorage.getItem('promoCode') || null;
+        const billingCycle = sessionStorage.getItem('selectedBilling') || 'monthly';
+        
+        console.log('🛒 Initiating purchase:', { plan, billingCycle, promoCode });
+        
+        // Use payment.js function (already loaded in <head>)
+        purchaseSubscription(plan, billingCycle, promoCode);
+    }
+
+    // ==================== STRAVA CONNECTION ====================
+    
+    function connectStrava() {
+        const token = localStorage.getItem('userToken');
+        
+        if (!token) {
+            alert('Please log in first');
+            window.location.href = '/login';
+            return;
+        }
+
+        window.location.href = '/auth/strava';
+    }
+
+    async function checkStravaConnection() {
+        const token = localStorage.getItem('userToken');
+        
+        try {
+            const response = await fetch('/api/strava/status', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const data = await response.json();
+
+            if (data.connected) {
+                const statusDiv = document.getElementById('strava-status');
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'strava-status success';
+                statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
+                
+                document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
+            }
+        } catch (error) {
+            console.error('Failed to check Strava status:', error);
+        }
+    }
+
+    // ==================== NOTIFICATION SYSTEM ====================
+    
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <span>${message}</span>
+            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
+        `;
+        
+        if (!document.getElementById('notification-styles')) {
+            const style = document.createElement('style');
+            style.id = 'notification-styles';
+            style.textContent = `
+                .notification {
+                    position: fixed;
+                    top: 100px;
+                    right: 20px;
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    min-width: 300px;
+                    animation: slideIn 0.3s ease-out;
+                }
+                
+                .notification-success { background: #10B981; color: white; }
+                .notification-error { background: #EF4444; color: white; }
+                .notification-info { background: #3B82F6; color: white; }
+                
+                @keyframes slideIn {
+                    from { transform: translateX(400px); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                
+                @keyframes slideOut {
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(400px); opacity: 0; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 4000);
+    }
+
+    // ==================== PAGE INITIALIZATION ====================
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Dashboard Free - Initializing...');
+        
+        // 1. Check verification status
+        if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
+            checkVerificationStatus();
+        }
+        
+        if (window.location.search.includes('verify=required')) {
+            checkVerificationStatus();
+        }
+        
+        // 2. Check OAuth login status
+        const urlParams = new URLSearchParams(window.location.search);
+        const loginMethod = urlParams.get('login');
+        
+        if (loginMethod === 'google') {
+            showNotification('✅ Successfully logged in with Google!', 'success');
+        } else if (loginMethod === 'facebook') {
+            showNotification('✅ Successfully logged in with Facebook!', 'success');
+        }
+        
+        // 3. Check payment success
+        const paymentStatus = urlParams.get('payment');
+        if (paymentStatus === 'success') {
+            showNotification('✅ Payment successful! Your subscription is now active.', 'success');
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 2000);
+        }
+        
+        // Clean URL
+        if (loginMethod || paymentStatus) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        
+        // 4. Check Strava connection
+        checkStravaConnection();
+        
+        // 5. Show weather widget
+        if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
+            window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
+        }
+        
+        // 6. Highlight recommended plan
+        const recommendedPlan = sessionStorage.getItem('recommendedPlan');
+        if (recommendedPlan) {
+            const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
+            if (planCard) {
+                planCard.style.animation = 'pulse 2s ease-in-out 3';
+            }
+            sessionStorage.removeItem('recommendedPlan');
+        }
+        
+        console.log('✅ Dashboard Free - Initialized');
+    });
+</script>
+
+<style>
     @keyframes pulse {
         0%, 100% { transform: scale(1); }
         50% { transform: scale(1.02); }
     }
-    </style>
+</style>
+
 </body>
 </html>

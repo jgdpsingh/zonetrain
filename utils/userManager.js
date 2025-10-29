@@ -127,8 +127,8 @@ class UserManager {
         port: process.env.EMAIL_PORT || 465,
         secure: true,
         auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
+          user: process.env.ZOHO_EMAIL,
+          pass: process.env.ZOHO_PASSWORD
         },
         tls: {
                 rejectUnauthorized: true,
@@ -142,7 +142,7 @@ class UserManager {
 
       // Email template
       const mailOptions = {
-        from: `"ZoneTrain" <${process.env.EMAIL_USER}>`,
+        from: `"ZoneTrain" <${process.env.ZOHO_EMAIL}>`,
         to: email,
         subject: 'Verify Your Email - ZoneTrain',
         html: `

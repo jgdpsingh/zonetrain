@@ -71,65 +71,71 @@
         }
 
         .promo-section {
-    margin: 20px 0;
-    padding: 20px;
-    background: #f9fafb;
-    border-radius: 12px;
-    border: 2px dashed #d1d5db;
-}
+            margin: 20px 0;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border: 2px dashed #d1d5db;
+        }
 
-.promo-input-group {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
-}
+        .promo-input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
 
-.promo-input-group input {
-    flex: 1;
-    padding: 12px 15px;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    text-transform: uppercase;
-}
+        .promo-input-group input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
 
-.btn-apply-promo {
-    padding: 12px 24px;
-    background: white;
-    border: 2px solid #667eea;
-    color: #667eea;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-}
+        .btn-apply-promo {
+            padding: 12px 24px;
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
 
-.btn-apply-promo:hover {
-    background: #667eea;
-    color: white;
-}
+        .btn-apply-promo:hover {
+            background: #667eea;
+            color: white;
+        }
 
-.promo-message {
-    margin-top: 10px;
-    font-size: 14px;
-}
+        .btn-apply-promo:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
 
-.promo-message.success {
-    color: #10b981;
-    font-weight: 600;
-}
+        .promo-message {
+            margin-top: 10px;
+            font-size: 14px;
+        }
 
-.promo-message.error {
-    color: #ef4444;
-}
+        .promo-message.success {
+            color: #10b981;
+            font-weight: 600;
+        }
 
-.promo-discount {
-    margin-top: 15px;
-    padding: 15px;
-    background: #d1fae5;
-    border-left: 4px solid #10b981;
-    border-radius: 8px;
-}
+        .promo-message.error {
+            color: #ef4444;
+        }
+
+        .promo-discount {
+            margin-top: 15px;
+            padding: 15px;
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            border-radius: 8px;
+        }
 
         .plan-card {
             border: 2px solid #e5e7eb;
@@ -222,7 +228,7 @@
             transition: transform 0.2s;
         }
 
-        .btn-renew:hover {
+        .btn-renew:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 8px 20px rgba(107, 70, 193, 0.4);
         }
@@ -267,22 +273,22 @@
             </div>
 
             <div class="promo-section">
-    <h4>💰 Have a promo code?</h4>
-    <div class="promo-input-group">
-        <input 
-            type="text" 
-            id="promo-code-input" 
-            placeholder="Enter code (e.g., RENEW50)" 
-            maxlength="20"
-            style="text-transform: uppercase;"
-        >
-        <button id="apply-promo-btn" class="btn-apply-promo" onclick="applyPromoCodeRenewal()">
-            Apply
-        </button>
-    </div>
-    <div id="promo-message" class="promo-message"></div>
-    <div id="promo-discount" class="promo-discount" style="display: none;"></div>
-</div>
+                <h4>💰 Have a promo code?</h4>
+                <div class="promo-input-group">
+                    <input 
+                        type="text" 
+                        id="promo-code-input" 
+                        placeholder="Enter code (e.g., RENEW50)" 
+                        maxlength="20"
+                        style="text-transform: uppercase;"
+                    >
+                    <button id="apply-promo-btn" class="btn-apply-promo" onclick="applyPromoCodeRenewal()">
+                        Apply
+                    </button>
+                </div>
+                <div id="promo-message" class="promo-message"></div>
+                <div id="promo-discount" class="promo-discount" style="display: none;"></div>
+            </div>
 
             <div class="upgrade-section" id="upgrade-section" style="display: none;">
                 <h4>🚀 Want to upgrade to Race Coach?</h4>
@@ -292,18 +298,18 @@
                 </button>
             </div>
 
-            <button id="btn-proceed" class="btn-renew" onclick="proceedToPayment()">
-                Proceed to Payment
+            <button id="btn-proceed" class="btn-renew" disabled onclick="proceedToPayment()">
+                Select a plan to proceed
             </button>
         </div>
     </div>
 
-    <script src="/components/nav-header.js"></script>
     <script>
         let userData = {};
         let selectedPlan = null;
         let selectedCycle = null;
         let renewalToken = null;
+        let appliedPromoCodeRenewal = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
             // Get token from URL
@@ -405,90 +411,101 @@
             event.currentTarget.classList.add('selected');
 
             // Enable proceed button
-            document.getElementById('btn-proceed').disabled = false;
+            const btn = document.getElementById('btn-proceed');
+            btn.disabled = false;
+            btn.textContent = 'Proceed to Payment';
+
+            // Clear promo if cycle changed
+            if (appliedPromoCodeRenewal) {
+                document.getElementById('promo-message').textContent = 
+                    '⚠️ Billing cycle changed. Please reapply promo code.';
+                document.getElementById('promo-message').className = 'promo-message error';
+                document.getElementById('promo-discount').style.display = 'none';
+                document.getElementById('promo-code-input').disabled = false;
+                document.getElementById('apply-promo-btn').textContent = 'Apply';
+                appliedPromoCodeRenewal = null;
+            }
         }
 
-        let appliedPromoCodeRenewal = null;
+        async function applyPromoCodeRenewal() {
+            const promoInput = document.getElementById('promo-code-input');
+            const promoCode = promoInput.value.trim().toUpperCase();
+            const messageDiv = document.getElementById('promo-message');
+            const discountDiv = document.getElementById('promo-discount');
+            const applyBtn = document.getElementById('apply-promo-btn');
 
-async function applyPromoCodeRenewal() {
-    const promoInput = document.getElementById('promo-code-input');
-    const promoCode = promoInput.value.trim().toUpperCase();
-    const messageDiv = document.getElementById('promo-message');
-    const discountDiv = document.getElementById('promo-discount');
-    const applyBtn = document.getElementById('apply-promo-btn');
+            if (!promoCode) {
+                messageDiv.className = 'promo-message error';
+                messageDiv.textContent = 'Please enter a promo code';
+                return;
+            }
 
-    if (!promoCode) {
-        messageDiv.className = 'promo-message error';
-        messageDiv.textContent = 'Please enter a promo code';
-        return;
-    }
+            if (!selectedCycle) {
+                messageDiv.className = 'promo-message error';
+                messageDiv.textContent = 'Please select a billing cycle first';
+                return;
+            }
 
-    if (!selectedCycle) {
-        messageDiv.className = 'promo-message error';
-        messageDiv.textContent = 'Please select a billing cycle first';
-        return;
-    }
+            applyBtn.disabled = true;
+            applyBtn.textContent = 'Applying...';
 
-    applyBtn.disabled = true;
-    applyBtn.textContent = 'Applying...';
+            try {
+                const response = await fetch('/api/subscription/validate-promo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        promoCode,
+                        transactionType: 'renewal',
+                        plan: selectedPlan,
+                        billingCycle: selectedCycle
+                    })
+                });
 
-    try {
-        const response = await fetch('/api/subscription/validate-promo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                promoCode,
-                transactionType: 'renewal',
-                plan: selectedPlan,
-                billingCycle: selectedCycle
-            })
-        });
+                const data = await response.json();
 
-        const data = await response.json();
+                if (data.success) {
+                    appliedPromoCodeRenewal = promoCode;
+                    
+                    messageDiv.className = 'promo-message success';
+                    messageDiv.textContent = `✅ ${data.description} - Save ₹${data.discountAmount}!`;
+                    
+                    discountDiv.style.display = 'block';
+                    discountDiv.innerHTML = `
+                        <h4>🎉 Discount Applied!</h4>
+                        <div style="margin: 10px 0;">
+                            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                                <span>Original Price:</span>
+                                <span style="text-decoration: line-through;">₹${data.originalAmount}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                                <span>Discount (${data.discountPercent}%):</span>
+                                <span style="color: #10b981;">-₹${data.discountAmount}</span>
+                            </div>
+                            <hr style="margin: 10px 0;">
+                            <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: #10b981;">
+                                <span>Final Price:</span>
+                                <span>₹${data.discountedAmount}</span>
+                            </div>
+                        </div>
+                    `;
 
-        if (data.success) {
-            appliedPromoCodeRenewal = promoCode;
-            
-            messageDiv.className = 'promo-message success';
-            messageDiv.textContent = `✅ ${data.description} - Save ₹${data.discountAmount}!`;
-            
-            discountDiv.style.display = 'block';
-            discountDiv.innerHTML = `
-                <h4>🎉 Discount Applied!</h4>
-                <div style="margin: 10px 0;">
-                    <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                        <span>Original Price:</span>
-                        <span style="text-decoration: line-through;">₹${data.originalAmount}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                        <span>Discount (${data.discountPercent}%):</span>
-                        <span style="color: #10b981;">-₹${data.discountAmount}</span>
-                    </div>
-                    <hr style="margin: 10px 0;">
-                    <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: #10b981;">
-                        <span>Final Price:</span>
-                        <span>₹${data.discountedAmount}</span>
-                    </div>
-                </div>
-            `;
-
-            promoInput.disabled = true;
-            applyBtn.textContent = 'Applied ✓';
-        } else {
-            messageDiv.className = 'promo-message error';
-            messageDiv.textContent = `❌ ${data.message}`;
-            appliedPromoCodeRenewal = null;
-            discountDiv.style.display = 'none';
+                    promoInput.disabled = true;
+                    applyBtn.textContent = 'Applied ✓';
+                } else {
+                    messageDiv.className = 'promo-message error';
+                    messageDiv.textContent = `❌ ${data.message}`;
+                    appliedPromoCodeRenewal = null;
+                    discountDiv.style.display = 'none';
+                }
+            } catch (error) {
+                messageDiv.className = 'promo-message error';
+                messageDiv.textContent = '❌ Failed to apply promo code';
+                appliedPromoCodeRenewal = null;
+            } finally {
+                applyBtn.disabled = false;
+                if (!appliedPromoCodeRenewal) applyBtn.textContent = 'Apply';
+            }
         }
-    } catch (error) {
-        messageDiv.className = 'promo-message error';
-        messageDiv.textContent = '❌ Failed to apply promo code';
-        appliedPromoCodeRenewal = null;
-    } finally {
-        applyBtn.disabled = false;
-        if (!appliedPromoCodeRenewal) applyBtn.textContent = 'Apply';
-    }
-}
 
         async function proceedToPayment() {
             if (!selectedCycle) {
@@ -501,14 +518,15 @@ async function applyPromoCodeRenewal() {
             btn.textContent = 'Processing...';
 
             try {
+                // ✅ FIXED: Include promo code
                 const response = await fetch('/api/subscription/create-renewal-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                token: renewalToken,
-                plan: selectedPlan,
-                billingCycle: selectedCycle,
-                promoCode: appliedPromoCodeRenewal
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: renewalToken,
+                        plan: selectedPlan,
+                        billingCycle: selectedCycle,
+                        promoCode: appliedPromoCodeRenewal // ✅ Added this!
                     })
                 });
 
@@ -518,10 +536,12 @@ async function applyPromoCodeRenewal() {
                     initiatePayment(data.order);
                 } else {
                     alert(data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Proceed to Payment';
                 }
             } catch (error) {
+                console.error('Payment error:', error);
                 alert('Payment initiation failed');
-            } finally {
                 btn.disabled = false;
                 btn.textContent = 'Proceed to Payment';
             }
@@ -542,7 +562,15 @@ async function applyPromoCodeRenewal() {
                     email: userData.email,
                     name: userData.firstName
                 },
-                theme: { color: '#667eea' }
+                theme: { color: '#667eea' },
+                modal: {
+                    ondismiss: function() {
+                        alert('Payment cancelled');
+                        const btn = document.getElementById('btn-proceed');
+                        btn.disabled = false;
+                        btn.textContent = 'Proceed to Payment';
+                    }
+                }
             };
 
             const rzp = new Razorpay(options);
@@ -568,10 +596,11 @@ async function applyPromoCodeRenewal() {
                     alert('🎉 Subscription renewed successfully!');
                     window.location.href = '/dashboard';
                 } else {
-                    alert('Payment verification failed');
+                    alert('Payment verification failed. Please contact support.');
                 }
             } catch (error) {
-                alert('Verification failed');
+                console.error('Verification error:', error);
+                alert('Verification failed. Please contact support.');
             }
         }
 
