@@ -353,6 +353,383 @@ weatherTemplate(weather, isMock) {
             </div>
         `;
     }
+
+    // Add to your existing DashboardWidgets class
+
+// ==================== STRAVA ANALYTICS WIDGETS ====================
+
+// Workout History Widget (from Strava)
+async renderStravaWorkoutHistory(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading workout history...</div>';
+
+    try {
+        const response = await fetch('/api/analytics/workout-history?days=30', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || data.workouts.length === 0) {
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>🏃‍♂️ No workouts found</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        ${data.source === 'strava' ? 'Connect Strava to see your workout history' : 'Sync your Strava activities'}
+                    </p>
+                    <button onclick="window.location.href='/auth/strava'" class="btn-primary" style="margin-top: 15px;">
+                        Connect Strava
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const { workouts, stats } = data;
+
+        container.innerHTML = `
+            <div class="widget workout-history-widget">
+                <div class="widget-header">
+                    <h3>📊 Workout History (Last 30 Days)</h3>
+                    <button onclick="window.dashboardWidgets.syncStrava()" class="btn-sync" title="Sync Strava">
+                        🔄
+                    </button>
+                </div>
+                
+                <div class="stats-summary">
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalWorkouts}</div>
+                        <div class="stat-label">Workouts</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalDistance.toFixed(1)}</div>
+                        <div class="stat-label">km</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${Math.round(stats.totalDuration)}</div>
+                        <div class="stat-label">minutes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.averagePace || 'N/A'}</div>
+                        <div class="stat-label">min/km</div>
+                    </div>
+                </div>
+
+                <div class="trend-indicator trend-${stats.progressTrend}">
+                    ${stats.progressTrend === 'improving' ? '📈 Improving trend' : 
+                      stats.progressTrend === 'declining' ? '📉 Volume decreasing' : 
+                      '➡️ Maintaining consistency'}
+                </div>
+
+                <div class="workout-list">
+                    ${workouts.slice(0, 5).map(w => `
+                        <div class="workout-item">
+                            <div class="workout-icon">${this.getWorkoutIcon(w.type)}</div>
+                            <div class="workout-info">
+                                <div class="workout-name">${w.name || w.type}</div>
+                                <div class="workout-meta">
+                                    ${new Date(w.startDate).toLocaleDateString()} • 
+                                    ${w.distance.toFixed(2)} km • 
+                                    ${Math.round(w.movingTime)} min
+                                </div>
+                            </div>
+                            ${w.averageHeartrate ? `
+                                <div class="workout-hr">
+                                    <span title="Average Heart Rate">❤️ ${Math.round(w.averageHeartrate)}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="widget-footer">
+                    <small>Data from Strava • Last synced: ${data.lastSync ? new Date(data.lastSync).toLocaleTimeString() : 'Just now'}</small>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render workout history error:', error);
+        container.innerHTML = `
+            <div class="widget error-widget">
+                <p style="color: #ef4444;">❌ Failed to load workout history</p>
+                <button onclick="window.dashboardWidgets.renderStravaWorkoutHistory('${containerId}')" class="btn-secondary">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+getWorkoutIcon(type) {
+    const icons = {
+        'Run': '🏃',
+        'LongRun': '🏃‍♂️',
+        'Workout': '💪',
+        'Race': '🏁',
+        'TrailRun': '⛰️',
+        'VirtualRun': '💻'
+    };
+    return icons[type] || '🏃';
+}
+
+// Progress Chart Widget
+async renderProgressChart(containerId, metric = 'distance') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading progress chart...</div>';
+
+    try {
+        const response = await fetch(`/api/analytics/progress-chart?metric=${metric}&days=90`, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || data.data.length === 0) {
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>📈 No data available for chart</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        Complete more workouts to see your progress
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.renderSimpleBarChart(data.data, metric);
+    } catch (error) {
+        console.error('Render chart error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load chart</div>';
+    }
+}
+
+renderSimpleBarChart(data, metric) {
+    const maxValue = Math.max(...data.map(d => d.value));
+    const chartHeight = 200;
+
+    let html = `
+        <div class="widget progress-chart-widget">
+            <div class="widget-header">
+                <h3>📈 Progress - ${metric.charAt(0).toUpperCase() + metric.slice(1)}</h3>
+            </div>
+            <div class="chart-container" style="height: ${chartHeight}px; position: relative; padding: 10px;">
+                <svg width="100%" height="${chartHeight}" style="position: absolute; top: 0; left: 0;">
+    `;
+
+    const barWidth = 100 / data.length;
+    data.forEach((point, index) => {
+        const barHeight = maxValue > 0 ? (point.value / maxValue) * (chartHeight - 40) : 0;
+        const x = index * barWidth;
+        const y = chartHeight - barHeight - 25;
+
+        html += `
+            <rect 
+                x="${x}%" 
+                y="${y}" 
+                width="${barWidth * 0.7}%" 
+                height="${barHeight}" 
+                fill="#667eea" 
+                opacity="0.8"
+                rx="3"
+            />
+            <text 
+                x="${x + (barWidth * 0.35)}%" 
+                y="${chartHeight - 8}" 
+                text-anchor="middle" 
+                font-size="10" 
+                fill="#666"
+            >
+                W${point.week.split('-W')[1]}
+            </text>
+        `;
+    });
+
+    html += `
+                </svg>
+            </div>
+            <div class="chart-legend" style="text-align: center; font-size: 12px; color: #666; margin-top: 10px;">
+                Weekly ${metric} over last 90 days
+            </div>
+        </div>
+    `;
+
+    return html;
+}
+
+// Personal Records Widget
+async renderPersonalRecords(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading personal records...</div>';
+
+    try {
+        const response = await fetch('/api/analytics/personal-records', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            container.innerHTML = '<div class="widget empty-state-widget">No personal records available</div>';
+            return;
+        }
+
+        const { records } = data;
+
+        container.innerHTML = `
+            <div class="widget personal-records-widget">
+                <div class="widget-header">
+                    <h3>🏆 Personal Records</h3>
+                </div>
+                
+                <div class="records-grid">
+                    <div class="record-card">
+                        <div class="record-icon">🏃</div>
+                        <div class="record-value">${records.totalRuns || 0}</div>
+                        <div class="record-label">Total Runs</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">📏</div>
+                        <div class="record-value">${records.longestRun?.distance || '0'} km</div>
+                        <div class="record-label">Longest Run</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">🌍</div>
+                        <div class="record-value">${records.totalDistance || '0'} km</div>
+                        <div class="record-label">Total Distance</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">⏱️</div>
+                        <div class="record-value">${records.totalTime || '0'} hrs</div>
+                        <div class="record-label">Total Time</div>
+                    </div>
+                </div>
+
+                <div class="widget-footer">
+                    <small>All-time statistics from Strava</small>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render personal records error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load personal records</div>';
+    }
+}
+
+// Training Plan Overview Widget
+async renderTrainingPlanOverview(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading training plan...</div>';
+
+    try {
+        const response = await fetch('/api/training-plan/current', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || !data.plan) {
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>📅 No active training plan</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        Create a personalized plan to reach your goals
+                    </p>
+                    <button onclick="window.location.href='/ai-onboarding'" class="btn-primary" style="margin-top: 15px;">
+                        Create Training Plan
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const { plan } = data;
+
+        container.innerHTML = `
+            <div class="widget training-plan-widget">
+                <div class="widget-header">
+                    <h3>📅 This Week's Training</h3>
+                </div>
+                
+                <div class="plan-summary">
+                    <div class="plan-info">
+                        <span class="plan-week">Week ${plan.currentWeek || 1} of ${plan.totalWeeks || 12}</span>
+                        <span class="plan-phase">${plan.phase || 'Base Building'}</span>
+                    </div>
+                </div>
+
+                <div class="week-workouts-list">
+                    ${(plan.thisWeekWorkouts || []).map(w => `
+                        <div class="workout-row ${w.completed ? 'completed' : ''}">
+                            <div class="workout-day">
+                                ${new Date(w.scheduledDate).toLocaleDateString('en-US', { weekday: 'short' })}
+                            </div>
+                            <div class="workout-detail">
+                                <div class="workout-type">${w.type || 'Easy Run'}</div>
+                                <div class="workout-desc">${w.distance || '5'} km • ${w.duration || '30'} min</div>
+                            </div>
+                            <div class="workout-status">
+                                ${w.completed ? '✅' : '⏳'}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="widget-footer">
+                    <button onclick="window.location.href='/calendar'" class="btn-secondary">
+                        View Full Calendar
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render training plan error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load training plan</div>';
+    }
+}
+
+// Sync Strava activities
+async syncStrava() {
+    try {
+        const button = event.target;
+        button.innerHTML = '⏳';
+        button.disabled = true;
+
+        const response = await fetch('/api/strava/sync', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert(`✅ Synced ${data.count} activities from Strava!`);
+            // Refresh the workout history widget
+            this.renderStravaWorkoutHistory('workout-history-container');
+        } else {
+            alert('❌ Failed to sync Strava: ' + data.message);
+        }
+
+        button.innerHTML = '🔄';
+        button.disabled = false;
+    } catch (error) {
+        console.error('Sync error:', error);
+        alert('❌ Failed to sync Strava');
+        event.target.innerHTML = '🔄';
+        event.target.disabled = false;
+    }
+}
+
 }
 
 // Initialize on page load

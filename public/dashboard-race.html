@@ -594,6 +594,10 @@
         <div class="widgets-grid">
             <div id="weather-widget-container"></div>
             <div id="today-workout-container"></div>
+            <div id="workout-history-container"></div>
+    <div id="progress-chart-container"></div>
+    <div id="personal-records-container"></div>
+    <div id="training-plan-container"></div>
         </div>
 
         <!-- Weekly Plan -->
@@ -734,6 +738,10 @@
         window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
         window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
         window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
+        window.dashboardWidgets.renderStravaWorkoutHistory('workout-history-container');
+        window.dashboardWidgets.renderProgressChart('progress-chart-container', 'distance');
+        window.dashboardWidgets.renderPersonalRecords('personal-records-container');
+        window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
 
         // Load subscription details
         loadSubscriptionDetails();

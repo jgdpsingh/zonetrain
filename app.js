@@ -11966,3 +11966,293 @@ app.get('/api/user-status', authenticateToken, async (req, res) => {
         });
     }
 });
+
+// ==================== STRAVA & ANALYTICS ROUTES ====================
+
+const StravaService = require('./services/stravaService');
+const WorkoutAnalyticsService = require('./services/workoutAnalyticsService');
+const NotificationService = require('./services/notificationService');
+const TrainingPlanService = require('./services/trainingPlanService');
+
+const stravaService = new StravaService(db);
+const analyticsService = new WorkoutAnalyticsService(db);
+const notificationService = new NotificationService(db);
+const trainingPlanService = new TrainingPlanService(db, aiService);
+
+// ==================== STRAVA SYNC ROUTES ====================
+
+// Sync Strava activities
+app.post('/api/strava/sync', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        console.log('🔄 Syncing Strava for user:', userId);
+        
+        const result = await stravaService.syncActivities(userId);
+        
+        res.json({
+            success: true,
+            message: `Synced ${result.count} activities`,
+            count: result.count
+        });
+    } catch (error) {
+        console.error('Strava sync error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Failed to sync Strava activities'
+        });
+    }
+});
+
+// Get Strava connection status
+app.get('/api/strava/status', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+        
+        const connected = !!(user.stravaAccessToken);
+        
+        res.json({
+            success: true,
+            connected,
+            athleteName: user.stravaAthleteName || null,
+            lastSync: user.stravaLastSync || null
+        });
+    } catch (error) {
+        console.error('Strava status error:', error);
+        res.json({ success: false, connected: false });
+    }
+});
+
+// ==================== WORKOUT ANALYTICS ROUTES ====================
+
+// Get workout history from Strava
+app.get('/api/analytics/workout-history', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.query.days) || 30;
+        
+        const history = await analyticsService.getWorkoutHistory(userId, days);
+        
+        res.json({
+            success: true,
+            ...history
+        });
+    } catch (error) {
+        console.error('Workout history error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message,
+            workouts: [],
+            stats: {}
+        });
+    }
+});
+
+// Get progress chart data
+app.get('/api/analytics/progress-chart', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const metric = req.query.metric || 'distance';
+        const days = parseInt(req.query.days) || 90;
+        
+        const chartData = await analyticsService.getProgressChartData(userId, metric, days);
+        
+        res.json({
+            success: true,
+            ...chartData
+        });
+    } catch (error) {
+        console.error('Progress chart error:', error);
+        res.status(500).json({ 
+            success: false, 
+            metric,
+            data: []
+        });
+    }
+});
+
+// Get personal records from Strava
+app.get('/api/analytics/personal-records', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const records = await analyticsService.getPersonalRecords(userId);
+        
+        res.json({
+            success: true,
+            records
+        });
+    } catch (error) {
+        console.error('Personal records error:', error);
+        res.status(500).json({ 
+            success: false, 
+            records: {}
+        });
+    }
+});
+
+// ==================== NOTIFICATION ROUTES ====================
+
+// Get user notifications
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const limit = parseInt(req.query.limit) || 20;
+        
+        const notifications = await notificationService.getUserNotifications(userId, limit);
+        const unreadCount = await notificationService.getUnreadCount(userId);
+        
+        res.json({
+            success: true,
+            notifications,
+            unreadCount
+        });
+    } catch (error) {
+        console.error('Get notifications error:', error);
+        res.status(500).json({ 
+            success: false, 
+            notifications: [],
+            unreadCount: 0
+        });
+    }
+});
+
+// Get unread notification count
+app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const count = await notificationService.getUnreadCount(userId);
+        
+        res.json({ success: true, count });
+    } catch (error) {
+        res.json({ success: true, count: 0 });
+    }
+});
+
+// Mark notification as read
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        await notificationService.markAsRead(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Mark all notifications as read
+app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await notificationService.markAllAsRead(userId);
+        res.json({ success: true, count: result.count });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Delete notification
+app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
+    try {
+        await notificationService.deleteNotification(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== TRAINING PLAN ROUTES ====================
+
+// Get current training plan
+app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const plan = await trainingPlanService.getCurrentPlan(userId);
+        
+        res.json({
+            success: true,
+            plan
+        });
+    } catch (error) {
+        console.error('Get current plan error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message,
+            plan: null
+        });
+    }
+});
+
+// Request workout modification
+app.post('/api/training-plan/modify-workout', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { workoutId, reason, preferences } = req.body;
+        
+        const result = await trainingPlanService.requestModification(
+            userId,
+            workoutId,
+            reason,
+            preferences
+        );
+        
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Modify workout error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Apply workout modification
+app.post('/api/training-plan/apply-modification/:id', authenticateToken, async (req, res) => {
+    try {
+        await trainingPlanService.applyModification(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Get injury prevention tips
+app.get('/api/training-plan/injury-prevention', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const tips = await trainingPlanService.getInjuryPreventionTips(userId);
+        
+        res.json({ success: true, tips });
+    } catch (error) {
+        console.error('Get injury tips error:', error);
+        res.json({ 
+            success: true, 
+            tips: {
+                tips: [
+                    'Gradually increase training volume',
+                    'Include rest days',
+                    'Focus on proper form',
+                    'Listen to your body'
+                ],
+                generated: 'fallback'
+            }
+        });
+    }
+});
+
+// Get recovery suggestion
+app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const suggestion = await trainingPlanService.suggestRecoveryDay(userId);
+        
+        res.json({ success: true, suggestion });
+    } catch (error) {
+        res.json({ 
+            success: true, 
+            suggestion: {
+                recommended: false,
+                message: 'Unable to calculate recovery needs'
+            }
+        });
+    }
+});
+
+console.log('✅ Strava analytics and notification routes initialized');
