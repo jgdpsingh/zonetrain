@@ -1375,6 +1375,7 @@ app.get('/login', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com;">
     <title>Login - ZoneTrain</title>
     <link rel="stylesheet" href="css/cookies.css">
     <style>
@@ -1388,7 +1389,11 @@ app.get('/login', (req, res) => {
             --error-red: #EF4444;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1467,6 +1472,7 @@ app.get('/login', (req, res) => {
             border-radius: 10px;
             font-size: 1rem;
             transition: border-color 0.3s ease;
+            font-family: inherit;
         }
 
         input:focus {
@@ -1500,6 +1506,7 @@ app.get('/login', (req, res) => {
             cursor: pointer;
             transition: all 0.3s ease;
             margin-bottom: 15px;
+            font-family: inherit;
         }
 
         .btn-primary {
@@ -1511,6 +1518,11 @@ app.get('/login', (req, res) => {
             background: var(--accent-purple);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
         }
 
         .btn-social {
@@ -1530,6 +1542,7 @@ app.get('/login', (req, res) => {
             transition: all 0.3s ease;
             text-decoration: none;
             margin-bottom: 12px;
+            font-family: inherit;
         }
 
         .btn-social:hover {
@@ -1635,6 +1648,7 @@ app.get('/login', (req, res) => {
             border-radius: 8px;
             font-size: 14px;
             display: none;
+            line-height: 1.6;
         }
 
         .error-message.error {
@@ -1650,23 +1664,23 @@ app.get('/login', (req, res) => {
         }
 
         .error-message.urgent {
-    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-    color: #92400E;
-    border-color: #F59E0B;
-    animation: pulse-warning 2s infinite;
-}
+            background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+            color: #92400E;
+            border: 1px solid #F59E0B;
+            animation: pulse-warning 2s infinite;
+            display: block;
+        }
 
-@keyframes pulse-warning {
-    0%, 100% {
-        transform: scale(1);
-        box-shadow: 0 4px 6px rgba(245, 158, 11, 0.1);
-    }
-    50% {
-        transform: scale(1.02);
-        box-shadow: 0 6px 12px rgba(245, 158, 11, 0.3);
-    }
-}
-
+        @keyframes pulse-warning {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 4px 6px rgba(245, 158, 11, 0.1);
+            }
+            50% {
+                transform: scale(1.02);
+                box-shadow: 0 6px 12px rgba(245, 158, 11, 0.3);
+            }
+        }
 
         @media screen and (max-width: 768px) {
             body { padding: 15px; }
@@ -1699,9 +1713,9 @@ app.get('/login', (req, res) => {
         <h1>🏃 ZoneTrain</h1>
         <h2>Welcome Back</h2>
 
-        <div id="errorMessage" class="error-message">${error === 'facebook-failed' ? 'Facebook login failed. Please try again.' : error === 'google-failed' ? 'Google login failed. Please try again.' : ''}</div>
+        <div id="errorMessage" class="error-message"></div>
 
-        <!-- Social Login Buttons (Moved to Top) -->
+        <!-- Social Login Buttons -->
         <a href="/auth/google" class="btn-social btn-google">
             <svg width="18" height="18" viewBox="0 0 18 18">
                 <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
@@ -1756,9 +1770,18 @@ app.get('/login', (req, res) => {
         </div>
     </div>
 
-   <script>
+    <script>
+// Check if already logged in
+(function() {
+    const userToken = localStorage.getItem('userToken');
+    const userEmail = localStorage.getItem('userEmail');
+    if (userToken && userEmail) {
+        window.location.href = '/dashboard';
+    }
+})();
+
 // Show error message from URL params
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const error = urlParams.get('error');
     
@@ -1782,17 +1805,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Check if already logged in
-(function() {
-    const userToken = localStorage.getItem('userToken');
-    const userEmail = localStorage.getItem('userEmail');
-    if (userToken && userEmail) {
-        window.location.href = '/dashboard';
-    }
-})();
-
 // Login form handler
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
     const submitButton = e.target.querySelector('button[type="submit"]');
@@ -1836,16 +1850,16 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                     if (result.hoursRemaining === 0) {
                         warningMessage = '🚨 URGENT: Your account will be blocked soon! Verify your email immediately.';
                     } else if (result.hoursRemaining < 2) {
-                        warningMessage = '⚠️ URGENT: Only ' + result.hoursRemaining + ' hour(s) left to verify your email!\n\nYour account will be blocked if not verified.';
+                        warningMessage = "⚠️ URGENT: Only " + result.hoursRemaining + " hour(s) left to verify your email! Your account will be blocked if not verified.";
                     } else {
-                        warningMessage = '⏰ Please verify your email within ' + result.hoursRemaining + ' hours to keep your account active.';
+                        warningMessage = "⏰ Please verify your email within " + result.hoursRemaining + " hours to keep your account active.";
                     }
                 }
                 
                 // Show warning and redirect
-                showMessage(warningMessage, 'error');
+                showMessage(warningMessage, 'urgent');
                 
-                setTimeout(() => {
+                setTimeout(function() {
                     window.location.href = result.redirect || '/dashboard?verify=required';
                 }, 2000);
                 
@@ -1858,7 +1872,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 
             showMessage('✅ Welcome back! Redirecting...', 'success');
 
-            setTimeout(() => {
+            setTimeout(function() {
                 if (redirectParam === 'plans') {
                     window.location.href = '/plans.html';
                 } else {
@@ -1870,7 +1884,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             // Account is blocked
             console.error('🚫 Account blocked:', result.message);
             
-            const blockedMessage = '🚫 Account Blocked\n\n' + result.message + '\n\n' + (result.help || 'Please contact support for assistance.');
+            const blockedMessage = '🚫 Account Blocked: ' + result.message + ' ' + (result.help || 'Please contact support for assistance.');
             showMessage(blockedMessage, 'error');
             
             submitButton.disabled = false;
@@ -1891,45 +1905,21 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     }
 });
 
-// Signup link handler
-document.getElementById('signup-link').addEventListener('click', function(e) {
-    e.preventDefault();
-    const params = new URLSearchParams(window.location.search);
-    const r = params.get('redirect');
-    if (r) {
-        window.location.href = '/signup?redirect=' + encodeURIComponent(r);
-    } else {
-        window.location.href = '/signup';
-    }
-});
-
 // Enhanced message display function
 function showMessage(message, type) {
     const errorDiv = document.getElementById('errorMessage');
-    
-    // Handle multi-line messages
-    const lines = message.split('\n');
-    if (lines.length > 1) {
-        errorDiv.innerHTML = lines.map(function(line) {
-            return '<div>' + line + '</div>';
-        }).join('');
-    } else {
-        errorDiv.textContent = message;
-    }
-    
+    errorDiv.textContent = message;
     errorDiv.className = 'error-message ' + type;
     errorDiv.style.display = 'block';
     
     // Auto-hide only success messages
     if (type === 'success') {
-        setTimeout(() => {
+        setTimeout(function() {
             errorDiv.style.display = 'none';
         }, 3000);
     }
 }
-</script>
-
-
+    </script>
 
     <!-- Cookie Banner -->
     <script src="js/cookies.js"></script>
@@ -1938,6 +1928,7 @@ function showMessage(message, type) {
   `;
   res.send(html);
 });
+
 
 
 app.get('/signup', (req, res) => {
