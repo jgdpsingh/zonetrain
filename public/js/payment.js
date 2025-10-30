@@ -1,7 +1,64 @@
 // public/js/payment.js - ZONETRAIN PAYMENT INTEGRATION
 // Comprehensive payment processing for subscriptions
 
+// ==================== INITIALIZE CONFIG ====================
+
+let RAZORPAY_KEY_ID = null;
+
+async function loadPaymentConfig() {
+    try {
+        const token = getToken();
+        if (!token) {
+            console.warn('⚠️ No token for config load');
+            return;
+        }
+
+        const response = await fetch('/api/payment/config', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const config = await response.json();
+        
+        if (config.success && config.key) {
+            RAZORPAY_KEY_ID = config.key;
+            window.RAZORPAY_KEY_ID = RAZORPAY_KEY_ID;
+            const mode = config.testMode ? '🧪 TEST MODE' : '🟢 LIVE MODE';
+            console.log(`✅ Razorpay key loaded [${mode}]`);
+        } else {
+            console.error('❌ Failed to load Razorpay config:', config);
+        }
+    } catch (error) {
+        console.error('❌ Config load error:', error);
+    }
+}
+
+// Load config when DOM is ready
+document.addEventListener('DOMContentLoaded', loadPaymentConfig);
+
 // ==================== UTILITY FUNCTIONS ====================
+
+function getToken() {
+    // Try localStorage first (most common)
+    const token = localStorage.getItem('userToken');
+    if (token) {
+        console.log('✅ Token found in localStorage');
+        return token;
+    }
+
+    // Try cookies as fallback
+    const cookieToken = getCookie('userToken');
+    if (cookieToken) {
+        console.log('✅ Token found in cookie');
+        return cookieToken;
+    }
+
+    console.error('❌ No token found');
+    return null;
+}
 
 function getCookie(name) {
     const value = `; ${document.cookie}`;
@@ -56,8 +113,10 @@ function showMessage(message, type = 'info') {
  */
 async function purchaseSubscription(planType, billingCycle = 'monthly', promoCode = null) {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
+        
         if (!token) {
+            console.log('❌ No token, redirecting to login');
             alert('Please log in to continue');
             window.location.href = '/login?redirect=plans';
             return;
@@ -65,8 +124,20 @@ async function purchaseSubscription(planType, billingCycle = 'monthly', promoCod
 
         showMessage('Creating payment order...', 'info');
 
-        // Create order
-        const orderResponse = await fetch('/api/subscription/create-order', {
+        // Determine amount based on plan type
+        const planPrices = {
+            'basic': 299,
+            'basic_coach': 299,
+            'race': 599,
+            'race_coach': 599
+        };
+
+        const amount = planPrices[planType] || 299;
+
+        console.log('🛒 Initiating purchase:', { planType, amount, billingCycle });
+
+        // Call your app.js endpoint
+        const orderResponse = await fetch('/api/payment/create-order', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -74,40 +145,65 @@ async function purchaseSubscription(planType, billingCycle = 'monthly', promoCod
             },
             body: JSON.stringify({ 
                 planType, 
-                billingCycle,
-                promoCode 
+                amount
             })
         });
+
+        // Check if response is valid
+        if (!orderResponse.ok) {
+            const errorText = await orderResponse.text();
+            console.error('❌ Server error:', orderResponse.status, errorText);
+            showMessage(`Server error: ${orderResponse.status}`, 'error');
+            return;
+        }
 
         const orderData = await orderResponse.json();
 
         if (!orderData.success) {
-            showMessage('Error: ' + orderData.message, 'error');
+            showMessage('Error: ' + (orderData.message || 'Failed to create order'), 'error');
+            console.error('❌ Order creation failed:', orderData);
             return;
         }
 
-        console.log('✅ Order created:', orderData.order);
+        console.log('✅ Order created:', orderData);
 
-        // Initialize Razorpay
+        // Check if Razorpay SDK is loaded
+        if (typeof Razorpay === 'undefined') {
+            showMessage('Razorpay SDK not loaded. Please refresh page.', 'error');
+            console.error('❌ Razorpay SDK not available');
+            return;
+        }
+
+        // Check if we have the key
+        if (!RAZORPAY_KEY_ID) {
+            showMessage('Razorpay key not configured. Please refresh page.', 'error');
+            console.error('❌ Razorpay key not available');
+            return;
+        }
+
+        console.log('💳 Opening Razorpay with key:', RAZORPAY_KEY_ID.substring(0, 15) + '...');
+
+        // Initialize Razorpay with response format
         const options = {
-            key: orderData.razorpayKey,
+            key: RAZORPAY_KEY_ID,  // ✅ FIXED: Use loaded variable
             amount: orderData.order.amount * 100, // Convert to paise
             currency: orderData.order.currency || 'INR',
             name: 'ZoneTrain',
-            description: orderData.order.planName || `${planType} Plan - ${billingCycle}`,
-            order_id: orderData.order.orderId,
+            description: `${planType} Plan`,
+            order_id: orderData.order.id,
             handler: async function(response) {
-                console.log('💰 Payment successful');
-                await verifyPayment(response, planType, billingCycle);
+                console.log('💰 Payment successful, verifying...');
+                await verifyPayment(response, planType);
             },
             prefill: {
-                email: orderData.userEmail || localStorage.getItem('userEmail')
+                email: localStorage.getItem('userEmail') || ''
             },
             theme: {
                 color: '#667eea'
             },
             modal: {
                 ondismiss: function() {
+                    console.log('⚠️ Payment popup closed by user');
                     showMessage('Payment cancelled', 'info');
                 }
             }
@@ -115,27 +211,36 @@ async function purchaseSubscription(planType, billingCycle = 'monthly', promoCod
 
         const razorpay = new Razorpay(options);
         razorpay.on('payment.failed', function(response) {
-            console.error('Payment failed:', response.error);
+            console.error('❌ Payment failed:', response.error);
             showMessage('Payment failed: ' + response.error.description, 'error');
         });
         razorpay.open();
 
     } catch (error) {
-        console.error('Purchase subscription error:', error);
-        showMessage('Failed to initiate payment. Please try again.', 'error');
+        console.error('❌ Purchase error:', error);
+        showMessage('Failed to initiate payment: ' + error.message, 'error');
     }
 }
 
-/**
- * Verify subscription payment
- */
-async function verifyPayment(response, planType, billingCycle) {
+async function verifyPayment(response, planType) {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
+        
+        if (!token) {
+            showMessage('Session expired. Redirecting...', 'error');
+            setTimeout(() => window.location.href = '/login', 2000);
+            return;
+        }
 
         showMessage('Verifying payment...', 'info');
 
-        const verifyResponse = await fetch('/api/subscription/verify-payment', {
+        console.log('🔍 Verifying payment:', {
+            orderId: response.razorpay_order_id,
+            paymentId: response.razorpay_payment_id
+        });
+
+        // Call your app.js verify endpoint
+        const verifyResponse = await fetch('/api/payment/verify', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -152,17 +257,24 @@ async function verifyPayment(response, planType, billingCycle) {
         const result = await verifyResponse.json();
 
         if (result.success) {
-            showMessage('✅ Payment successful! Redirecting...', 'success');
+            console.log('✅ Payment verified successfully');
+            showMessage('✅ Payment successful!', 'success');
             setTimeout(() => {
-                window.location.href = result.redirect || '/dashboard?payment=success';
+                // Redirect based on plan
+                if (planType.includes('race')) {
+                    window.location.href = '/dashboard-race?payment=success';
+                } else {
+                    window.location.href = '/dashboard-basic?payment=success';
+                }
             }, 2000);
         } else {
-            showMessage('❌ Payment verification failed: ' + result.message, 'error');
+            console.error('❌ Verification failed:', result);
+            showMessage('❌ Verification failed: ' + result.message, 'error');
         }
 
     } catch (error) {
-        console.error('Payment verification error:', error);
-        showMessage('Payment verification failed. Please contact support.', 'error');
+        console.error('❌ Verification error:', error);
+        showMessage('Verification failed: ' + error.message, 'error');
     }
 }
 
@@ -173,7 +285,7 @@ async function verifyPayment(response, planType, billingCycle) {
  */
 async function upgradeSubscription(newPlan, newBillingCycle = 'monthly', promoCode = null) {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
 
         // Calculate upgrade cost first
         showMessage('Calculating upgrade cost...', 'info');
@@ -216,7 +328,7 @@ Proceed with payment?`;
         await purchaseSubscription(newPlan, newBillingCycle, promoCode);
 
     } catch (error) {
-        console.error('Upgrade subscription error:', error);
+        console.error('❌ Upgrade error:', error);
         showMessage('Failed to upgrade. Please try again.', 'error');
     }
 }
@@ -226,7 +338,7 @@ Proceed with payment?`;
  */
 async function downgradeSubscription(newPlan) {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
 
         if (!confirm(`Are you sure you want to downgrade to ${newPlan}?\n\nThis will take effect at the end of your current billing period.`)) {
             return;
@@ -255,7 +367,7 @@ async function downgradeSubscription(newPlan) {
         }
 
     } catch (error) {
-        console.error('Downgrade error:', error);
+        console.error('❌ Downgrade error:', error);
         showMessage('Failed to downgrade. Please try again.', 'error');
     }
 }
@@ -291,7 +403,7 @@ async function applyPromoCode(promoCode, planType, billingCycle) {
         }
 
     } catch (error) {
-        console.error('Apply promo error:', error);
+        console.error('❌ Promo error:', error);
         showMessage('Failed to apply promo code', 'error');
         return null;
     }
@@ -318,7 +430,7 @@ function updatePriceDisplay(originalAmount, discountedAmount, discountPercent) {
  */
 async function cancelSubscription(reason = null) {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
 
         if (!confirm('Are you sure you want to cancel your subscription?\n\nYou will have access until the end of your billing period.')) {
             return;
@@ -347,7 +459,7 @@ async function cancelSubscription(reason = null) {
         }
 
     } catch (error) {
-        console.error('Cancel subscription error:', error);
+        console.error('❌ Cancel error:', error);
         showMessage('Failed to cancel subscription', 'error');
     }
 }
@@ -357,7 +469,7 @@ async function cancelSubscription(reason = null) {
  */
 async function getSubscriptionDetails() {
     try {
-        const token = getCookie('userToken');
+        const token = getToken();
 
         const response = await fetch('/api/subscription/details', {
             method: 'GET',
@@ -377,7 +489,7 @@ async function getSubscriptionDetails() {
         }
 
     } catch (error) {
-        console.error('Get subscription details error:', error);
+        console.error('❌ Get details error:', error);
         return null;
     }
 }
@@ -410,7 +522,7 @@ async function renewSubscription(token, plan, billingCycle) {
 
         // Initialize Razorpay
         const options = {
-            key: orderData.order.razorpayKeyId,
+            key: RAZORPAY_KEY_ID,
             amount: orderData.order.amount * 100,
             currency: orderData.order.currency,
             name: 'ZoneTrain',
@@ -431,7 +543,7 @@ async function renewSubscription(token, plan, billingCycle) {
         razorpay.open();
 
     } catch (error) {
-        console.error('Renewal error:', error);
+        console.error('❌ Renewal error:', error);
         showMessage('Failed to process renewal', 'error');
     }
 }
@@ -466,14 +578,14 @@ async function verifyRenewalPayment(response, token) {
         }
 
     } catch (error) {
-        console.error('Verify renewal error:', error);
+        console.error('❌ Renewal verify error:', error);
         showMessage('Payment verification failed', 'error');
     }
 }
 
-// ==================== MAKE GLOBAL ====================
+// ==================== EXPORT TO GLOBAL ====================
 
-// Export all functions to window for HTML onclick
+// Make functions available globally for onclick handlers
 window.purchaseSubscription = purchaseSubscription;
 window.upgradeSubscription = upgradeSubscription;
 window.downgradeSubscription = downgradeSubscription;
@@ -481,5 +593,6 @@ window.applyPromoCode = applyPromoCode;
 window.cancelSubscription = cancelSubscription;
 window.getSubscriptionDetails = getSubscriptionDetails;
 window.renewSubscription = renewSubscription;
+window.loadPaymentConfig = loadPaymentConfig;
 
-console.log('✅ Payment.js loaded successfully');
+console.log('✅ Payment.js loaded and ready');

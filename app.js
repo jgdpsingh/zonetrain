@@ -6348,11 +6348,20 @@ app.post('/api/auth/logout', (req, res) => {
     });
 });
 
+// Get Razorpay config for frontend
 app.get('/api/payment/config', authenticateToken, (req, res) => {
     res.json({
         success: true,
         key: process.env.RAZORPAY_KEY_ID,
-        testMode: process.env.RAZORPAY_KEY_ID.startsWith('rzp_test')
+        testMode: process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_ID.startsWith('rzp_test')
+    });
+});
+
+// Get Razorpay Key (needed by payment.js)
+app.get('/api/payment/razorpay-key', (req, res) => {
+    res.json({
+        success: true,
+        key: window.RAZORPAY_KEY_ID || ''
     });
 });
 
