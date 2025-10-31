@@ -9,318 +9,518 @@
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="/js/payment.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding-top: 90px;
-        }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding-top: 90px;
+    }
 
-        .dashboard-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 30px 20px;
-        }
+    .dashboard-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 30px 20px;
+    }
 
-        .dashboard-header {
-            background: white;
-            padding: 30px;
-            border-radius: 16px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-        }
+    .dashboard-header {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
 
+    .dashboard-header h1 {
+        font-size: 32px;
+        color: #1f2937;
+        margin-bottom: 10px;
+    }
+
+    .plan-badge {
+        display: inline-block;
+        padding: 8px 20px;
+        background: #fee2e2;
+        color: #991b1b;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 14px;
+        border: 2px solid #fca5a5;
+    }
+
+    /* ==================== PROMO CODE SECTION ==================== */
+
+    .plans-upgrade-section {
+        background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+        padding: 60px 20px;
+        margin: 40px 0;
+        border-radius: 20px;
+    }
+
+    /* Promo Banner */
+    .promo-banner {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 16px;
+        padding: 30px;
+        margin-bottom: 40px;
+        color: white;
+        box-shadow: 0 10px 30px rgba(107, 70, 193, 0.3);
+    }
+
+    .promo-content {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 30px;
+        flex-wrap: wrap;
+    }
+
+    .promo-text h3 {
+        font-size: 24px;
+        font-weight: 800;
+        margin-bottom: 8px;
+    }
+
+    .promo-text p {
+        font-size: 16px;
+        opacity: 0.95;
+    }
+
+    .promo-input-group {
+        display: flex;
+        gap: 10px;
+        flex: 1;
+        min-width: 300px;
+    }
+
+    .promo-input {
+        flex: 1;
+        padding: 14px 20px;
+        border: 2px solid white;
+        border-radius: 10px;
+        font-size: 16px;
+        font-weight: 600;
+        text-transform: uppercase;
+        transition: all 0.3s ease;
+        background: white;
+        color: #1f2937;
+    }
+
+    .promo-input:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3);
+    }
+
+    .btn-apply-promo {
+        padding: 14px 30px;
+        background: white;
+        color: #667eea;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .btn-apply-promo:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .promo-message {
+        font-size: 14px;
+        font-weight: 600;
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 12px;
+    }
+
+    .promo-message.success {
+        color: #059669;
+        background: rgba(209, 250, 229, 0.3);
+        border: 2px solid rgba(16, 185, 129, 0.5);
+    }
+
+    .promo-message.error {
+        color: #dc2626;
+        background: rgba(254, 226, 226, 0.3);
+        border: 2px solid rgba(239, 68, 68, 0.5);
+    }
+
+    /* ==================== PLANS COMPARISON SECTION ==================== */
+
+    .upgrade-cta-large {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        padding: 40px;
+        margin: 30px 0;
+        color: white;
+        box-shadow: 0 10px 30px rgba(107, 70, 193, 0.3);
+    }
+
+    .cta-header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+
+    .cta-header h2 {
+        color: white;
+        font-size: 36px;
+        margin-bottom: 12px;
+    }
+
+    .cta-header p {
+        font-size: 18px;
+        opacity: 0.95;
+    }
+
+    .plans-comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+
+    .plan-card {
+        background: white;
+        border-radius: 16px;
+        padding: 32px;
+        position: relative;
+        transition: transform 0.3s;
+    }
+
+    .plan-card:hover {
+        transform: translateY(-8px);
+    }
+
+    .plan-card.featured {
+        border: 3px solid #fbbf24;
+        box-shadow: 0 8px 24px rgba(251, 191, 36, 0.3);
+    }
+
+    .badge-popular {
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #fbbf24;
+        color: #78350f;
+        padding: 6px 20px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
+    }
+
+    .plan-name {
+        color: #1f2937;
+        font-size: 26px;
+        font-weight: 700;
+        margin-bottom: 12px;
+    }
+
+    .plan-price {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+    }
+
+    .price-original {
+        color: #9ca3af;
+        font-size: 18px;
+        text-decoration: line-through;
+    }
+
+    .amount {
+        color: #667eea;
+        font-size: 42px;
+        font-weight: 700;
+    }
+
+    .period {
+        color: #6b7280;
+        font-size: 16px;
+    }
+
+    .discount-badge {
+        width: 100%;
+        display: inline-block;
+        margin-top: 10px;
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .plan-savings {
+        background: #d1fae5;
+        color: #065f46;
+        padding: 8px 16px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-block;
+        margin-bottom: 20px;
+    }
+
+    .plan-features {
+        list-style: none;
+        margin: 24px 0;
+        padding: 0;
+    }
+
+    .plan-features li {
+        color: #4b5563;
+        padding: 12px 0;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .plan-features li:last-child {
+        border-bottom: none;
+    }
+
+    .plan-features li::before {
+        content: '✓';
+        color: #10b981;
+        font-weight: bold;
+        font-size: 18px;
+        min-width: 20px;
+    }
+
+    .plan-features li.premium {
+        color: #6d28d9;
+        font-weight: 600;
+    }
+
+    .plan-features li.premium::before {
+        content: '⭐';
+    }
+
+    .btn-select-plan {
+        width: 100%;
+        padding: 14px;
+        border: 2px solid #667eea;
+        background: white;
+        color: #667eea;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+        margin-top: 16px;
+    }
+
+    .btn-select-plan:hover {
+        background: #f3f4f6;
+        transform: translateY(-2px);
+    }
+
+    .btn-select-plan.primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        color: white;
+    }
+
+    .btn-select-plan.primary:hover {
+        box-shadow: 0 8px 20px rgba(107, 70, 193, 0.5);
+    }
+
+    /* ==================== FREE FEATURES SECTION ==================== */
+
+    .free-features {
+        background: white;
+        padding: 40px;
+        border-radius: 16px;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .free-features h3 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #1f2937;
+    }
+
+    .feature-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 0;
+        border-bottom: 1px solid #f3f4f6;
+        font-size: 16px;
+    }
+
+    .feature-item:last-child {
+        border-bottom: none;
+    }
+
+    .feature-icon {
+        font-size: 24px;
+        min-width: 30px;
+    }
+
+    .feature-locked {
+        opacity: 0.7;
+    }
+
+    .lock-icon {
+        margin-left: auto;
+        padding: 4px 12px;
+        background: #fef3c7;
+        color: #92400e;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    /* ==================== WIDGETS SECTION ==================== */
+
+    .widgets-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
+        margin-top: 30px;
+    }
+
+    .widget {
+        background: white;
+        padding: 24px;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        border: 1px solid #e5e7eb;
+    }
+
+    .widget-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .widget-header h3 {
+        font-size: 18px;
+        color: #1f2937;
+        font-weight: 700;
+    }
+
+    /* ==================== RESPONSIVE DESIGN ==================== */
+
+    @media (max-width: 768px) {
         .dashboard-header h1 {
-            font-size: 32px;
-            color: #1f2937;
-            margin-bottom: 10px;
-        }
-
-        .plan-badge {
-            display: inline-block;
-            padding: 8px 20px;
-            background: #fee2e2;
-            color: #991b1b;
-            border-radius: 20px;
-            font-weight: 700;
-            font-size: 14px;
-            border: 2px solid #fca5a5;
-        }
-
-        /* ✅ NEW: Enhanced Upgrade Section */
-        .upgrade-cta-large {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 20px;
-            padding: 40px;
-            margin: 30px 0;
-            color: white;
-            box-shadow: 0 10px 30px rgba(107, 70, 193, 0.3);
-        }
-
-        .cta-header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-
-        .cta-header h2 {
-            color: white;
-            font-size: 36px;
-            margin-bottom: 12px;
-        }
-
-        .cta-header p {
-            font-size: 18px;
-            opacity: 0.95;
-        }
-
-        .plans-comparison {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-        }
-
-        .plan-card {
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            position: relative;
-            transition: transform 0.3s;
-        }
-
-        .plan-card:hover {
-            transform: translateY(-8px);
-        }
-
-        .plan-card.featured {
-            border: 3px solid #fbbf24;
-            box-shadow: 0 8px 24px rgba(251, 191, 36, 0.3);
-        }
-
-        .badge-popular {
-            position: absolute;
-            top: -12px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #fbbf24;
-            color: #78350f;
-            padding: 6px 20px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 700;
-            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
-        }
-
-        .plan-name {
-            color: #1f2937;
-            font-size: 26px;
-            font-weight: 700;
-            margin-bottom: 12px;
-        }
-
-        .plan-price {
-            display: flex;
-            align-items: baseline;
-            gap: 4px;
-            margin-bottom: 24px;
-        }
-
-        .plan-price .amount {
-            color: #667eea;
-            font-size: 42px;
-            font-weight: 700;
-        }
-
-        .plan-price .period {
-            color: #6b7280;
-            font-size: 16px;
-        }
-
-        .plan-savings {
-            background: #d1fae5;
-            color: #065f46;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 600;
-            display: inline-block;
-            margin-bottom: 20px;
-        }
-
-        .plan-features {
-            list-style: none;
-            margin: 24px 0;
-            padding: 0;
-        }
-
-        .plan-features li {
-            color: #4b5563;
-            padding: 10px 0;
-            font-size: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .plan-features li::before {
-            content: '✓';
-            color: #10b981;
-            font-weight: bold;
-            font-size: 18px;
-        }
-
-        .plan-features li.premium {
-            color: #6d28d9;
-            font-weight: 600;
-        }
-
-        .plan-features li.premium::before {
-            content: '⭐';
-        }
-
-        .btn-select-plan {
-            width: 100%;
-            padding: 14px;
-            border: 2px solid #667eea;
-            background: white;
-            color: #667eea;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 16px;
-        }
-
-        .btn-select-plan:hover {
-            background: #f3f4f6;
-            transform: translateY(-2px);
-        }
-
-        .btn-select-plan.primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            color: white;
-        }
-
-        .btn-select-plan.primary:hover {
-            box-shadow: 0 8px 20px rgba(107, 70, 193, 0.5);
-        }
-
-        .widgets-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 24px;
-            margin-top: 30px;
-        }
-
-        .free-features {
-            background: white;
-            padding: 24px;
-            border-radius: 16px;
-            margin-bottom: 24px;
-        }
-
-        .feature-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 0;
-            border-bottom: 1px solid #f3f4f6;
-        }
-
-        .feature-item:last-child {
-            border-bottom: none;
-        }
-
-        .feature-icon {
             font-size: 24px;
         }
 
-        .feature-locked {
-            opacity: 0.5;
+        .upgrade-cta-large {
+            padding: 25px 20px;
         }
 
-        .lock-icon {
-            margin-left: auto;
-            color: #ef4444;
-            font-weight: 700;
+        .cta-header h2 {
+            font-size: 26px;
         }
 
-        .widget {
-            background: white;
-            padding: 24px;
-            border-radius: 16px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        .cta-header p {
+            font-size: 16px;
         }
 
-        .widget-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
+        .plans-comparison {
+            grid-template-columns: 1fr;
+            gap: 20px;
         }
 
-        .widget-header h3 {
-            font-size: 18px;
-            color: #1f2937;
+        .plan-card.featured {
+            order: -1; /* Show featured plan first on mobile */
         }
 
-        /* ✅ Responsive Design */
-        @media (max-width: 768px) {
-            .dashboard-header h1 {
-                font-size: 24px;
-            }
-
-            .upgrade-cta-large {
-                padding: 25px 20px;
-            }
-
-            .cta-header h2 {
-                font-size: 26px;
-            }
-
-            .cta-header p {
-                font-size: 16px;
-            }
-
-            .plans-comparison {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-
-            .plan-card.featured {
-                order: -1; /* Show featured plan first on mobile */
-            }
-
-            .plan-name {
-                font-size: 22px;
-            }
-
-            .plan-price .amount {
-                font-size: 36px;
-            }
+        .plan-name {
+            font-size: 22px;
         }
 
-        @media (max-width: 576px) {
-            .dashboard-container {
-                padding: 20px 15px;
-            }
-
-            .dashboard-header {
-                padding: 20px;
-            }
-
-            .plan-card {
-                padding: 24px 20px;
-            }
+        .amount {
+            font-size: 36px;
         }
-    </style>
+
+        .promo-content {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .promo-input-group {
+            flex-direction: column;
+        }
+
+        .promo-input,
+        .btn-apply-promo {
+            width: 100%;
+        }
+
+        .free-features {
+            padding: 24px 20px;
+        }
+
+        .free-features h3 {
+            font-size: 20px;
+        }
+
+        .feature-item {
+            gap: 12px;
+            font-size: 14px;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .dashboard-container {
+            padding: 20px 15px;
+        }
+
+        .dashboard-header {
+            padding: 20px;
+        }
+
+        .plan-card {
+            padding: 24px 20px;
+        }
+
+        .promo-banner {
+            padding: 20px;
+        }
+
+        .upgrade-cta-large {
+            padding: 20px;
+        }
+
+        .cta-header h2 {
+            font-size: 22px;
+        }
+
+        .plan-name {
+            font-size: 20px;
+        }
+
+        .amount {
+            font-size: 32px;
+        }
+
+        .badge-popular {
+            padding: 4px 12px;
+            font-size: 11px;
+        }
+    }
+</style>
+
 </head>
 <body>
 
@@ -435,6 +635,73 @@
     background: #fee2e2;
     color: #991b1b;
 }
+
+/* ==================== BILLING CYCLE SELECTOR ==================== */
+
+.billing-cycle-selector {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.cycle-toggle {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.cycle-btn {
+    padding: 12px 24px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    color: #1f2937;
+}
+
+.cycle-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.cycle-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+
+.badge-save {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 4px;
+    opacity: 0.9;
+}
+
+.cycle-btn.active .badge-save {
+    color: #10b981;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .cycle-toggle {
+        gap: 12px;
+    }
+
+    .cycle-btn {
+        padding: 10px 18px;
+        font-size: 14px;
+    }
+
+    .badge-save {
+        font-size: 11px;
+    }
+}
+
 </style>
 
 <script>
@@ -590,58 +857,103 @@
 
 
 
-        <!-- ✅ NEW: Enhanced Upgrade Section -->
+       <!-- PROMO CODE & PLANS SECTION -->
+<!-- PROMO CODE & PLANS SECTION -->
+<section id="plans-section" class="plans-upgrade-section">
+    <div class="dashboard-container">
+        <!-- Promo Code Banner -->
+        <div class="promo-banner">
+            <div class="promo-content">
+                <div class="promo-text">
+                    <h3>🎉 Limited Time Offer</h3>
+                    <p>Enter promo code for 50% discount on all plans!</p>
+                </div>
+                <div class="promo-input-group">
+                    <input 
+                        type="text" 
+                        id="promoCodeInput" 
+                        placeholder="Enter code: LAUNCH50"
+                        class="promo-input"
+                        oninput="validatePromoCode()"
+                    >
+                    <button onclick="applyPromo()" class="btn-apply-promo">Apply</button>
+                </div>
+            </div>
+            <div id="promo-message" class="promo-message"></div>
+        </div>
+
         <div class="upgrade-cta-large">
             <div class="cta-header">
                 <h2>🚀 Unlock Your Full Potential</h2>
                 <p>Choose the perfect plan for your running journey</p>
             </div>
 
+            <!-- Billing Cycle Selector -->
+            <div class="billing-cycle-selector">
+                <div class="cycle-toggle">
+                    <button class="cycle-btn active" onclick="setBillingCycle('monthly')">
+                        📅 Monthly
+                    </button>
+                    <button class="cycle-btn" onclick="setBillingCycle('quarterly')">
+                        📊 Quarterly
+                        <span class="badge-save">Save 10%</span>
+                    </button>
+                    <button class="cycle-btn" onclick="setBillingCycle('annual')">
+                        📈 Annual
+                        <span class="badge-save">Save 20%</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="plans-comparison">
                 <!-- Basic Coach Plan -->
-                <div class="plan-card">
-                    <h3 class="plan-name">Basic Coach</h3>
-                    <div class="plan-price">
-                        <span class="amount">₹199</span>
-                        <span class="period">/month</span>
-                    </div>
-                    <div class="plan-savings">Save ₹389 with Annual</div>
+                <div class="plan-card" id="basic-plan-card">
+    <h3 class="plan-name">Basic Coach</h3>
+    <div class="plan-price">
+        <span class="price-original" id="basic-original" style="display: none;">₹199</span>
+        <span class="amount" id="basic-amount">₹199</span>
+        <span class="period" id="basic-period">/month</span>
+    </div>
+    <div class="plan-savings" id="basic-savings">No extra fees</div>
+    <div class="discount-badge" id="basic-discount" style="display: none;">50% OFF 🎉</div>
                     
                     <ul class="plan-features">
-                        <li>Unlimited Strava sync</li>
-                        <li>HRV-based training</li>
-                        <li>Recovery tracking</li>
-                        <li>Weekly progress reports</li>
-                        <li>Habit building workouts</li>
-                        <li>Daily workout suggestions</li>
+                        <li>✅ Unlimited Strava sync</li>
+                        <li>✅ HRV-based training</li>
+                        <li>✅ Recovery tracking</li>
+                        <li>✅ Weekly progress reports</li>
+                        <li>✅ Habit building workouts</li>
+                        <li>✅ Daily workout suggestions</li>
                     </ul>
 
-                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                    <button class="btn-select-plan" onclick="initiateUpgrade('basic')">
                         Choose Basic Coach
                     </button>
                 </div>
 
                 <!-- Race Coach Plan (Featured) -->
-                <div class="plan-card featured">
-                    <div class="badge-popular">⭐ Most Popular</div>
-                    <h3 class="plan-name">Race Coach</h3>
-                    <div class="plan-price">
-                        <span class="amount">₹399</span>
-                        <span class="period">/month</span>
-                    </div>
-                    <div class="plan-savings">Save ₹789 with Annual</div>
+                <div class="plan-card featured" id="race-plan-card">
+    <div class="badge-popular">⭐ Most Popular</div>
+    <h3 class="plan-name">Race Coach</h3>
+    <div class="plan-price">
+        <span class="price-original" id="race-original" style="display: none;">₹399</span>
+        <span class="amount" id="race-amount">₹399</span>
+        <span class="period" id="race-period">/month</span>
+    </div>
+    <div class="plan-savings" id="race-savings">No extra fees</div>
+    <div class="discount-badge" id="race-discount" style="display: none;">50% OFF 🎉</div>
                     
                     <ul class="plan-features">
-                        <li>Everything in Basic Coach</li>
-                        <li class="premium">Personalized race plans</li>
-                        <li class="premium">Advanced analytics</li>
-                        <li class="premium">Pace optimization</li>
-                        <li class="premium">Race day strategy</li>
-                        <li class="premium">Goal-specific training</li>
-                        <li class="premium">Priority support</li>
+                        <li>✅ Everything in Basic Coach</li>
+                        <li class="premium">🏆 Personalized race plans</li>
+                        <li class="premium">📊 Advanced analytics</li>
+                        <li class="premium">⚡ Pace optimization</li>
+                        <li class="premium">🎯 Race day strategy</li>
+                        <li class="premium">🏃 Goal-specific training</li>
+                        <li class="premium">📞 Priority support</li>
                     </ul>
 
-                    <button class="btn-select-plan primary" onclick="selectPlan('race')">
+                    <button class="btn-select-plan primary" onclick="initiateUpgrade('race')">
                         Choose Race Coach
                     </button>
                 </div>
@@ -701,7 +1013,7 @@
                     </div>
                 </div>
                 <div style="margin-top: 20px; text-align: center;">
-                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                    <button class="btn-select-plan" onclick="scrollToPlans()">
                         Unlock with Basic Coach - ₹199/mo
                     </button>
                 </div>
@@ -720,13 +1032,16 @@
                     </div>
                 </div>
                 <div style="margin-top: 20px; text-align: center;">
-                    <button class="btn-select-plan" onclick="selectPlan('basic')">
+                    <button class="btn-select-plan" onclick="scrollToPlans()">
                         Unlock with Basic Coach - ₹199/mo
                     </button>
                 </div>
             </div>
         </div>
     </div>
+</section>
+
+
 
     <script src="/components/nav-header.js"></script>
     <script src="/components/dashboard-widgets.js"></script>

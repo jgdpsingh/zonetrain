@@ -1,9 +1,12 @@
 // public/js/payment.js - ZONETRAIN PAYMENT INTEGRATION
-// Comprehensive payment processing for subscriptions
+// Comprehensive payment processing with billing cycles and promo codes
 
 // ==================== INITIALIZE CONFIG ====================
 
 let RAZORPAY_KEY_ID = null;
+let currentPromoCode = null;
+let promoDiscount = 0;
+let selectedBillingCycle = 'monthly';
 
 async function loadPaymentConfig() {
     try {
@@ -36,20 +39,70 @@ async function loadPaymentConfig() {
     }
 }
 
-// Load config when DOM is ready
 document.addEventListener('DOMContentLoaded', loadPaymentConfig);
+
+// ==================== PRICING DATA ====================
+
+// ==================== PRICING DATA ====================
+
+const basePrices = {
+    basic: 199,
+    race: 399
+};
+
+// Pricing with built-in cycle discounts
+// Monthly: no discount
+// Quarterly: 10% discount (199*3*0.9 = 537, so ₹179/month effective)
+// Annual: 20% discount (199*12*0.8 = 1912.80, so ₹159.40/month effective)
+const pricingData = {
+    basic: {
+        monthly: 199,           // ₹199/month
+        quarterly: 537,         // ₹179/month (199*3*0.9) - 10% off
+        annual: 1912.80         // ₹159.40/month (199*12*0.8) - 20% off
+    },
+    race: {
+        monthly: 399,           // ₹399/month
+        quarterly: 1077,        // ₹359/month (399*3*0.9) - 10% off
+        annual: 3830.40         // ₹319.20/month (399*12*0.8) - 20% off
+    }
+};
+
+const periodText = {
+    monthly: '/month',
+    quarterly: '/quarter',
+    annual: '/year'
+};
+
+// Savings calculation (what user saves by choosing longer plan)
+const cycleSavings = {
+    basic: {
+        monthly: 0,
+        quarterly: Math.round(199 * 3 - 537),     // ₹60 saved (10% of ₹597)
+        annual: Math.round(199 * 12 - 1912.80)    // ₹478 saved (20% of ₹2388)
+    },
+    race: {
+        monthly: 0,
+        quarterly: Math.round(399 * 3 - 1077),    // ₹120 saved (10% of ₹1197)
+        annual: Math.round(399 * 12 - 3830.40)    // ₹958 saved (20% of ₹4788)
+    }
+};
+
+const validPromoCodes = {
+    'LAUNCH50': { discount: 50, description: 'Launch Offer' },
+    'EARLY50': { discount: 50, description: 'Early Bird Special' },
+    'RUNNER50': { discount: 50, description: 'Runner Special' }
+};
+
 
 // ==================== UTILITY FUNCTIONS ====================
 
 function getToken() {
-    // Try localStorage first (most common)
     const token = localStorage.getItem('userToken');
     if (token) {
         console.log('✅ Token found in localStorage');
         return token;
     }
 
-    // Try cookies as fallback
     const cookieToken = getCookie('userToken');
     if (cookieToken) {
         console.log('✅ Token found in cookie');
@@ -105,38 +158,230 @@ function showMessage(message, type = 'info') {
     }, 5000);
 }
 
+// ==================== BILLING CYCLE FUNCTIONS ====================
+
+function scrollToPlans() {
+    const plansSection = document.getElementById('plans-section');
+    if (plansSection) {
+        plansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    return false;
+}
+
+function setBillingCycle(cycle) {
+    selectedBillingCycle = cycle;
+    console.log('💳 Billing cycle selected:', cycle);
+    
+    // Update button states
+    document.querySelectorAll('.cycle-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Find the clicked button and add active class
+    const buttons = document.querySelectorAll('.cycle-btn');
+    buttons.forEach(btn => {
+        if (btn.textContent.includes(cycle.charAt(0).toUpperCase() + cycle.slice(1))) {
+            btn.classList.add('active');
+        }
+    });
+    
+    console.log('🔄 Calling updatePlanPrices...');
+    updatePlanPrices();
+}
+
+// ==================== PROMO CODE FUNCTIONS ====================
+
+function validatePromoCode() {
+    const input = document.getElementById('promoCodeInput');
+    const code = input.value.toUpperCase().trim();
+    
+    if (code && validPromoCodes[code]) {
+        input.style.borderColor = '#10b981';
+    } else if (code) {
+        input.style.borderColor = '#ef4444';
+    } else {
+        input.style.borderColor = 'white';
+    }
+}
+
+function applyPromo() {
+    const input = document.getElementById('promoCodeInput');
+    const messageDiv = document.getElementById('promo-message');
+    const code = input.value.toUpperCase().trim();
+    
+    if (!code) {
+        messageDiv.textContent = '⚠️ Please enter a promo code';
+        messageDiv.className = 'promo-message error';
+        return;
+    }
+    
+    const promo = validPromoCodes[code];
+    
+    if (promo) {
+        currentPromoCode = code;
+        promoDiscount = promo.discount;
+        
+        messageDiv.textContent = `✅ ${promo.description} - 50% OFF applied!`;
+        messageDiv.className = 'promo-message success';
+        
+        console.log('🎉 Promo applied:', code, '- Discount:', promoDiscount);
+        updatePlanPrices(); // IMPORTANT: Call this to update display
+        localStorage.setItem('appliedPromo', code);
+        
+    } else {
+        messageDiv.textContent = '❌ Invalid code. Try LAUNCH50';
+        messageDiv.className = 'promo-message error';
+        currentPromoCode = null;
+        promoDiscount = 0;
+        console.log('❌ Invalid promo code');
+        updatePlanPrices(); // IMPORTANT: Call this to reset display
+    }
+}
+
+
+function updatePlanPrices() {
+    console.log('🔄 updatePlanPrices called - Cycle:', selectedBillingCycle, 'Promo:', promoDiscount);
+    
+    // Get prices for selected cycle (already includes cycle discount)
+    const basicCyclePrice = pricingData.basic[selectedBillingCycle];
+    const raceCyclePrice = pricingData.race[selectedBillingCycle];
+    
+    console.log('💰 Prices:', { basicCyclePrice, raceCyclePrice });
+    
+    // Get period text
+    const period = periodText[selectedBillingCycle];
+    
+    // CALCULATE FINAL PRICES
+    let basicFinal, raceFinal;
+    
+    if (promoDiscount > 0) {
+        // WITH PROMO - Apply 50% discount
+        basicFinal = Math.round(basicCyclePrice * 0.5-1); // 50% of cycle price
+        raceFinal = Math.round(raceCyclePrice * 0.5-1);
+        console.log('✅ With Promo:', { basicFinal, raceFinal });
+    } else {
+        // NO PROMO - Use full cycle price
+        basicFinal = Math.round(basicCyclePrice);
+        raceFinal = Math.round(raceCyclePrice);
+        console.log('📌 No Promo:', { basicFinal, raceFinal });
+    }
+    
+    // UPDATE BASIC COACH
+    const basicAmountEl = document.getElementById('basic-amount');
+    const basicPeriodEl = document.getElementById('basic-period');
+    const basicOriginalEl = document.getElementById('basic-original');
+    const basicDiscountEl = document.getElementById('basic-discount');
+    
+    if (basicAmountEl) {
+        basicAmountEl.textContent = `₹${basicFinal}`;
+        console.log('✏️ Updated basic-amount to:', basicFinal);
+    }
+    
+    if (basicPeriodEl) {
+        basicPeriodEl.textContent = period;
+        console.log('✏️ Updated basic-period to:', period);
+    }
+    
+    if (promoDiscount > 0) {
+        if (basicOriginalEl) basicOriginalEl.style.display = 'inline';
+        if (basicOriginalEl) basicOriginalEl.textContent = `₹${Math.round(basicCyclePrice)}`;
+        if (basicDiscountEl) basicDiscountEl.style.display = 'inline-block';
+    } else {
+        if (basicOriginalEl) basicOriginalEl.style.display = 'none';
+        if (basicDiscountEl) basicDiscountEl.style.display = 'none';
+    }
+    
+    // UPDATE RACE COACH
+    const raceAmountEl = document.getElementById('race-amount');
+    const racePeriodEl = document.getElementById('race-period');
+    const raceOriginalEl = document.getElementById('race-original');
+    const raceDiscountEl = document.getElementById('race-discount');
+    
+    if (raceAmountEl) {
+        raceAmountEl.textContent = `₹${raceFinal}`;
+        console.log('✏️ Updated race-amount to:', raceFinal);
+    }
+    
+    if (racePeriodEl) {
+        racePeriodEl.textContent = period;
+        console.log('✏️ Updated race-period to:', period);
+    }
+    
+    if (promoDiscount > 0) {
+        if (raceOriginalEl) raceOriginalEl.style.display = 'inline';
+        if (raceOriginalEl) raceOriginalEl.textContent = `₹${Math.round(raceCyclePrice)}`;
+        if (raceDiscountEl) raceDiscountEl.style.display = 'inline-block';
+    } else {
+        if (raceOriginalEl) raceOriginalEl.style.display = 'none';
+        if (raceDiscountEl) raceDiscountEl.style.display = 'none';
+    }
+    
+    updateSavingsText();
+}
+
+
+
+function updateSavingsText() {
+    const basicSavingsEl = document.getElementById('basic-savings');
+    const raceSavingsEl = document.getElementById('race-savings');
+    
+    if (!basicSavingsEl || !raceSavingsEl) {
+        console.warn('⚠️ Savings elements not found');
+        return;
+    }
+    
+    if (selectedBillingCycle === 'monthly') {
+        basicSavingsEl.textContent = 'No extra fees';
+        raceSavingsEl.textContent = 'No extra fees';
+    } else if (selectedBillingCycle === 'quarterly') {
+        basicSavingsEl.textContent = `Save ₹${cycleSavings.basic.quarterly} (10% off)`;
+        raceSavingsEl.textContent = `Save ₹${cycleSavings.race.quarterly} (10% off)`;
+    } else if (selectedBillingCycle === 'annual') {
+        basicSavingsEl.textContent = `Save ₹${cycleSavings.basic.annual} (20% off)`;
+        raceSavingsEl.textContent = `Save ₹${cycleSavings.race.annual} (20% off)`;
+    }
+}
+
+
+function initiateUpgrade(planType) {
+    const promo = currentPromoCode || localStorage.getItem('appliedPromo');
+    
+    // Get price for selected cycle (includes cycle discount)
+    const cyclePrice = pricingData[planType][selectedBillingCycle];
+    
+    // Apply promo discount if any
+    const finalAmount = promo ? Math.round(cyclePrice * (1 - promoDiscount / 100)) : Math.round(cyclePrice);
+    
+    console.log('🛒 Upgrade:', { 
+        planType, 
+        billingCycle: selectedBillingCycle, 
+        cyclePrice,
+        promoDiscount,
+        promo, 
+        finalAmount 
+    });
+    
+    purchaseSubscriptionWithPromo(planType, selectedBillingCycle, finalAmount, promo);
+}
+
+
 // ==================== SUBSCRIPTION PURCHASE ====================
 
-/**
- * Main function: Purchase subscription
- * Called from dashboard buttons like: purchaseSubscription('basic', 'monthly')
- */
-async function purchaseSubscription(planType, billingCycle = 'monthly', promoCode = null) {
+async function purchaseSubscriptionWithPromo(planType, billingCycle = 'monthly', amount = null, promoCode = null) {
     try {
         const token = getToken();
         
         if (!token) {
-            console.log('❌ No token, redirecting to login');
             alert('Please log in to continue');
-            window.location.href = '/login?redirect=plans';
+            window.location.href = '/login';
             return;
         }
 
         showMessage('Creating payment order...', 'info');
 
-        // Determine amount based on plan type
-        const planPrices = {
-            'basic': 299,
-            'basic_coach': 299,
-            'race': 599,
-            'race_coach': 599
-        };
+        const basePriceData = pricingData[planType] || { monthly: 199 };
+        const orderAmount = amount || Math.round(basePriceData[billingCycle]);
 
-        const amount = planPrices[planType] || 299;
-
-        console.log('🛒 Initiating purchase:', { planType, amount, billingCycle });
-
-        // Call your app.js endpoint
         const orderResponse = await fetch('/api/payment/create-order', {
             method: 'POST',
             headers: {
@@ -145,14 +390,15 @@ async function purchaseSubscription(planType, billingCycle = 'monthly', promoCod
             },
             body: JSON.stringify({ 
                 planType, 
-                amount
+                billingCycle,
+                amount: orderAmount,
+                promoCode: promoCode
             })
         });
 
-        // Check if response is valid
         if (!orderResponse.ok) {
             const errorText = await orderResponse.text();
-            console.error('❌ Server error:', orderResponse.status, errorText);
+            console.error('Server error:', orderResponse.status);
             showMessage(`Server error: ${orderResponse.status}`, 'error');
             return;
         }
@@ -161,64 +407,46 @@ async function purchaseSubscription(planType, billingCycle = 'monthly', promoCod
 
         if (!orderData.success) {
             showMessage('Error: ' + (orderData.message || 'Failed to create order'), 'error');
-            console.error('❌ Order creation failed:', orderData);
             return;
         }
 
-        console.log('✅ Order created:', orderData);
-
-        // Check if Razorpay SDK is loaded
         if (typeof Razorpay === 'undefined') {
-            showMessage('Razorpay SDK not loaded. Please refresh page.', 'error');
-            console.error('❌ Razorpay SDK not available');
+            showMessage('Razorpay SDK not loaded. Please refresh.', 'error');
             return;
         }
 
-        // Check if we have the key
         if (!RAZORPAY_KEY_ID) {
-            showMessage('Razorpay key not configured. Please refresh page.', 'error');
-            console.error('❌ Razorpay key not available');
+            showMessage('Razorpay key not configured.', 'error');
             return;
         }
 
-        console.log('💳 Opening Razorpay with key:', RAZORPAY_KEY_ID.substring(0, 15) + '...');
-
-        // Initialize Razorpay with response format
         const options = {
-            key: RAZORPAY_KEY_ID,  // ✅ FIXED: Use loaded variable
-            amount: orderData.order.amount * 100, // Convert to paise
+            key: RAZORPAY_KEY_ID,
+            amount: orderData.order.amount * 100,
             currency: orderData.order.currency || 'INR',
             name: 'ZoneTrain',
-            description: `${planType} Plan`,
+            description: `${planType} Plan (${billingCycle}) ${promoCode ? '(Promo: ' + promoCode + ')' : ''}`,
             order_id: orderData.order.id,
             handler: async function(response) {
-                console.log('💰 Payment successful, verifying...');
                 await verifyPayment(response, planType);
             },
             prefill: {
                 email: localStorage.getItem('userEmail') || ''
             },
-            theme: {
-                color: '#667eea'
-            },
+            theme: { color: '#667eea' },
             modal: {
                 ondismiss: function() {
-                    console.log('⚠️ Payment popup closed by user');
                     showMessage('Payment cancelled', 'info');
                 }
             }
         };
 
         const razorpay = new Razorpay(options);
-        razorpay.on('payment.failed', function(response) {
-            console.error('❌ Payment failed:', response.error);
-            showMessage('Payment failed: ' + response.error.description, 'error');
-        });
         razorpay.open();
 
     } catch (error) {
-        console.error('❌ Purchase error:', error);
-        showMessage('Failed to initiate payment: ' + error.message, 'error');
+        console.error('Purchase error:', error);
+        showMessage('Failed to initiate payment', 'error');
     }
 }
 
@@ -234,12 +462,6 @@ async function verifyPayment(response, planType) {
 
         showMessage('Verifying payment...', 'info');
 
-        console.log('🔍 Verifying payment:', {
-            orderId: response.razorpay_order_id,
-            paymentId: response.razorpay_payment_id
-        });
-
-        // Call your app.js verify endpoint
         const verifyResponse = await fetch('/api/payment/verify', {
             method: 'POST',
             headers: {
@@ -260,7 +482,6 @@ async function verifyPayment(response, planType) {
             console.log('✅ Payment verified successfully');
             showMessage('✅ Payment successful!', 'success');
             setTimeout(() => {
-                // Redirect based on plan
                 if (planType.includes('race')) {
                     window.location.href = '/dashboard-race?payment=success';
                 } else {
@@ -280,14 +501,10 @@ async function verifyPayment(response, planType) {
 
 // ==================== UPGRADE/DOWNGRADE ====================
 
-/**
- * Upgrade subscription
- */
 async function upgradeSubscription(newPlan, newBillingCycle = 'monthly', promoCode = null) {
     try {
         const token = getToken();
 
-        // Calculate upgrade cost first
         showMessage('Calculating upgrade cost...', 'info');
 
         const calcResponse = await fetch('/api/subscription/calculate-upgrade', {
@@ -312,20 +529,13 @@ async function upgradeSubscription(newPlan, newBillingCycle = 'monthly', promoCo
 
         const calculation = calcData.calculation;
 
-        // Show confirmation
-        const confirmMessage = `
-Upgrade to ${newPlan.toUpperCase()} (${newBillingCycle})
-
-${calculation.promoApplied ? `Original: ₹${calculation.originalAmount}\nDiscount: -₹${calculation.promoApplied.discountAmount}\n` : ''}Amount to pay: ₹${calculation.amountToPay}
-
-Proceed with payment?`;
+        const confirmMessage = `Upgrade to ${newPlan.toUpperCase()} (${newBillingCycle})\n\n${calculation.promoApplied ? `Original: ₹${calculation.originalAmount}\nDiscount: -₹${calculation.promoApplied.discountAmount}\n` : ''}Amount to pay: ₹${calculation.amountToPay}\n\nProceed with payment?`;
 
         if (!confirm(confirmMessage)) {
             return;
         }
 
-        // Proceed with upgrade
-        await purchaseSubscription(newPlan, newBillingCycle, promoCode);
+        await purchaseSubscriptionWithPromo(newPlan, newBillingCycle, calculation.amountToPay, promoCode);
 
     } catch (error) {
         console.error('❌ Upgrade error:', error);
@@ -333,9 +543,6 @@ Proceed with payment?`;
     }
 }
 
-/**
- * Downgrade subscription
- */
 async function downgradeSubscription(newPlan) {
     try {
         const token = getToken();
@@ -359,9 +566,7 @@ async function downgradeSubscription(newPlan) {
 
         if (result.success) {
             showMessage('✅ ' + result.message, 'success');
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
+            setTimeout(() => window.location.reload(), 2000);
         } else {
             showMessage('❌ ' + result.message, 'error');
         }
@@ -372,62 +577,8 @@ async function downgradeSubscription(newPlan) {
     }
 }
 
-// ==================== PROMO CODE ====================
-
-/**
- * Apply promo code
- */
-async function applyPromoCode(promoCode, planType, billingCycle) {
-    try {
-        showMessage('Validating promo code...', 'info');
-
-        const response = await fetch('/api/subscription/validate-promo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                promoCode: promoCode,
-                plan: planType,
-                billingCycle: billingCycle
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showMessage(`✅ ${result.description}! Save ₹${result.discountAmount}`, 'success');
-            updatePriceDisplay(result.originalAmount, result.discountedAmount, result.discountPercent);
-            return result;
-        } else {
-            showMessage('❌ ' + result.message, 'error');
-            return null;
-        }
-
-    } catch (error) {
-        console.error('❌ Promo error:', error);
-        showMessage('Failed to apply promo code', 'error');
-        return null;
-    }
-}
-
-/**
- * Update price display with discount
- */
-function updatePriceDisplay(originalAmount, discountedAmount, discountPercent) {
-    const priceElement = document.getElementById('plan-price');
-    if (priceElement) {
-        priceElement.innerHTML = `
-            <span style="text-decoration: line-through; color: #999;">₹${originalAmount}</span>
-            <span style="font-size: 1.5em; color: #10B981; font-weight: bold;">₹${discountedAmount}</span>
-            <span style="color: #10B981; font-size: 0.9em;">(${discountPercent}% off)</span>
-        `;
-    }
-}
-
 // ==================== SUBSCRIPTION MANAGEMENT ====================
 
-/**
- * Cancel subscription
- */
 async function cancelSubscription(reason = null) {
     try {
         const token = getToken();
@@ -451,9 +602,7 @@ async function cancelSubscription(reason = null) {
 
         if (result.success) {
             showMessage('✅ ' + result.message, 'success');
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
+            setTimeout(() => window.location.reload(), 2000);
         } else {
             showMessage('❌ ' + result.message, 'error');
         }
@@ -464,9 +613,6 @@ async function cancelSubscription(reason = null) {
     }
 }
 
-/**
- * Get subscription details
- */
 async function getSubscriptionDetails() {
     try {
         const token = getToken();
@@ -496,9 +642,6 @@ async function getSubscriptionDetails() {
 
 // ==================== RENEWAL ====================
 
-/**
- * Renew subscription (usually from email link)
- */
 async function renewSubscription(token, plan, billingCycle) {
     try {
         showMessage('Creating renewal order...', 'info');
@@ -520,7 +663,6 @@ async function renewSubscription(token, plan, billingCycle) {
             return;
         }
 
-        // Initialize Razorpay
         const options = {
             key: RAZORPAY_KEY_ID,
             amount: orderData.order.amount * 100,
@@ -548,9 +690,6 @@ async function renewSubscription(token, plan, billingCycle) {
     }
 }
 
-/**
- * Verify renewal payment
- */
 async function verifyRenewalPayment(response, token) {
     try {
         showMessage('Verifying payment...', 'info');
@@ -585,14 +724,32 @@ async function verifyRenewalPayment(response, token) {
 
 // ==================== EXPORT TO GLOBAL ====================
 
-// Make functions available globally for onclick handlers
-window.purchaseSubscription = purchaseSubscription;
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateSavingsText();
+    updatePlanPrices();
+    
+    const savedPromo = localStorage.getItem('appliedPromo');
+    if (savedPromo && validPromoCodes[savedPromo]) {
+        document.getElementById('promoCodeInput').value = savedPromo;
+        promoDiscount = validPromoCodes[savedPromo].discount;
+        updatePlanPrices();
+        const msg = document.getElementById('promo-message');
+        msg.textContent = `✅ ${validPromoCodes[savedPromo].description} - 50% OFF applied!`;
+        msg.className = 'promo-message success';
+    }
+});
+
+window.purchaseSubscriptionWithPromo = purchaseSubscriptionWithPromo;
 window.upgradeSubscription = upgradeSubscription;
 window.downgradeSubscription = downgradeSubscription;
-window.applyPromoCode = applyPromoCode;
 window.cancelSubscription = cancelSubscription;
 window.getSubscriptionDetails = getSubscriptionDetails;
 window.renewSubscription = renewSubscription;
-window.loadPaymentConfig = loadPaymentConfig;
+window.scrollToPlans = scrollToPlans;
+window.setBillingCycle = setBillingCycle;
+window.applyPromo = applyPromo;
+window.validatePromoCode = validatePromoCode;
+window.initiateUpgrade = initiateUpgrade;
 
 console.log('✅ Payment.js loaded and ready');

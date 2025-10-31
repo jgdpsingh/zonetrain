@@ -4,6 +4,309 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZoneTrain - Choose Your Training Plan</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="/js/payment.js"></script>
+
+    <script>
+if (document.readyState === 'loading') {
+    // DOM is still loading
+    console.log('⏳ DOM loading...');
+} else {
+    // DOM is already loaded
+    console.log('✅ DOM ready immediately');
+}
+
+
+// ===== GLOBAL PLANS SCRIPT =====
+let selectedBillingCycle = 'monthly';
+let promoApplied = false;
+
+const planPrices = {
+    fitness: {
+        monthly: 199,
+        quarterly: 537,
+        annual: 1912.80
+    },
+    race: {
+        monthly: 399,
+        quarterly: 1077,
+        annual: 3830.40
+    }
+};
+
+const periodText = {
+    monthly: 'per month',
+    quarterly: 'per quarter',
+    annual: 'per year'
+};
+
+const cycleSavings = {
+    fitness: {
+        monthly: 0,
+        quarterly: Math.round(199 * 3 - 537),
+        annual: Math.round(199 * 12 - 1912.80)
+    },
+    race: {
+        monthly: 0,
+        quarterly: Math.round(399 * 3 - 1077),
+        annual: Math.round(399 * 12 - 3830.40)
+    }
+};
+
+function setBillingCyclePlans(cycle) {
+    console.log('🔄 Cycle:', cycle);
+    selectedBillingCycle = cycle;
+    const buttons = document.querySelectorAll('.cycle-btn');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    buttons.forEach(btn => {
+        if (btn.innerText.toLowerCase().includes(cycle)) {
+            btn.classList.add('active');
+        }
+    });
+    updatePricesForPlans();
+}
+
+function updatePricesForPlans() {
+    const fitnessCyclePrice = planPrices.fitness[selectedBillingCycle];
+    const raceCyclePrice = planPrices.race[selectedBillingCycle];
+    const period = periodText[selectedBillingCycle];
+    
+    let fitnessFinal = Math.round(fitnessCyclePrice);
+    let raceFinal = Math.round(raceCyclePrice);
+    
+    if (promoApplied) {
+        fitnessFinal = Math.round(fitnessCyclePrice * 0.5);
+        raceFinal = Math.round(raceCyclePrice * 0.5);
+    }
+    
+    const fprice = document.getElementById('fitness-price');
+    const rprice = document.getElementById('race-price');
+    const fperiod = document.querySelector('[data-plan="fitness"]');
+    const rperiod = document.querySelector('[data-plan="race"]');
+    
+    if (fprice) fprice.textContent = '₹' + fitnessFinal;
+    if (fperiod) fperiod.textContent = period;
+    if (rprice) rprice.textContent = '₹' + raceFinal;
+    if (rperiod) rperiod.textContent = period;
+    
+    updateSavingsForPlans();
+}
+
+
+function updateSavingsForPlans() {
+    const fitnessSavings = document.getElementById('fitness-savings');
+    const raceSavings = document.getElementById('race-savings');
+    
+    if (!fitnessSavings || !raceSavings) return;
+    
+    if (selectedBillingCycle === 'monthly') {
+        fitnessSavings.style.display = 'none';
+        raceSavings.style.display = 'none';
+    } else if (selectedBillingCycle === 'quarterly') {
+        fitnessSavings.textContent = `Save ₹${cycleSavings.fitness.quarterly} with Quarterly (10% off)`;
+        fitnessSavings.style.display = 'block';
+        raceSavings.textContent = `Save ₹${cycleSavings.race.quarterly} with Quarterly (10% off)`;
+        raceSavings.style.display = 'block';
+    } else if (selectedBillingCycle === 'annual') {
+        fitnessSavings.textContent = `Save ₹${cycleSavings.fitness.annual} with Annual (20% off)`;
+        fitnessSavings.style.display = 'block';
+        raceSavings.textContent = `Save ₹${cycleSavings.race.annual} with Annual (20% off)`;
+        raceSavings.style.display = 'block';
+    }
+}
+
+function applyPromoCode() {
+    console.log('🎟️ Apply promo');
+    const promoInput = document.getElementById('promoCode');
+    const promoCode = promoInput.value.trim().toUpperCase();
+    
+    if (!promoCode) {
+        showPromoMessage('Please enter a promo code', 'error');
+        return;
+    }
+    
+    const validCodes = ['LAUNCH50', 'EARLY50', 'RUNNER50'];
+    
+    if (validCodes.includes(promoCode)) {
+        promoApplied = true;
+        sessionStorage.setItem('promoCode', promoCode);
+        sessionStorage.setItem('promoApplied', 'true');
+        
+        document.getElementById('fitness-original').style.display = 'block';
+        document.getElementById('fitness-badge').style.display = 'block';
+        document.getElementById('race-original').style.display = 'block';
+        document.getElementById('race-badge').style.display = 'block';
+        
+        showPromoMessage(`✅ ${promoCode} applied! 50% OFF on all plans!`, 'success');
+        updatePricesForPlans();
+    } else {
+        promoApplied = false;
+        showPromoMessage('❌ Invalid promo code. Try LAUNCH50', 'error');
+        
+        document.getElementById('fitness-original').style.display = 'none';
+        document.getElementById('fitness-badge').style.display = 'none';
+        document.getElementById('race-original').style.display = 'none';
+        document.getElementById('race-badge').style.display = 'none';
+        
+        updatePricesForPlans();
+    }
+}
+
+function showPromoMessage(message, type) {
+    const promoMessage = document.getElementById('promoMessage');
+    if (!promoMessage) return;
+    promoMessage.textContent = message;
+    promoMessage.className = `promo-message promo-${type}`;
+    promoMessage.style.display = 'block';
+
+    if (type === 'error') {
+        setTimeout(() => {
+            promoMessage.style.display = 'none';
+        }, 5000);
+    }
+}
+
+async function selectPlan(planType, actionType) {
+    console.log('📋 Select plan:', planType, actionType);
+    const userToken = localStorage.getItem('userToken');
+    
+    if (!userToken) {
+        showLoginPrompt(planType, actionType);
+        return;
+    }
+    
+    const promoCode = sessionStorage.getItem('promoCode');
+    const cyclePrice = planPrices[planType][selectedBillingCycle];
+    
+    if (actionType === 'trial') {
+        await startFreeTrial(planType);
+    } else if (actionType === 'subscribe') {
+        const finalAmount = promoApplied ? Math.round(cyclePrice * 0.5) : Math.round(cyclePrice);
+        await purchaseSubscriptionWithPromo(planType, selectedBillingCycle, finalAmount, promoCode);
+    }
+}
+
+async function startFreeTrial(planType) {
+    const button = event.target;
+    const originalText = button.textContent;
+    button.innerHTML = '⏳ Activating Trial...';
+    button.disabled = true;
+    
+    try {
+        const token = localStorage.getItem('userToken');
+        const response = await fetch('/api/activate-trial', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ planType })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showPromoMessage('✅ Trial activated! Redirecting...', 'success');
+            setTimeout(() => {
+                const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
+                window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
+            }, 1500);
+        } else {
+            showPromoMessage('❌ ' + data.message, 'error');
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    } catch (error) {
+        console.error('Trial error:', error);
+        showPromoMessage('❌ Failed to activate trial', 'error');
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+function showLoginPrompt(planType, actionType) {
+    sessionStorage.setItem('planIntent', JSON.stringify({ planType, actionType }));
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.innerHTML = `
+        <div class="modal-content" style="text-align: center; max-width: 450px;">
+            <h2 style="margin-bottom: 20px;">🔐 Account Required</h2>
+            <p style="margin-bottom: 20px; line-height: 1.6;">To subscribe, please log in or create an account.</p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="btn" onclick="closeLoginPrompt()" style="flex: 1; background: #A78BFA; color: white; border: none;">Cancel</button>
+                <button class="btn" onclick="goToLogin()" style="flex: 1; background: #8B5CF6; color: white; border: none;">Log In</button>
+                <button class="btn" onclick="goToSignup()" style="flex: 1; background: #6B46C1; color: white; border: none;">Sign Up</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function closeLoginPrompt() {
+    const modal = document.querySelector('.modal.active');
+    if (modal) modal.remove();
+}
+
+function goToSignup() {
+    window.location.href = '/signup?redirect=plans';
+}
+
+function goToLogin() {
+    window.location.href = '/login?redirect=plans';
+}
+
+function smartBack(e) {
+    e.preventDefault();
+    const userToken = localStorage.getItem('userToken');
+    
+    if (document.referrer && document.referrer.includes(window.location.host)) {
+        window.history.back();
+    } else if (userToken) {
+        window.location.href = '/dashboard';
+    } else {
+        window.location.href = '/';
+    }
+}
+
+// PAGE LOAD
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 Plans page loaded');
+    
+    if (sessionStorage.getItem('promoApplied') === 'true') {
+        const storedPromo = sessionStorage.getItem('promoCode');
+        if (storedPromo) {
+            promoApplied = true;
+            document.getElementById('promoCode').value = storedPromo;
+            
+            document.getElementById('fitness-original').style.display = 'block';
+            document.getElementById('fitness-badge').style.display = 'block';
+            document.getElementById('race-original').style.display = 'block';
+            document.getElementById('race-badge').style.display = 'block';
+            
+            updatePricesForPlans();
+            showPromoMessage(`${storedPromo} discount active!`, 'success');
+        }
+    }
+
+    const promoInput = document.getElementById('promoCode');
+    if (promoInput) {
+        promoInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyPromoCode();
+        });
+    }
+
+    const planIntent = sessionStorage.getItem('planIntent');
+    if (planIntent) {
+        const { planType, actionType } = JSON.parse(planIntent);
+        sessionStorage.removeItem('planIntent');
+        setTimeout(() => selectPlan(planType, actionType), 500);
+    }
+});
+</script>
+   
+<link rel="stylesheet" href="css/cookies.css">
+
     <style>
         :root {
             --deep-purple: #6B46C1;
@@ -494,12 +797,42 @@
     to { transform: scale(1); opacity: 1; }
 }
 
+/* Billing Cycle Buttons */
+.cycle-btn {
+    padding: 12px 24px;
+    border: 2px solid var(--light-purple);
+    background: var(--white);
+    color: var(--dark-gray);
+    border-radius: 25px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.cycle-btn:hover {
+    border-color: var(--accent-purple);
+    color: var(--accent-purple);
+}
+
+.cycle-btn.active {
+    background: var(--accent-purple);
+    color: var(--white);
+    border-color: var(--accent-purple);
+}
+
+@media (max-width: 768px) {
+    .cycle-btn {
+        padding: 10px 18px;
+        font-size: 0.9rem;
+    }
+}
+
+
     </style>
-    <link rel="stylesheet" href="css/cookies.css">
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     
-    <!-- Add payment.js BEFORE your existing script -->
-    <script src="/js/payment.js"></script>
+    
+    
 </head>
 <body>
     <a href="#" class="back-btn-plans" onclick="smartBack(event)">
@@ -509,26 +842,6 @@
     Back
 </a>
 
-<script>
-function smartBack(e) {
-    e.preventDefault();
-    
-    // Check if user is logged in
-    const userToken = localStorage.getItem('userToken');
-    
-    // Check if there's a previous page in history
-    if (document.referrer && document.referrer.includes(window.location.host)) {
-        // Go back to previous page if it's from same site
-        window.history.back();
-    } else if (userToken) {
-        // Logged in user with no history → dashboard
-        window.location.href = '/dashboard';
-    } else {
-        // Not logged in → homepage
-        window.location.href = '/';
-    }
-}
-</script>
     <div class="container">
         <div class="header">
             <h1>Choose Your Training Plan</h1>
@@ -546,6 +859,22 @@ function smartBack(e) {
             <p class="promo-info">Launch special: Use code LAUNCH50 for 50% off your first month!</p>
         </div>
 
+        <!-- Billing Cycle Selector -->
+<div style="text-align: center; margin: 40px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
+    <button class="cycle-btn active" onclick="setBillingCyclePlans('monthly')">
+        📅 Monthly
+    </button>
+    <button class="cycle-btn" onclick="setBillingCyclePlans('quarterly')">
+        📊 Quarterly
+        <br><span style="font-size: 0.8rem; opacity: 0.9;">Save 10%</span>
+    </button>
+    <button class="cycle-btn" onclick="setBillingCyclePlans('annual')">
+        📈 Annual
+        <br><span style="font-size: 0.8rem; opacity: 0.9;">Save 20%</span>
+    </button>
+</div>
+
+
         <div class="plans-container">
             <!-- Tier 1: Fitness Coach -->
             <div class="plan-card" id="fitness-plan">
@@ -556,7 +885,8 @@ function smartBack(e) {
                         <div class="plan-price" id="fitness-price">₹199</div>
                         <div class="discount-badge" id="fitness-badge" style="display: none;">50% OFF</div>
                     </div>
-                    <div class="plan-period">per month</div>
+                    <div class="plan-period" data-plan="fitness">per month</div>
+
                     <div class="savings-highlight" id="fitness-savings" style="display: none;">
                         Save ₹100/month with LAUNCH50!
                     </div>
@@ -598,7 +928,8 @@ function smartBack(e) {
                         <div class="plan-price" id="race-price">₹399</div>
                         <div class="discount-badge" id="race-badge" style="display: none;">50% OFF</div>
                     </div>
-                    <div class="plan-period">per month</div>
+                    <div class="plan-period" data-plan="race">per month</div>
+
                     <div class="savings-highlight" id="race-savings" style="display: none;">
                         Save ₹200/month with LAUNCH50!
                     </div>
@@ -649,465 +980,29 @@ function smartBack(e) {
         <div class="guarantee">
             <p>Try any plan risk-free. If you're not satisfied, you can cancel your subscription at any time.</p>
         </div>
-    </div>
+        </div>
 
-
-   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<script>
-    let promoApplied = false;
-    const originalPrices = {
-        fitness: 199,
-        race: 399
-    };
-    const discountedPrices = {
-        fitness: 99,
-        race: 199
-    };
-
-    
-async function applyPromoCode() {
-    const promoInput = document.getElementById('promoCode');
-    const promoCode = promoInput.value.trim();
-    
-    if (!promoCode) {
-        showPromoMessage('Please enter a promo code', 'error');
-        return;
-    }
-    
-    showPromoMessage('Validating promo code...', 'info');
-    
-    try {
-        // Use the validation from payment.js
-        const result = await window.applyPromoCode(promoCode, 'fitness', 'monthly');
-        
-        if (result && result.success) {
-            // Apply discount to both plans
-            applyDiscountToUI(result);
-            
-            // Store promo code
-            sessionStorage.setItem('promoCode', promoCode);
-            sessionStorage.setItem('promoApplied', 'true');
-            
-            showPromoMessage(`✅ ${promoCode} applied! You save ₹${result.discountAmount}`, 'success');
-        } else {
-            showPromoMessage('❌ Invalid promo code', 'error');
-        }
-    } catch (error) {
-        console.error('Error validating promo:', error);
-        showPromoMessage('❌ Error validating promo code', 'error');
-    }
-}
-
-function applyDiscountToUI(promoResult) {
-    // Fitness Plan
-    document.getElementById('fitness-original').style.display = 'block';
-    document.getElementById('fitness-original').textContent = '₹' + promoResult.originalAmount;
-    document.getElementById('fitness-price').textContent = '₹' + promoResult.discountedAmount;
-    document.getElementById('fitness-badge').style.display = 'block';
-    document.getElementById('fitness-badge').textContent = promoResult.discountPercent + '% OFF';
-    document.getElementById('fitness-savings').style.display = 'block';
-    
-    // Race Plan (calculate for race plan too)
-    const raceDiscount = Math.round((399 * promoResult.discountPercent) / 100);
-    const raceDiscounted = 399 - raceDiscount;
-    
-    document.getElementById('race-original').style.display = 'block';
-    document.getElementById('race-original').textContent = '₹399';
-    document.getElementById('race-price').textContent = '₹' + raceDiscounted;
-    document.getElementById('race-badge').style.display = 'block';
-    document.getElementById('race-badge').textContent = promoResult.discountPercent + '% OFF';
-    document.getElementById('race-savings').style.display = 'block';
-    
-    // Animation
-    const priceElements = document.querySelectorAll('.plan-price');
-    priceElements.forEach(el => {
-        el.style.animation = 'pulse 0.5s ease-in-out';
-    });
-}
-
-    function showPromoMessage(message, type) {
-        const promoMessage = document.getElementById('promoMessage');
-        promoMessage.textContent = message;
-        promoMessage.className = `promo-message promo-${type}`;
-        promoMessage.style.display = 'block';
-
-        if (type !== 'info') {
-            setTimeout(() => {
-                if (type === 'error') {
-                    promoMessage.style.display = 'none';
-                }
-            }, 5000);
-        }
-    }
-
-    // ============================================
-    // ✅ REAL RAZORPAY PAYMENT INTEGRATION
-    // ============================================
-    
-   async function selectPlan(planType, actionType) {
-    const userToken = localStorage.getItem('userToken');
-    
-    // Check if user is logged in
-    if (!userToken) {
-        showLoginPrompt(planType, actionType);
-        return;
-    }
-    
-    const promoCode = sessionStorage.getItem('promoCode');
-    
-    if (actionType === 'trial') {
-        // Start free trial (no payment)
-        await startFreeTrial(planType);
-    } else if (actionType === 'subscribe') {
-        // Use the payment.js function for subscription
-        await purchaseSubscription(planType, 'monthly', promoCode);
-    }
-}
-    
-async function startFreeTrial(planType) {
-    const button = event.target;
-    const originalText = button.textContent;
-    button.innerHTML = '⏳ Activating Trial...';
-    button.disabled = true;
-    
-    try {
-        const token = localStorage.getItem('userToken');
-        
-        const response = await fetch('/api/activate-trial', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ planType })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            // Show success and redirect
-            showMessage('✅ Trial activated! Redirecting...', 'success');
-            setTimeout(() => {
-                const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
-                window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
-            }, 1500);
-        } else {
-            showMessage('❌ ' + data.message, 'error');
-            button.innerHTML = originalText;
-            button.disabled = false;
-        }
-    } catch (error) {
-        console.error('Trial activation error:', error);
-        showMessage('❌ Failed to activate trial', 'error');
-        button.innerHTML = originalText;
-        button.disabled = false;
-    }
-}
-
-async function initializeRazorpayPayment(planData) {
-        try {
-            console.log('💳 Initializing Razorpay payment for', planData.planType);
-            
-            // Show loading
-            showPaymentModal('loading');
-            
-            // Get Razorpay config
-            const configRes = await fetch('/api/payment/config', {
-                headers: {
-                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
-                }
-            });
-            const config = await configRes.json();
-            
-            if (config.testMode) {
-                console.log('⚠️ Running in TEST MODE - Use test cards');
-            }
-            
-            // Create order
-            const orderRes = await fetch('/api/payment/create-order', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
-                },
-                body: JSON.stringify({
-                    planType: planData.planType,
-                    amount: planData.price
-                })
-            });
-            
-            const orderData = await orderRes.json();
-            
-            if (!orderData.success) {
-                closePaymentModal();
-                alert('Failed to create order. Please try again.');
-                return;
-            }
-            
-            // Close loading modal
-            closePaymentModal();
-            
-            // Initialize Razorpay checkout
-            const options = {
-                key: config.key,
-                amount: orderData.order.amount,
-                currency: orderData.order.currency,
-                name: 'ZoneTrain',
-                description: `${planData.planType.charAt(0).toUpperCase() + planData.planType.slice(1)} Coach Subscription`,
-                order_id: orderData.order.id,
-                handler: async function (response) {
-                    // Payment successful - verify on server
-                    await verifyPayment(response, planData.planType);
-                },
-                prefill: {
-                    name: localStorage.getItem('userName') || '',
-                    email: localStorage.getItem('userEmail') || ''
-                },
-                notes: {
-                    planType: planData.planType,
-                    promoCode: planData.promoCode || ''
-                },
-                theme: {
-                    color: '#667eea'
-                },
-                modal: {
-                    ondismiss: function() {
-                        console.log('Payment cancelled by user');
-                        showPromoMessage('Payment cancelled', 'error');
-                    }
-                }
-            };
-            
-            const razorpay = new Razorpay(options);
-            razorpay.open();
-            
-        } catch (error) {
-            console.error('Payment initialization error:', error);
-            closePaymentModal();
-            alert('Payment failed. Please try again.');
-        }
-    }
-
-    async function verifyPayment(paymentResponse, planType) {
-        try {
-            showPaymentModal('verifying');
-            
-            const res = await fetch('/api/payment/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + localStorage.getItem('userToken')
-                },
-                body: JSON.stringify({
-                    razorpay_order_id: paymentResponse.razorpay_order_id,
-                    razorpay_payment_id: paymentResponse.razorpay_payment_id,
-                    razorpay_signature: paymentResponse.razorpay_signature,
-                    planType: planType
-                })
-            });
-            
-            const data = await res.json();
-            
-            closePaymentModal();
-            
-            if (data.success) {
-                showSuccessModal(planType);
-            } else {
-                alert('Payment verification failed. Please contact support.');
-            }
-        } catch (error) {
-            console.error('Payment verification error:', error);
-            closePaymentModal();
-            alert('Payment verification failed. Please contact support.');
-        }
-    }
-
-    function showPaymentModal(type) {
-        let content = '';
-        
-        if (type === 'loading') {
-            content = `
-                <div class="modal-content" style="text-align: center;">
-                    <div style="width: 40px; height: 40px; border: 4px solid rgba(107, 70, 193, 0.3); border-radius: 50%; border-top: 4px solid var(--deep-purple); animation: spin 1s linear infinite; margin: 20px auto;"></div>
-                    <h3 style="margin-bottom: 10px;">Preparing payment...</h3>
-                    <p style="opacity: 0.8;">Please wait</p>
-                </div>
-            `;
-        } else if (type === 'verifying') {
-            content = `
-                <div class="modal-content" style="text-align: center;">
-                    <div style="width: 40px; height: 40px; border: 4px solid rgba(107, 70, 193, 0.3); border-radius: 50%; border-top: 4px solid var(--deep-purple); animation: spin 1s linear infinite; margin: 20px auto;"></div>
-                    <h3 style="margin-bottom: 10px;">Verifying payment...</h3>
-                    <p style="opacity: 0.8;">Please wait while we confirm your payment</p>
-                </div>
-            `;
-        }
-        
-        const modal = document.createElement('div');
-        modal.className = 'modal active';
-        modal.id = 'paymentModal';
-        modal.innerHTML = content;
-        document.body.appendChild(modal);
-    }
-
-    function closePaymentModal() {
-        const modal = document.getElementById('paymentModal');
-        if (modal) {
-            modal.remove();
-        }
-    }
-
-    function showSuccessModal(planType) {
-        const modal = document.createElement('div');
-        modal.className = 'modal active';
-        modal.innerHTML = `
-            <div class="modal-content" style="text-align: center;">
-                <h2 style="color: var(--success-green); margin-bottom: 15px;">🎉 Payment Successful!</h2>
-                <div style="background: rgba(16, 185, 129, 0.1); border-radius: 10px; padding: 15px; margin-bottom: 20px;">
-                    <p style="margin: 0 0 5px 0;"><strong>Plan:</strong> ${planType.charAt(0).toUpperCase() + planType.slice(1)} Coach</p>
-                    <p style="margin: 0;"><strong>Status:</strong> Active</p>
-                </div>
-                <p style="margin-bottom: 20px;">Your subscription has been activated!</p>
-                <button class="btn btn-primary" onclick="proceedToAIOnboarding('${planType}')">
-                    🚀 Continue to Setup
-                </button>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        // Auto-redirect after 3 seconds
-        setTimeout(() => {
-            proceedToAIOnboarding(planType);
-        }, 3000);
-    }
-
-    function proceedToAIOnboarding(planType) {
-        document.querySelectorAll('.modal').forEach(modal => modal.remove());
-        
-        const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
-        window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
-    }
-
-    function showLoginPrompt(planType, actionType) {
-        // Store intent for after login
-        sessionStorage.setItem('planIntent', JSON.stringify({ planType, actionType }));
-        
-        const modal = document.createElement('div');
-        modal.className = 'modal active';
-        modal.innerHTML = `
-            <div class="modal-content" style="text-align: center; max-width: 450px;">
-                <h2 style="color: var(--deep-purple); margin-bottom: 20px;">
-                    🔐 Account Required
-                </h2>
-                <p style="margin-bottom: 20px; line-height: 1.6;">
-                    To subscribe to this plan, you need to create an account or log in first.
-                </p>
-                <div style="display: flex; gap: 10px; justify-content: center;">
-                    <button class="btn btn-secondary" onclick="closeLoginPrompt()" style="flex: 1;">
-                        Cancel
-                    </button>
-                    <button class="btn btn-primary" onclick="goToLogin()" style="flex: 1;">
-                        Log In
-                    </button>
-                    <button class="btn btn-primary" onclick="goToSignup()" style="flex: 1;">
-                        Sign Up
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-    }
-
-    function closeLoginPrompt() {
-        document.querySelector('.modal').remove();
-    }
-
-    function goToSignup() {
-        window.location.href = '/signup?redirect=plans';
-    }
-
-    function goToLogin() {
-        window.location.href = '/login?redirect=plans';
-    }
-
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        // Check for existing promo
-        if (sessionStorage.getItem('promoApplied') === 'true') {
-            const storedPromo = sessionStorage.getItem('promoCode');
-            
-            if (storedPromo) {
-                promoApplied = true;
-                document.getElementById('promoCode').value = storedPromo;
-                applyDiscountToUI();
-                showPromoMessage(`${storedPromo} discount active!`, 'info');
-            }
-        }
-
-        // Enter key support for promo code
-        document.getElementById('promoCode').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                applyPromoCode();
-            }
-        });
-
-        // Card hover animations
-        const cards = document.querySelectorAll('.plan-card');
-        cards.forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                if (!this.classList.contains('featured')) {
-                    this.style.transform = 'translateY(-10px) scale(1.02)';
-                }
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                if (this.classList.contains('featured')) {
-                    this.style.transform = 'scale(1.05)';
-                } else {
-                    this.style.transform = 'translateY(0) scale(1)';
-                }
-            });
-        });
-
-        // Check if user just logged in with plan intent
-        const planIntent = sessionStorage.getItem('planIntent');
-        if (planIntent) {
-            const { planType, actionType } = JSON.parse(planIntent);
-            sessionStorage.removeItem('planIntent');
-            
-            // Re-trigger plan selection
-            setTimeout(() => {
-                selectPlan(planType, actionType);
-            }, 500);
-        }
-    });
-</script>
-    
-    <!-- ZoneTrain Cookie Banner (only shows if no consent) -->
-    <div id="ztCookieBanner" class="zt-cookie-banner">
-        <div class="zt-cookie-container">
-            <div class="zt-cookie-content">
-                <div class="zt-cookie-title">🍪 Cookie Preferences</div>
-                <div class="zt-cookie-text">
-                    Update your cookie preferences to enhance your ZoneTrain dashboard experience.
-                </div>
-            </div>
-            <div class="zt-cookie-actions">
-                <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                    Cookie Settings
-                </button>
-                <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                    Accept All
-                </button>
+<!-- ZoneTrain Cookie Banner -->
+<div id="ztCookieBanner" class="zt-cookie-banner">
+    <div class="zt-cookie-container">
+        <div class="zt-cookie-content">
+            <div class="zt-cookie-title">🍪 Cookie Preferences</div>
+            <div class="zt-cookie-text">
+                Update your cookie preferences to enhance your ZoneTrain dashboard experience.
             </div>
         </div>
+        <div class="zt-cookie-actions">
+            <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
+                Cookie Settings
+            </button>
+            <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
+                Accept All
+            </button>
+        </div>
     </div>
+</div>
 
-    <script src="js/cookies.js"></script>
-    <!-- Before </body> -->
-
-
+<script src="js/cookies.js"></script>
 </body>
 </html>
+
