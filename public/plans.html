@@ -3,560 +3,315 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZoneTrain - Choose Your Training Plan</title>
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="/js/payment.js"></script>
-
-    <script>
-if (document.readyState === 'loading') {
-    // DOM is still loading
-    console.log('⏳ DOM loading...');
-} else {
-    // DOM is already loaded
-    console.log('✅ DOM ready immediately');
-}
-
-
-// ===== GLOBAL PLANS SCRIPT =====
-let selectedBillingCycle = 'monthly';
-let promoApplied = false;
-
-const planPrices = {
-    fitness: {
-        monthly: 199,
-        quarterly: 537,
-        annual: 1912.80
-    },
-    race: {
-        monthly: 399,
-        quarterly: 1077,
-        annual: 3830.40
-    }
-};
-
-const periodText = {
-    monthly: 'per month',
-    quarterly: 'per quarter',
-    annual: 'per year'
-};
-
-const cycleSavings = {
-    fitness: {
-        monthly: 0,
-        quarterly: Math.round(199 * 3 - 537),
-        annual: Math.round(199 * 12 - 1912.80)
-    },
-    race: {
-        monthly: 0,
-        quarterly: Math.round(399 * 3 - 1077),
-        annual: Math.round(399 * 12 - 3830.40)
-    }
-};
-
-function setBillingCyclePlans(cycle) {
-    console.log('🔄 Cycle:', cycle);
-    selectedBillingCycle = cycle;
-    const buttons = document.querySelectorAll('.cycle-btn');
-    buttons.forEach(btn => btn.classList.remove('active'));
-    buttons.forEach(btn => {
-        if (btn.innerText.toLowerCase().includes(cycle)) {
-            btn.classList.add('active');
-        }
-    });
-    updatePricesForPlans();
-}
-
-function updatePricesForPlans() {
-    const fitnessCyclePrice = planPrices.fitness[selectedBillingCycle];
-    const raceCyclePrice = planPrices.race[selectedBillingCycle];
-    const period = periodText[selectedBillingCycle];
-    
-    let fitnessFinal = Math.round(fitnessCyclePrice);
-    let raceFinal = Math.round(raceCyclePrice);
-    
-    if (promoApplied) {
-        fitnessFinal = Math.round(fitnessCyclePrice * 0.5);
-        raceFinal = Math.round(raceCyclePrice * 0.5);
-    }
-    
-    const fprice = document.getElementById('fitness-price');
-    const rprice = document.getElementById('race-price');
-    const fperiod = document.querySelector('[data-plan="fitness"]');
-    const rperiod = document.querySelector('[data-plan="race"]');
-    
-    if (fprice) fprice.textContent = '₹' + fitnessFinal;
-    if (fperiod) fperiod.textContent = period;
-    if (rprice) rprice.textContent = '₹' + raceFinal;
-    if (rperiod) rperiod.textContent = period;
-    
-    updateSavingsForPlans();
-}
-
-
-function updateSavingsForPlans() {
-    const fitnessSavings = document.getElementById('fitness-savings');
-    const raceSavings = document.getElementById('race-savings');
-    
-    if (!fitnessSavings || !raceSavings) return;
-    
-    if (selectedBillingCycle === 'monthly') {
-        fitnessSavings.style.display = 'none';
-        raceSavings.style.display = 'none';
-    } else if (selectedBillingCycle === 'quarterly') {
-        fitnessSavings.textContent = `Save ₹${cycleSavings.fitness.quarterly} with Quarterly (10% off)`;
-        fitnessSavings.style.display = 'block';
-        raceSavings.textContent = `Save ₹${cycleSavings.race.quarterly} with Quarterly (10% off)`;
-        raceSavings.style.display = 'block';
-    } else if (selectedBillingCycle === 'annual') {
-        fitnessSavings.textContent = `Save ₹${cycleSavings.fitness.annual} with Annual (20% off)`;
-        fitnessSavings.style.display = 'block';
-        raceSavings.textContent = `Save ₹${cycleSavings.race.annual} with Annual (20% off)`;
-        raceSavings.style.display = 'block';
-    }
-}
-
-function applyPromoCode() {
-    console.log('🎟️ Apply promo');
-    const promoInput = document.getElementById('promoCode');
-    const promoCode = promoInput.value.trim().toUpperCase();
-    
-    if (!promoCode) {
-        showPromoMessage('Please enter a promo code', 'error');
-        return;
-    }
-    
-    const validCodes = ['LAUNCH50', 'EARLY50', 'RUNNER50'];
-    
-    if (validCodes.includes(promoCode)) {
-        promoApplied = true;
-        sessionStorage.setItem('promoCode', promoCode);
-        sessionStorage.setItem('promoApplied', 'true');
-        
-        document.getElementById('fitness-original').style.display = 'block';
-        document.getElementById('fitness-badge').style.display = 'block';
-        document.getElementById('race-original').style.display = 'block';
-        document.getElementById('race-badge').style.display = 'block';
-        
-        showPromoMessage(`✅ ${promoCode} applied! 50% OFF on all plans!`, 'success');
-        updatePricesForPlans();
-    } else {
-        promoApplied = false;
-        showPromoMessage('❌ Invalid promo code. Try LAUNCH50', 'error');
-        
-        document.getElementById('fitness-original').style.display = 'none';
-        document.getElementById('fitness-badge').style.display = 'none';
-        document.getElementById('race-original').style.display = 'none';
-        document.getElementById('race-badge').style.display = 'none';
-        
-        updatePricesForPlans();
-    }
-}
-
-function showPromoMessage(message, type) {
-    const promoMessage = document.getElementById('promoMessage');
-    if (!promoMessage) return;
-    promoMessage.textContent = message;
-    promoMessage.className = `promo-message promo-${type}`;
-    promoMessage.style.display = 'block';
-
-    if (type === 'error') {
-        setTimeout(() => {
-            promoMessage.style.display = 'none';
-        }, 5000);
-    }
-}
-
-async function selectPlan(planType, actionType) {
-    console.log('📋 Select plan:', planType, actionType);
-    const userToken = localStorage.getItem('userToken');
-    
-    if (!userToken) {
-        showLoginPrompt(planType, actionType);
-        return;
-    }
-    
-    const promoCode = sessionStorage.getItem('promoCode');
-    const cyclePrice = planPrices[planType][selectedBillingCycle];
-    
-    if (actionType === 'trial') {
-        await startFreeTrial(planType);
-    } else if (actionType === 'subscribe') {
-        const finalAmount = promoApplied ? Math.round(cyclePrice * 0.5) : Math.round(cyclePrice);
-        await purchaseSubscriptionWithPromo(planType, selectedBillingCycle, finalAmount, promoCode);
-    }
-}
-
-async function startFreeTrial(planType) {
-    const button = event.target;
-    const originalText = button.textContent;
-    button.innerHTML = '⏳ Activating Trial...';
-    button.disabled = true;
-    
-    try {
-        const token = localStorage.getItem('userToken');
-        const response = await fetch('/api/activate-trial', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ planType })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showPromoMessage('✅ Trial activated! Redirecting...', 'success');
-            setTimeout(() => {
-                const onboardingPlan = planType === 'fitness' ? 'basic' : 'race';
-                window.location.href = `/ai-onboarding?plan=${onboardingPlan}`;
-            }, 1500);
-        } else {
-            showPromoMessage('❌ ' + data.message, 'error');
-            button.innerHTML = originalText;
-            button.disabled = false;
-        }
-    } catch (error) {
-        console.error('Trial error:', error);
-        showPromoMessage('❌ Failed to activate trial', 'error');
-        button.innerHTML = originalText;
-        button.disabled = false;
-    }
-}
-
-function showLoginPrompt(planType, actionType) {
-    sessionStorage.setItem('planIntent', JSON.stringify({ planType, actionType }));
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal active';
-    modal.innerHTML = `
-        <div class="modal-content" style="text-align: center; max-width: 450px;">
-            <h2 style="margin-bottom: 20px;">🔐 Account Required</h2>
-            <p style="margin-bottom: 20px; line-height: 1.6;">To subscribe, please log in or create an account.</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
-                <button class="btn" onclick="closeLoginPrompt()" style="flex: 1; background: #A78BFA; color: white; border: none;">Cancel</button>
-                <button class="btn" onclick="goToLogin()" style="flex: 1; background: #8B5CF6; color: white; border: none;">Log In</button>
-                <button class="btn" onclick="goToSignup()" style="flex: 1; background: #6B46C1; color: white; border: none;">Sign Up</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-function closeLoginPrompt() {
-    const modal = document.querySelector('.modal.active');
-    if (modal) modal.remove();
-}
-
-function goToSignup() {
-    window.location.href = '/signup?redirect=plans';
-}
-
-function goToLogin() {
-    window.location.href = '/login?redirect=plans';
-}
-
-function smartBack(e) {
-    e.preventDefault();
-    const userToken = localStorage.getItem('userToken');
-    
-    if (document.referrer && document.referrer.includes(window.location.host)) {
-        window.history.back();
-    } else if (userToken) {
-        window.location.href = '/dashboard';
-    } else {
-        window.location.href = '/';
-    }
-}
-
-// PAGE LOAD
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('📄 Plans page loaded');
-    
-    if (sessionStorage.getItem('promoApplied') === 'true') {
-        const storedPromo = sessionStorage.getItem('promoCode');
-        if (storedPromo) {
-            promoApplied = true;
-            document.getElementById('promoCode').value = storedPromo;
-            
-            document.getElementById('fitness-original').style.display = 'block';
-            document.getElementById('fitness-badge').style.display = 'block';
-            document.getElementById('race-original').style.display = 'block';
-            document.getElementById('race-badge').style.display = 'block';
-            
-            updatePricesForPlans();
-            showPromoMessage(`${storedPromo} discount active!`, 'success');
-        }
-    }
-
-    const promoInput = document.getElementById('promoCode');
-    if (promoInput) {
-        promoInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') applyPromoCode();
-        });
-    }
-
-    const planIntent = sessionStorage.getItem('planIntent');
-    if (planIntent) {
-        const { planType, actionType } = JSON.parse(planIntent);
-        sessionStorage.removeItem('planIntent');
-        setTimeout(() => selectPlan(planType, actionType), 500);
-    }
-});
-</script>
-   
-<link rel="stylesheet" href="css/cookies.css">
-
+    <title>ZoneTrain - Choose Your Plan</title>
+    <link rel="stylesheet" href="css/cookies.css">
     <style>
-        :root {
-            --deep-purple: #6B46C1;
-            --light-purple: #A78BFA;
-            --accent-purple: #8B5CF6;
-            --white: #FFFFFF;
-            --dark-gray: #1F2937;
-            --success-green: #10B981;
-            --warning-orange: #F59E0B;
-            --error-red: #EF4444;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
             min-height: 100vh;
             padding: 20px;
+            color: #1F2937;
         }
 
-        .container { max-width: 1000px; margin: 0 auto; }
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            z-index: 1000;
+            border: none;
+            cursor: pointer;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateX(-3px);
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding-top: 20px;
+        }
 
         .header {
             text-align: center;
-            color: var(--white);
-            margin-bottom: 50px;
+            color: white;
+            margin-bottom: 40px;
         }
 
         .header h1 {
             font-size: 2.5rem;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
 
         .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
+            font-size: 1.1rem;
+            opacity: 0.95;
         }
 
-        .promo-section {
+        .promo-box {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(15px);
             border-radius: 15px;
             padding: 25px;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        .promo-title {
-            color: var(--white);
-            font-size: 1.3rem;
+        .promo-box h3 {
+            color: white;
+            font-size: 1.2rem;
             margin-bottom: 15px;
-            font-weight: 600;
         }
 
-        .promo-input-group {
+        .promo-inputs {
             display: flex;
             justify-content: center;
-            align-items: center;
-            gap: 15px;
+            gap: 10px;
             flex-wrap: wrap;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
         }
 
         .promo-input {
             padding: 12px 20px;
-            border: 2px solid var(--light-purple);
+            border: 2px solid #A78BFA;
             border-radius: 25px;
             font-size: 1rem;
             text-align: center;
-            background: var(--white);
-            color: var(--dark-gray);
+            background: white;
+            color: #1F2937;
             font-weight: 500;
             text-transform: uppercase;
-            letter-spacing: 1px;
             min-width: 180px;
         }
 
-        .promo-input:focus {
-            outline: none;
-            border-color: var(--accent-purple);
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-        }
-
-        .apply-btn {
-            background: var(--success-green);
-            color: var(--white);
-            border: none;
+        .promo-btn {
             padding: 12px 25px;
+            background: #10B981;
+            color: white;
+            border: none;
             border-radius: 25px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
         }
 
-        .apply-btn:hover {
+        .promo-btn:hover {
             background: #059669;
             transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
         }
 
-        .promo-message {
-            padding: 10px 15px;
+        .promo-msg {
+            padding: 10px;
             border-radius: 10px;
             font-weight: 500;
             margin-top: 10px;
-            transition: all 0.3s ease;
+            display: none;
         }
 
-        .promo-success {
+        .promo-msg.success {
             background: rgba(16, 185, 129, 0.2);
-            color: var(--success-green);
-            border: 1px solid var(--success-green);
+            color: #10B981;
+            border: 1px solid #10B981;
         }
 
-        .promo-error {
+        .promo-msg.error {
             background: rgba(239, 68, 68, 0.2);
-            color: var(--error-red);
-            border: 1px solid var(--error-red);
+            color: #EF4444;
+            border: 1px solid #EF4444;
         }
 
         .promo-info {
             color: rgba(255, 255, 255, 0.8);
             font-size: 0.9rem;
-            margin-top: 10px;
+            margin-top: 8px;
         }
 
-        .plans-container {
+        .cycle-selector {
+            text-align: center;
+            margin: 30px 0;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .cycle-btn {
+            padding: 12px 24px;
+            border: 2px solid #A78BFA;
+            background: white;
+            color: #1F2937;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .cycle-btn:hover {
+            border-color: #8B5CF6;
+            color: #8B5CF6;
+        }
+
+        .cycle-btn.active {
+            background: #8B5CF6;
+            color: white;
+            border-color: #8B5CF6;
+        }
+
+        .plans {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 30px;
             margin-bottom: 40px;
         }
 
-        .plan-card {
-            background: var(--white);
+        .plan {
+            background: white;
             border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             padding: 30px;
             text-align: center;
             position: relative;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            color: var(--dark-gray);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s;
         }
 
-        .plan-card:hover {
+        .plan:hover {
             transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
         }
 
-        .plan-card.featured {
-            border: 3px solid var(--accent-purple);
+        .plan.featured {
+            border: 3px solid #8B5CF6;
             transform: scale(1.05);
         }
 
-        .plan-header { margin-bottom: 20px; }
+        .plan.featured:hover {
+            transform: scale(1.08) translateY(-5px);
+        }
 
-        .plan-title {
+        .badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #F59E0B;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .plan-name {
             font-size: 1.8rem;
-            color: var(--deep-purple);
-            margin-bottom: 8px;
+            color: #6B46C1;
+            margin-bottom: 15px;
             font-weight: 600;
         }
 
-        .plan-pricing {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-bottom: 10px;
+        .price-box {
+            margin: 15px 0;
         }
 
-        .plan-price {
+        .price-original {
+            font-size: 1.5rem;
+            color: #6B7280;
+            text-decoration: line-through;
+            margin-bottom: 5px;
+            display: none;
+        }
+
+        .price {
             font-size: 2.5rem;
             font-weight: bold;
-            color: var(--accent-purple);
-            transition: all 0.3s ease;
+            color: #8B5CF6;
         }
 
-        .original-price {
-            font-size: 1.8rem;
-            color: var(--dark-gray);
-            text-decoration: line-through;
-            opacity: 0.6;
-            margin-bottom: 5px;
+        .period {
+            color: #6B7280;
+            font-size: 0.9rem;
+            margin-top: 5px;
         }
 
-        .discount-badge {
-            background: var(--warning-orange);
-            color: var(--white);
+        .savings {
+            background: #10B981;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            margin: 10px 0;
+            font-weight: 600;
+            display: none;
+        }
+
+        .discount-label {
+            background: #F59E0B;
+            color: white;
             padding: 4px 12px;
             border-radius: 12px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
-            margin-left: 10px;
             position: absolute;
-            top: -10px;
+            top: -8px;
             right: 20px;
-            transform: rotate(-10deg);
-            animation: pulse 2s infinite;
+            display: none;
         }
 
-        @keyframes pulse {
-            0%, 100% { transform: rotate(-10deg) scale(1); }
-            50% { transform: rotate(-10deg) scale(1.05); }
-        }
-
-        .plan-period {
-            color: var(--dark-gray);
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }
-
-        .plan-promise {
-            background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
-            color: var(--white);
+        .promise {
+            background: linear-gradient(135deg, #A78BFA, rgba(167, 139, 250, 0.8));
+            color: white;
             padding: 15px;
             border-radius: 8px;
             margin: 20px 0;
             font-weight: 600;
-            font-size: 1.1rem;
         }
 
-        .features-list {
+        .features {
             list-style: none;
             text-align: left;
-            margin: 25px 0;
+            margin: 20px 0;
         }
 
-        .features-list li {
+        .features li {
             padding: 8px 0;
-            color: var(--dark-gray);
-            position: relative;
             padding-left: 25px;
+            position: relative;
         }
 
-        .features-list li::before {
+        .features li::before {
             content: "✓";
             position: absolute;
             left: 0;
-            color: var(--success-green);
+            color: #10B981;
             font-weight: bold;
             font-size: 1.2rem;
         }
 
-        .trial-badge {
-            background: var(--success-green);
-            color: var(--white);
+        .trial {
+            background: #10B981;
+            color: white;
             padding: 8px 15px;
             border-radius: 20px;
             font-size: 0.9rem;
@@ -564,54 +319,7 @@ document.addEventListener('DOMContentLoaded', function() {
             display: inline-block;
         }
 
-        /* Button Styles */
-        /* Back Button for Plans Page */
-.back-btn-plans {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 18px;
-    background: rgba(255, 255, 255, 0.15);
-    color: white;
-    text-decoration: none;
-    border-radius: 25px;
-    font-size: 14px;
-    font-weight: 600;
-    backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
-    z-index: 1000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.back-btn-plans:hover {
-    background: rgba(255, 255, 255, 0.25);
-    transform: translateX(-3px);
-}
-
-.back-btn-plans svg {
-    width: 18px;
-    height: 18px;
-}
-
-/* Mobile Responsive */
-@media screen and (max-width: 576px) {
-    .back-btn-plans {
-        top: 15px;
-        left: 15px;
-        padding: 8px 14px;
-        font-size: 13px;
-    }
-    
-    .back-btn-plans svg {
-        width: 16px;
-        height: 16px;
-    }
-}
-        
-        .button-group {
+        .btns {
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -619,327 +327,203 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         .btn {
-            padding: 15px 30px;
+            padding: 15px;
             border: none;
             border-radius: 8px;
             font-size: 1.1rem;
             font-weight: 600;
             cursor: pointer;
-            width: 100%;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
+            transition: all 0.3s;
         }
 
         .btn-trial {
-            background: var(--deep-purple);
-            color: var(--white);
-            border: 2px solid var(--deep-purple);
+            background: #6B46C1;
+            color: white;
         }
 
         .btn-trial:hover {
-            background: var(--accent-purple);
-            border-color: var(--accent-purple);
+            background: #8B5CF6;
             transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(107, 70, 193, 0.3);
         }
 
         .btn-subscribe {
-            background: var(--success-green);
-            color: var(--white);
-            border: 2px solid var(--success-green);
-            position: relative;
-            overflow: hidden;
+            background: #10B981;
+            color: white;
         }
 
         .btn-subscribe:hover {
             background: #059669;
-            border-color: #059669;
             transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(16, 185, 129, 0.3);
         }
 
-        .btn-subscribe::before {
-            content: "💳";
-            margin-right: 8px;
-        }
-
-        .btn-outline {
-            background: transparent;
-            color: var(--deep-purple);
-            border: 2px solid var(--light-purple);
-        }
-
-        .btn-outline:hover {
-            background: var(--light-purple);
-            color: var(--white);
-            border-color: var(--light-purple);
-        }
-
-        .button-separator {
+        .sep {
             text-align: center;
-            color: var(--dark-gray);
+            color: #6B7280;
             font-size: 0.85rem;
-            margin: 8px 0;
-            opacity: 0.7;
-        }
-
-        .guarantee {
-            background: rgba(255, 255, 255, 0.1);
-            color: var(--white);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            margin-top: 30px;
-            backdrop-filter: blur(10px);
-        }
-
-        .guarantee h3 { margin-bottom: 10px; }
-
-        .popular-badge {
-            position: absolute;
-            top: -15px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--warning-orange);
-            color: var(--white);
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: bold;
-        }
-
-        .savings-highlight {
-            background: var(--success-green);
-            color: var(--white);
-            padding: 8px 15px;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            margin: 10px 0;
-            font-weight: 600;
+            margin: 5px 0;
         }
 
         .payment-info {
             background: rgba(255, 255, 255, 0.1);
-            color: var(--white);
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 30px;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
             text-align: center;
-            font-size: 0.9rem;
+            margin: 30px 0;
         }
 
         .payment-methods {
             display: flex;
             justify-content: center;
-            align-items: center;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
         }
 
-        .payment-method {
-            background: var(--white);
-            color: var(--dark-gray);
-            padding: 5px 10px;
+        .pm {
+            background: white;
+            color: #1F2937;
+            padding: 6px 12px;
             border-radius: 5px;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
             font-weight: 600;
         }
 
-        @media (max-width: 768px) {
-            .plan-card.featured { transform: none; }
-            .plans-container { grid-template-columns: 1fr; }
-            .promo-input-group { flex-direction: column; }
-            .promo-input { min-width: 250px; }
+        .guarantee {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
         }
 
-        /* Add this to your existing CSS in plans.html */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
 
-/* Loading animation for mock payment */
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+        .modal.active {
+            display: flex;
+        }
 
-/* Modal styling */
-.modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(5px);
-    z-index: 10000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
+        .modal-box {
+            background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+            border-radius: 20px;
+            padding: 30px;
+            color: white;
+            max-width: 450px;
+            text-align: center;
+        }
 
-.modal.active {
-    display: flex;
-}
+        .modal-btns {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
 
-.modal-content {
-    background: linear-gradient(135deg, var(--deep-purple), var(--accent-purple));
-    border-radius: 20px;
-    border: 2px solid rgba(167, 139, 250, 0.3);
-    padding: 30px;
-    color: white;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    animation: modalSlideIn 0.3s ease;
-}
-
-@keyframes modalSlideIn {
-    from { transform: scale(0.8); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-}
-
-/* Billing Cycle Buttons */
-.cycle-btn {
-    padding: 12px 24px;
-    border: 2px solid var(--light-purple);
-    background: var(--white);
-    color: var(--dark-gray);
-    border-radius: 25px;
-    font-weight: 600;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.cycle-btn:hover {
-    border-color: var(--accent-purple);
-    color: var(--accent-purple);
-}
-
-.cycle-btn.active {
-    background: var(--accent-purple);
-    color: var(--white);
-    border-color: var(--accent-purple);
-}
-
-@media (max-width: 768px) {
-    .cycle-btn {
-        padding: 10px 18px;
-        font-size: 0.9rem;
-    }
-}
-
-
+        @media (max-width: 768px) {
+            .plan.featured {
+                transform: none;
+            }
+            .plans {
+                grid-template-columns: 1fr;
+            }
+            .header h1 {
+                font-size: 2rem;
+            }
+            .back-btn {
+                top: 15px;
+                left: 15px;
+                padding: 8px 14px;
+                font-size: 13px;
+            }
+        }
     </style>
-    
-    
-    
 </head>
 <body>
-    <a href="#" class="back-btn-plans" onclick="smartBack(event)">
-    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-    </svg>
-    Back
-</a>
+    <button class="back-btn" id="backBtn">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Back
+    </button>
 
     <div class="container">
         <div class="header">
-            <h1>Choose Your Training Plan</h1>
+            <h1>🏃‍♂️ Choose Your Training Plan</h1>
             <p>Personalized training plans tailored to your HRV and fitness goals</p>
         </div>
 
-        <!-- Promo Code Section -->
-        <div class="promo-section">
-            <h3 class="promo-title">🎉 Have a Promo Code?</h3>
-            <div class="promo-input-group">
-                <input type="text" id="promoCode" class="promo-input" placeholder="Enter promo code" maxlength="20">
-                <button onclick="applyPromoCode()" class="apply-btn">Apply Code</button>
+        <div class="promo-box">
+            <h3>🎉 Have a Promo Code?</h3>
+            <div class="promo-inputs">
+                <input type="text" id="promoInput" class="promo-input" placeholder="Enter code" maxlength="20">
+                <button class="promo-btn" id="applyPromoBtn">Apply Code</button>
             </div>
-            <div id="promoMessage" class="promo-message" style="display: none;"></div>
-            <p class="promo-info">Launch special: Use code LAUNCH50 for 50% off your first month!</p>
+            <div id="promoMsg" class="promo-msg"></div>
+            <p class="promo-info">Launch special: Use code LAUNCH50 for 50% off!</p>
         </div>
 
-        <!-- Billing Cycle Selector -->
-<div style="text-align: center; margin: 40px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
-    <button class="cycle-btn active" onclick="setBillingCyclePlans('monthly')">
-        📅 Monthly
-    </button>
-    <button class="cycle-btn" onclick="setBillingCyclePlans('quarterly')">
-        📊 Quarterly
-        <br><span style="font-size: 0.8rem; opacity: 0.9;">Save 10%</span>
-    </button>
-    <button class="cycle-btn" onclick="setBillingCyclePlans('annual')">
-        📈 Annual
-        <br><span style="font-size: 0.8rem; opacity: 0.9;">Save 20%</span>
-    </button>
-</div>
+        <div class="cycle-selector">
+            <button class="cycle-btn active" data-cycle="monthly">📅 Monthly</button>
+            <button class="cycle-btn" data-cycle="quarterly">
+                📊 Quarterly<br><small style="font-size:0.8rem;opacity:0.9">Save 10%</small>
+            </button>
+            <button class="cycle-btn" data-cycle="annual">
+                📈 Annual<br><small style="font-size:0.8rem;opacity:0.9">Save 20%</small>
+            </button>
+        </div>
 
-
-        <div class="plans-container">
-            <!-- Tier 1: Fitness Coach -->
-            <div class="plan-card" id="fitness-plan">
-                <div class="plan-header">
-                    <h2 class="plan-title">Fitness Coach</h2>
-                    <div class="plan-pricing">
-                        <div class="original-price" id="fitness-original" style="display: none;">₹199</div>
-                        <div class="plan-price" id="fitness-price">₹199</div>
-                        <div class="discount-badge" id="fitness-badge" style="display: none;">50% OFF</div>
-                    </div>
-                    <div class="plan-period" data-plan="fitness">per month</div>
-
-                    <div class="savings-highlight" id="fitness-savings" style="display: none;">
-                        Save ₹100/month with LAUNCH50!
-                    </div>
+        <div class="plans">
+            <!-- Fitness Plan -->
+            <div class="plan">
+                <div class="plan-name">Fitness Coach</div>
+                <div class="price-box">
+                    <div class="price-original" id="fit-orig">₹199</div>
+                    <div class="price" id="fit-price">₹199</div>
+                    <div class="discount-label" id="fit-disc">50% OFF</div>
+                    <div class="period" id="fit-period">per month</div>
                 </div>
-                
-                <div class="plan-promise">
-                    Build running fitness and consistency
-                </div>
-
-                <ul class="features-list">
+                <div class="savings" id="fit-save">Save ₹60</div>
+                <div class="promise">Build running fitness and consistency</div>
+                <ul class="features">
                     <li>Progressive running plans for beginners/maintainers</li>
                     <li>Habit formation (3x/week running routine)</li>
-                    <li>Basic performance improvement (run longer/feel better)</li>
+                    <li>Basic performance improvement</li>
                     <li>HRV-based daily adjustments</li>
                     <li>WhatsApp coaching integration</li>
                 </ul>
-
-                <div class="trial-badge">14 Days Free Trial</div>
-                
-                <!-- Updated Button Group -->
-                <div class="button-group">
-                    <button class="btn btn-trial" onclick="selectPlan('fitness', 'trial')">
-                        🆓 Start Free Trial
-                    </button>
-                    <div class="button-separator">or</div>
-                    <button class="btn btn-subscribe" onclick="selectPlan('fitness', 'subscribe')">
-                        Subscribe Now
-                    </button>
+                <div class="trial">14 Days Free Trial</div>
+                <div class="btns">
+                    <button class="btn btn-trial" data-plan="fitness" data-action="trial">🆓 Start Free Trial</button>
+                    <div class="sep">or</div>
+                    <button class="btn btn-subscribe" data-plan="fitness" data-action="subscribe">Subscribe Now</button>
                 </div>
             </div>
 
-            <!-- Tier 2: Race Coach -->
-            <div class="plan-card featured" id="race-plan">
-                <div class="popular-badge">Most Popular</div>
-                <div class="plan-header">
-                    <h2 class="plan-title">Race Coach</h2>
-                    <div class="plan-pricing">
-                        <div class="original-price" id="race-original" style="display: none;">₹399</div>
-                        <div class="plan-price" id="race-price">₹399</div>
-                        <div class="discount-badge" id="race-badge" style="display: none;">50% OFF</div>
-                    </div>
-                    <div class="plan-period" data-plan="race">per month</div>
-
-                    <div class="savings-highlight" id="race-savings" style="display: none;">
-                        Save ₹200/month with LAUNCH50!
-                    </div>
+            <!-- Race Plan -->
+            <div class="plan featured">
+                <div class="badge">⭐ Most Popular</div>
+                <div class="plan-name">Race Coach</div>
+                <div class="price-box">
+                    <div class="price-original" id="race-orig">₹399</div>
+                    <div class="price" id="race-price">₹399</div>
+                    <div class="discount-label" id="race-disc">50% OFF</div>
+                    <div class="period" id="race-period">per month</div>
                 </div>
-                
-                <div class="plan-promise">
-                    Train effectively for specific race goals
-                </div>
-
-                <ul class="features-list">
+                <div class="savings" id="race-save">Save ₹120</div>
+                <div class="promise">Train effectively for specific race goals</div>
+                <ul class="features">
                     <li>Everything in Fitness Coach</li>
                     <li>Periodization for target races</li>
                     <li>Performance optimization</li>
@@ -947,32 +531,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     <li>Race strategy planning</li>
                     <li>Advanced analytics dashboard</li>
                 </ul>
-
-                <div class="trial-badge">14 Days Free Trial</div>
-                
-                <!-- Updated Button Group -->
-                <div class="button-group">
-                    <button class="btn btn-trial" onclick="selectPlan('race', 'trial')">
-                        🆓 Start Free Trial
-                    </button>
-                    <div class="button-separator">or</div>
-                    <button class="btn btn-subscribe" onclick="selectPlan('race', 'subscribe')">
-                        Subscribe Now
-                    </button>
+                <div class="trial">14 Days Free Trial</div>
+                <div class="btns">
+                    <button class="btn btn-trial" data-plan="race" data-action="trial">🆓 Start Free Trial</button>
+                    <div class="sep">or</div>
+                    <button class="btn btn-subscribe" data-plan="race" data-action="subscribe">Subscribe Now</button>
                 </div>
             </div>
         </div>
 
-        <!-- Payment Info -->
         <div class="payment-info">
             <h4>💳 Secure Payment Options</h4>
             <div class="payment-methods">
-                <div class="payment-method">💳 Card</div>
-                <div class="payment-method">🏦 UPI</div>
-                <div class="payment-method">🏪 Net Banking</div>
-                <div class="payment-method">📱 Wallets</div>
+                <div class="pm">💳 Card</div>
+                <div class="pm">🏦 UPI</div>
+                <div class="pm">🏪 Net Banking</div>
+                <div class="pm">📱 Wallets</div>
             </div>
-            <p style="margin-top: 10px; font-size: 0.85rem; opacity: 0.8;">
+            <p style="margin-top: 15px; font-size: 0.85rem; opacity: 0.9;">
                 Powered by Razorpay • SSL Secured • Cancel Anytime
             </p>
         </div>
@@ -980,29 +556,287 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="guarantee">
             <p>Try any plan risk-free. If you're not satisfied, you can cancel your subscription at any time.</p>
         </div>
-        </div>
+    </div>
 
-<!-- ZoneTrain Cookie Banner -->
-<div id="ztCookieBanner" class="zt-cookie-banner">
-    <div class="zt-cookie-container">
-        <div class="zt-cookie-content">
-            <div class="zt-cookie-title">🍪 Cookie Preferences</div>
-            <div class="zt-cookie-text">
-                Update your cookie preferences to enhance your ZoneTrain dashboard experience.
+    <!-- Cookie Banner -->
+    <div id="ztCookieBanner" class="zt-cookie-banner">
+        <div class="zt-cookie-container">
+            <div class="zt-cookie-content">
+                <div class="zt-cookie-title">🍪 Cookie Preferences</div>
+                <div class="zt-cookie-text">Update your cookie preferences to enhance your ZoneTrain experience.</div>
+            </div>
+            <div class="zt-cookie-actions">
+                <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">Settings</button>
+                <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">Accept All</button>
             </div>
         </div>
-        <div class="zt-cookie-actions">
-            <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                Cookie Settings
-            </button>
-            <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                Accept All
-            </button>
-        </div>
     </div>
-</div>
 
-<script src="js/cookies.js"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="/js/payment.js"></script>
+    <script src="js/cookies.js"></script>
+    
+    <script>
+        // DATA
+        const PRICES = {
+            fitness: { monthly: 199, quarterly: 537, annual: 1913 },
+            race: { monthly: 399, quarterly: 1077, annual: 3830 }
+        };
+
+        const PERIODS = {
+            monthly: 'per month',
+            quarterly: 'per quarter',
+            annual: 'per year'
+        };
+
+        const SAVINGS = {
+            fitness: { monthly: 0, quarterly: 60, annual: 475 },
+            race: { monthly: 0, quarterly: 120, annual: 958 }
+        };
+
+        let currentCycle = 'monthly';
+        let promoActive = false;
+
+        // BACK BUTTON
+        document.getElementById('backBtn').addEventListener('click', () => {
+            const token = localStorage.getItem('userToken');
+            if (document.referrer && document.referrer.includes(window.location.host)) {
+                window.history.back();
+            } else if (token) {
+                window.location.href = '/dashboard';
+            } else {
+                window.location.href = '/';
+            }
+        });
+
+        // PROMO CODE
+        document.getElementById('applyPromoBtn').addEventListener('click', () => {
+            const input = document.getElementById('promoInput');
+            const code = input.value.trim().toUpperCase();
+            const msg = document.getElementById('promoMsg');
+            
+            if (!code) {
+                msg.textContent = '⚠️ Please enter a code';
+                msg.className = 'promo-msg error';
+                msg.style.display = 'block';
+                setTimeout(() => msg.style.display = 'none', 3000);
+                return;
+            }
+            
+            const valid = ['LAUNCH50', 'EARLY50', 'RUNNER50'];
+            
+            if (valid.includes(code)) {
+                promoActive = true;
+                sessionStorage.setItem('promoCode', code);
+                sessionStorage.setItem('promoApplied', 'true');
+                
+                msg.textContent = `✅ ${code} applied! 50% OFF`;
+                msg.className = 'promo-msg success';
+                msg.style.display = 'block';
+                
+                document.getElementById('fit-orig').style.display = 'block';
+                document.getElementById('fit-disc').style.display = 'block';
+                document.getElementById('race-orig').style.display = 'block';
+                document.getElementById('race-disc').style.display = 'block';
+                
+                updatePrices();
+            } else {
+                promoActive = false;
+                msg.textContent = '❌ Invalid code. Try LAUNCH50';
+                msg.className = 'promo-msg error';
+                msg.style.display = 'block';
+                setTimeout(() => msg.style.display = 'none', 3000);
+                
+                document.getElementById('fit-orig').style.display = 'none';
+                document.getElementById('fit-disc').style.display = 'none';
+                document.getElementById('race-orig').style.display = 'none';
+                document.getElementById('race-disc').style.display = 'none';
+                
+                updatePrices();
+            }
+        });
+
+        document.getElementById('promoInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('applyPromoBtn').click();
+        });
+
+        // CYCLE SELECTOR
+        document.querySelectorAll('.cycle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.cycle-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentCycle = btn.dataset.cycle;
+                updatePrices();
+            });
+        });
+
+        // UPDATE PRICES
+        function updatePrices() {
+            const fitPrice = PRICES.fitness[currentCycle];
+            const racePrice = PRICES.race[currentCycle];
+            const period = PERIODS[currentCycle];
+            
+            let fitFinal = Math.round(fitPrice);
+            let raceFinal = Math.round(racePrice);
+            
+            if (promoActive) {
+                fitFinal = Math.round(fitPrice * 0.5-1);
+                raceFinal = Math.round(racePrice * 0.5-1);
+            }
+            
+            document.getElementById('fit-price').textContent = '₹' + fitFinal;
+            document.getElementById('race-price').textContent = '₹' + raceFinal;
+            
+            document.getElementById('fit-period').textContent = period;
+            document.getElementById('race-period').textContent = period;
+            
+            document.getElementById('fit-orig').textContent = '₹' + Math.round(fitPrice);
+            document.getElementById('race-orig').textContent = '₹' + Math.round(racePrice);
+            
+            const fitSave = SAVINGS.fitness[currentCycle];
+            const raceSave = SAVINGS.race[currentCycle];
+            
+            if (currentCycle === 'monthly') {
+                document.getElementById('fit-save').style.display = 'none';
+                document.getElementById('race-save').style.display = 'none';
+            } else {
+                const pct = currentCycle === 'quarterly' ? '10%' : '20%';
+                document.getElementById('fit-save').textContent = `Save ₹${fitSave} (${pct} off)`;
+                document.getElementById('fit-save').style.display = 'block';
+                document.getElementById('race-save').textContent = `Save ₹${raceSave} (${pct} off)`;
+                document.getElementById('race-save').style.display = 'block';
+            }
+        }
+
+        // PLAN SELECTION
+        document.querySelectorAll('.btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const plan = btn.dataset.plan;
+                const action = btn.dataset.action;
+                
+                if (!plan || !action) return;
+                
+                const token = localStorage.getItem('userToken');
+                
+                if (!token) {
+                    showLoginModal(plan, action);
+                    return;
+                }
+                
+                if (action === 'trial') {
+                    startTrial(plan, btn);
+                } else if (action === 'subscribe') {
+                    purchase(plan);
+                }
+            });
+        });
+
+        // START TRIAL
+        async function startTrial(plan, btn) {
+            const orig = btn.textContent;
+            btn.textContent = '⏳ Activating...';
+            btn.disabled = true;
+            
+            try {
+                const token = localStorage.getItem('userToken');
+                const res = await fetch('/api/activate-trial', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ planType: plan })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    const msg = document.getElementById('promoMsg');
+                    msg.textContent = '✅ Trial activated!';
+                    msg.className = 'promo-msg success';
+                    msg.style.display = 'block';
+                    
+                    setTimeout(() => {
+                        const p = plan === 'fitness' ? 'basic' : 'race';
+                        window.location.href = `/ai-onboarding?plan=${p}`;
+                    }, 1500);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (err) {
+                const msg = document.getElementById('promoMsg');
+                msg.textContent = '❌ ' + err.message;
+                msg.className = 'promo-msg error';
+                msg.style.display = 'block';
+                btn.textContent = orig;
+                btn.disabled = false;
+            }
+        }
+
+        // PURCHASE
+        async function purchase(plan) {
+            const promo = sessionStorage.getItem('promoCode');
+            const price = PRICES[plan][currentCycle];
+            const amount = promoActive ? Math.round(price * 0.5-1) : Math.round(price);
+            
+            if (typeof window.purchaseSubscriptionWithPromo === 'function') {
+                await window.purchaseSubscriptionWithPromo(plan, currentCycle, amount, promo);
+            } else {
+                alert('Payment system loading. Please refresh.');
+            }
+        }
+
+        // LOGIN MODAL
+        function showLoginModal(plan, action) {
+            sessionStorage.setItem('planIntent', JSON.stringify({ planType: plan, actionType: action }));
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-box">
+                    <h2 style="margin-bottom: 20px;">🔐 Account Required</h2>
+                    <p style="margin-bottom: 20px;">Please log in or create an account to continue.</p>
+                    <div class="modal-btns">
+                        <button class="btn" style="flex:1;background:#A78BFA;" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button class="btn" style="flex:1;background:#8B5CF6;" onclick="window.location.href='/login?redirect=plans'">Log In</button>
+                        <button class="btn" style="flex:1;background:#6B46C1;" onclick="window.location.href='/signup?redirect=plans'">Sign Up</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        // INIT
+        const savedPromo = sessionStorage.getItem('promoApplied');
+        if (savedPromo === 'true') {
+            const code = sessionStorage.getItem('promoCode');
+            if (code) {
+                promoActive = true;
+                document.getElementById('promoInput').value = code;
+                document.getElementById('fit-orig').style.display = 'block';
+                document.getElementById('fit-disc').style.display = 'block';
+                document.getElementById('race-orig').style.display = 'block';
+                document.getElementById('race-disc').style.display = 'block';
+                updatePrices();
+                const msg = document.getElementById('promoMsg');
+                msg.textContent = `✅ ${code} applied!`;
+                msg.className = 'promo-msg success';
+                msg.style.display = 'block';
+            }
+        }
+
+        // CHECK PLAN INTENT
+        const intent = sessionStorage.getItem('planIntent');
+        if (intent) {
+            const { planType, actionType } = JSON.parse(intent);
+            sessionStorage.removeItem('planIntent');
+            setTimeout(() => {
+                const btn = document.querySelector(`[data-plan="${planType}"][data-action="${actionType}"]`);
+                if (btn) btn.click();
+            }, 500);
+        }
+
+        console.log('✅ Plans page ready');
+    </script>
 </body>
 </html>
-

@@ -24,9 +24,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+
+
 // Add these imports after your existing requires
 const { authenticateToken, requirePlan, requireAdmin, optionalAuth } = require('./middleware/accessControl');
-
+const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
 // Optional security middleware
 const helmet = require('helmet');
 const cors = require('cors');
@@ -132,6 +135,28 @@ app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     }
 }));
 
+// Add this helper function
+function validatePassword(password) {
+  const minLength = 8;
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  
+  if (password.length < minLength) {
+    return { valid: false, message: 'Password must be at least 8 characters long' };
+  }
+  if (!hasUpperCase) {
+    return { valid: false, message: 'Password must contain at least one uppercase letter' };
+  }
+  if (!hasLowerCase) {
+    return { valid: false, message: 'Password must contain at least one lowercase letter' };
+  }
+  if (!hasNumber) {
+    return { valid: false, message: 'Password must contain at least one number' };
+  }
+  
+  return { valid: true };
+}
 
 // Global variables for Strava tokens
 let storedTokens = {
@@ -139,6 +164,9 @@ let storedTokens = {
   refresh_token: null
 };
 
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Important for accurate IP detection behind proxy
+}
 
 // Security middleware (optional but recommended)
 // In app.js - Replace your existing helmet configuration
@@ -166,9 +194,9 @@ app.use(helmet({
         "https://www.gstatic.com",
         "https://www.googletagmanager.com",
         "https://apis.google.com",
-        "https://www.google.com/recaptcha/",  // reCAPTCHA
-        "https://www.gstatic.com/recaptcha/",  // reCAPTCHA
-        "https://www.recaptcha.net"  // reCAPTCHA fallback
+        "https://www.google.com/recaptcha/",
+        "https://www.gstatic.com/recaptcha/",
+        "https://www.recaptcha.net"
       ],
       scriptSrcAttr: ["'unsafe-inline'"],
       imgSrc: [
@@ -190,66 +218,42 @@ app.use(helmet({
         "https://identitytoolkit.googleapis.com",
         "https://securetoken.googleapis.com",
         "https://www.gstatic.com",
-        "https://www.google.com"  // For reCAPTCHA
+        "https://www.google.com"
       ],
       frameSrc: [
         "'self'",
         "https://api.razorpay.com",
         "https://*.firebaseapp.com",
-        "https://www.google.com",  // reCAPTCHA iframe
-        "https://www.recaptcha.net"  // reCAPTCHA fallback
+        "https://www.google.com",
+        "https://www.recaptcha.net"
       ],
       formAction: [
         "'self'", 
         "https://api.razorpay.com"
       ]
     }
-  }
+  },
+  referrerPolicy: { policy: 'no-referrer' }
+}));
+
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? [process.env.WEB_ORIGIN, process.env.ADMIN_ORIGIN].filter(Boolean)
+    : '*',
+  credentials: true
 }));
 
 
-// Add this helper function
-function validatePassword(password) {
-  const minLength = 8;
-  const hasUpperCase = /[A-Z]/.test(password);
-  const hasLowerCase = /[a-z]/.test(password);
-  const hasNumber = /\d/.test(password);
-  
-  if (password.length < minLength) {
-    return { valid: false, message: 'Password must be at least 8 characters long' };
-  }
-  if (!hasUpperCase) {
-    return { valid: false, message: 'Password must contain at least one uppercase letter' };
-  }
-  if (!hasLowerCase) {
-    return { valid: false, message: 'Password must contain at least one lowercase letter' };
-  }
-  if (!hasNumber) {
-    return { valid: false, message: 'Password must contain at least one number' };
-  }
-  
-  return { valid: true };
-}
-
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
 
 // Body parsing middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/components', express.static(path.join(__dirname, 'public/components')));
 
+const compression = require('compression');
+app.use(compression());
 
-// Add this to serve static files properly (add after your existing middleware)
 app.use('/js', express.static(path.join(__dirname, 'public/js'), {
     setHeaders: (res, path) => {
         if (path.endsWith('.js')) {
@@ -266,18 +270,48 @@ app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     }
 }));
 
-
-// ADD THIS SESSION AND PASSPORT MIDDLEWARE HERE:
-// Session configuration
+// Session configuration - PRODUCTION READY with Firebase Firestore
+// Session configuration - using built-in memory store
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-session-secret-key-zonetrain-2025',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Set to true in production with HTTPS
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    secure: process.env.NODE_ENV === 'production', // true only with HTTPS in prod
+    httpOnly: true,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000  // 24 hours
   }
 }));
+
+
+
+
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV !== 'production', // Disable in dev
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress, // Fallback for rate limiting
+});
+
+// Stricter limiter for auth endpoints (prevent brute force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Only 5 login/signup attempts
+  message: 'Too many login/signup attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV !== 'production',
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress,
+});
+
+// Apply limiters
+app.use('/api/', apiLimiter); // ← Your rate limiter (general API)
+app.use('/auth/', authLimiter); // Stricter for auth
 
 // Initialize passport
 app.use(passport.initialize());
@@ -287,7 +321,7 @@ app.use(passport.session());
 
 
 // Updated welcome page route - replace your existing '/' route
-app.get('/', (req, res) => {
+app.get('/', apiLimiter, (req, res) => {
   const html = `
   <!DOCTYPE html>
   <html lang="en">
@@ -1365,7 +1399,7 @@ app.get('/', (req, res) => {
   res.send(html);
 });
 
-app.get('/login', (req, res) => {
+app.get('/login', apiLimiter, (req, res) => {
   const redirect = req.query.redirect || '';
   const error = req.query.error || '';
   
@@ -1930,8 +1964,7 @@ function showMessage(message, type) {
 });
 
 
-
-app.get('/signup', (req, res) => {
+app.get('/signup', apiLimiter, (req, res) => {
   const redirect = req.query.redirect || '';
   const html = `
 <!DOCTYPE html>
@@ -2417,6 +2450,7 @@ app.get('/signup', (req, res) => {
   res.send(html);
 });
 
+
 // Temporary admin endpoint - remove in production
 app.post('/api/admin/block-user', async (req, res) => {
     try {
@@ -2447,7 +2481,7 @@ app.post('/api/admin/block-user', async (req, res) => {
 // Fixed test email configuration endpoint
 app.get('/test-email-config', async (req, res) => {
     try {
-        const nodemailer = require('nodemailer');
+        
         
         console.log('📧 Testing email configuration...');
         console.log('Host:', process.env.EMAIL_HOST);
@@ -2601,383 +2635,6 @@ const baseInsight = insights.length > 0
 
   // Add ZoneTrain branding
   return `🏃 ${baseInsight} | Powered by zonetrain.fit`;}
-
-// Homepage
-app.get('/', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZoneTrain - AI-Powered Running Coaching & Personalized Training Plans</title>
-    <meta name="description" content="Get AI-powered running coaching with personalized training plans based on HRV data. Professional fitness coaching services for runners of all levels.">
-    <style>
-      :root {
-        --deep-purple: #6B46C1;
-        --light-purple: #A78BFA;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --warning-orange: #F59E0B;
-      }
-
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: var(--white);
-        color: var(--dark-gray);
-        line-height: 1.6;
-      }
-
-      .header {
-        background: var(--deep-purple);
-        padding: 15px 0;
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        box-shadow: 0 2px 10px rgba(107, 70, 193, 0.2);
-      }
-
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: var(--white);
-        text-decoration: none;
-      }
-
-      .nav-links {
-        display: flex;
-        gap: 30px;
-        list-style: none;
-      }
-
-      .nav-links a {
-        color: var(--white);
-        text-decoration: none;
-        font-weight: 500;
-        transition: color 0.3s ease;
-        opacity: 0.9;
-      }
-
-      .nav-links a:hover {
-        opacity: 1;
-        color: var(--light-purple);
-      }
-
-      .hero-section {
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        color: var(--white);
-        text-align: center;
-        padding: 80px 20px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .hero-section::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="80" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="40" cy="60" r="1" fill="rgba(255,255,255,0.1)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-        opacity: 0.3;
-      }
-
-      .hero-content {
-        position: relative;
-        z-index: 1;
-        max-width: 1000px;
-        margin: 0 auto;
-      }
-
-      h1 {
-        font-size: 3.5rem;
-        font-weight: 700;
-        margin-bottom: 20px;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .tagline {
-        font-size: 1.4rem;
-        margin-bottom: 15px;
-        font-weight: 500;
-        opacity: 0.95;
-      }
-
-      .description {
-        font-size: 1.1rem;
-        margin-bottom: 40px;
-        line-height: 1.6;
-        opacity: 0.9;
-        max-width: 600px;
-        margin-left: auto;
-        margin-right: auto;
-      }
-
-      .features-section {
-        padding: 80px 20px;
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-
-      .features-title {
-        text-align: center;
-        font-size: 2.5rem;
-        color: var(--deep-purple);
-        margin-bottom: 50px;
-      }
-
-      .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 30px;
-        margin-bottom: 50px;
-      }
-
-      .feature-card {
-        background: var(--light-purple);
-        background: linear-gradient(135deg, var(--light-purple) 0%, rgba(167, 139, 250, 0.8) 100%);
-        padding: 30px;
-        border-radius: 15px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.2);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        color: var(--white);
-      }
-
-      .feature-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(107, 70, 193, 0.3);
-      }
-
-      .feature-icon {
-        font-size: 2.5rem;
-        margin-bottom: 15px;
-      }
-
-      .feature-title {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-bottom: 15px;
-      }
-
-      .feature-description {
-        opacity: 0.95;
-        line-height: 1.6;
-      }
-
-      .action-buttons {
-        display: flex;
-        gap: 20px;
-        justify-content: center;
-        flex-wrap: wrap;
-        margin-top: 40px;
-      }
-
-      .btn {
-        padding: 15px 30px;
-        border-radius: 50px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        cursor: pointer;
-        border: none;
-      }
-
-      .btn-primary {
-        background: var(--deep-purple);
-        color: var(--white);
-      }
-
-      .btn-primary:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
-      }
-
-      .btn-secondary {
-        background: var(--white);
-        color: var(--deep-purple);
-        border: 2px solid var(--light-purple);
-      }
-
-      .btn-secondary:hover {
-        background: var(--light-purple);
-        color: var(--white);
-        transform: translateY(-2px);
-      }
-
-      .btn-success {
-        background: var(--success-green);
-        color: var(--white);
-      }
-
-      .btn-success:hover {
-        background: #059669;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
-      }
-
-      .cta-section {
-        background: linear-gradient(135deg, var(--accent-purple) 0%, var(--deep-purple) 100%);
-        color: var(--white);
-        padding: 60px 20px;
-        text-align: center;
-      }
-
-      .cta-title {
-        font-size: 2.2rem;
-        margin-bottom: 20px;
-      }
-
-      .cta-description {
-        font-size: 1.1rem;
-        margin-bottom: 30px;
-        opacity: 0.9;
-      }
-
-      .footer {
-        background: var(--dark-gray);
-        color: var(--white);
-        padding: 40px 20px 20px;
-      }
-
-      .footer-content {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 30px;
-      }
-
-      .footer-section h3 {
-        color: var(--light-purple);
-        margin-bottom: 15px;
-      }
-
-      .footer-section p, .footer-section a {
-        color: rgba(255, 255, 255, 0.8);
-        text-decoration: none;
-        line-height: 1.6;
-      }
-
-      .footer-section a:hover {
-        color: var(--light-purple);
-      }
-
-      .footer-bottom {
-        text-align: center;
-        margin-top: 30px;
-        padding-top: 20px;
-        border-top: 1px solid rgba(255, 255, 255, 0.2);
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      @media (max-width: 768px) {
-        .nav-links { display: none; }
-        h1 { font-size: 2.5rem; }
-        .features-grid { grid-template-columns: 1fr; }
-        .action-buttons { flex-direction: column; align-items: center; }
-        .btn { width: 100%; max-width: 280px; }
-      }
-    </style>
-  </head>
-  <body>
-    
-
-    <main>
-      <section class="hero-section">
-        <div class="hero-content">
-          <h1>ZoneTrain</h1>
-          <p class="tagline">AI-Powered Running Coaching & Personalized Training Plans</p>
-          <p class="description">
-            Transform your running performance with intelligent coaching that adapts to your daily HRV readings, 
-            analyzes your training zones, and delivers personalized workout recommendations through advanced AI technology.
-          </p>
-          <div class="action-buttons">
-            <a href="/login" class="btn btn-success">🔗 Connect with Strava</a>
-            <a href="/analyze-zones" class="btn btn-secondary">📈 Analyze Your Training</a>
-          </div>
-        </div>
-      </section>
-
-      <section class="features-section">
-        <h2 class="features-title">Why Choose ZoneTrain?</h2>
-        <div class="features-grid">
-          <div class="feature-card">
-            <div class="feature-icon">🎯</div>
-            <h3 class="feature-title">Smart Zone Analysis</h3>
-            <p class="feature-description">AI-powered analysis of your training zones with actionable insights to optimize your running performance</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">📊</div>
-            <h3 class="feature-title">HRV-Based Coaching</h3>
-            <p class="feature-description">Daily workout adjustments based on your heart rate variability for optimal training adaptation</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🏃‍♂️</div>
-            <h3 class="feature-title">Personalized Plans</h3>
-            <p class="feature-description">Custom training programs designed for your specific goals and current fitness level</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="cta-section">
-        <h2 class="cta-title">Ready to Transform Your Running?</h2>
-        <p class="cta-description">Join thousands of runners who have improved their performance with ZoneTrain's AI coaching</p>
-        <div class="action-buttons">
-          <a href="/plans.html" class="btn btn-primary">View Training Plans</a>
-          <a href="/login" class="btn btn-secondary">Start Free Analysis</a>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="footer-content">
-        <div class="footer-section">
-          <h3>ZoneTrain</h3>
-          <p>Professional AI-powered fitness coaching services specializing in running performance optimization and personalized training plans.</p>
-        </div>
-        <div class="footer-section">
-          <h3>Contact Information</h3>
-          <p>Email: zonetrain@zohomail.in</p>
-          <p>Address: AP Block, Pitampura<br>New Delhi-110034, India</p>
-        </div>
-        <div class="footer-section">
-          <h3>Legal</h3>
-          <p><a href="/privacy">Privacy Policy</a></p>
-          <p><a href="/terms">Terms of Service</a></p>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <p>&copy; 2025 ZoneTrain. All rights reserved. | Professional Fitness Coaching Services</p>
-      </div>
-    </footer>
-    ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
-
 
 app.get('/about', (req, res) => {
   const html = `
@@ -5348,7 +5005,7 @@ app.get('/api/weather', authenticateToken, async (req, res) => {
         }
 
         // Google Weather API endpoint for current conditions
-        const axios = require('axios');
+      
         const weatherUrl = `https://weather.googleapis.com/v1/currentConditions:lookup?key=${GOOGLE_WEATHER_API_KEY}&location.latitude=${lat}&location.longitude=${lon}&unitsSystem=METRIC`;
         
         const response = await axios.get(weatherUrl);
@@ -8421,16 +8078,7 @@ app.get('/plans', (req, res) => {
 });
 
 
-// Update your homepage to include the plans link
-app.get('/', (req, res) => {
-  res.send(`
-    <h1>ZoneTrain Strava Analyzer</h1>
-    <a href="/login">Connect with Strava</a><br>
-    <a href="/activities">View Activities</a><br>
-    <a href="/analyze-zones">Analyze Training Zones</a><br>
-    <a href="/plans">View Training Plans</a>
-  `);
-});
+
 
 // Test route to check if everything is working
 app.get('/api/test/status', (req, res) => {
@@ -9581,7 +9229,7 @@ app.post('/api/signup', async (req, res) => {
 
 
 // Add these helper functions first
-const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
+
 
 // Email transporter (you can use Gmail or any SMTP)
 // Replace this in your app.js:
@@ -12256,3 +11904,12 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
 });
 
 console.log('✅ Strava analytics and notification routes initialized');
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error'
+      : err.message
+  });
+});
