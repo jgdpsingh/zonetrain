@@ -285,9 +285,6 @@ app.use(session({
 }));
 
 
-
-
-
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // 100 requests per 15 minutes
@@ -3576,8 +3573,6 @@ app.get('/login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// Handle callback and exchange for tokens
-// REPLACE your existing app.get('/callback', ...) with this FIXED version:
 // REPLACE your existing app.get('/callback', ...) with this FIXED version:
 // REPLACE your existing /callback route with this enhanced version
 app.get('/callback', async (req, res) => {
