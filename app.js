@@ -1009,7 +1009,7 @@ app.get('/', apiLimiter, (req, res) => {
                         Your data helps us improve our AI coaching algorithms.
                     </div>
                     <div class="zt-cookie-links">
-                        <a href="/privacy-policy" class="zt-cookie-link">Privacy Policy</a>
+                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
                         <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
                     </div>
                 </div>
@@ -1300,7 +1300,7 @@ app.get('/', apiLimiter, (req, res) => {
                         Your data helps us improve our AI coaching algorithms.
                     </div>
                     <div class="zt-cookie-links">
-                        <a href="/privacy-policy" class="zt-cookie-link">Privacy Policy</a>
+                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
                         <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
                     </div>
                 </div>
@@ -2653,45 +2653,6 @@ app.get('/about', (req, res) => {
         color: white;
       }
 
-      .header {
-        background: rgba(0, 0, 0, 0.1);
-        padding: 15px 0;
-        backdrop-filter: blur(10px);
-      }
-
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #ffd700;
-        text-decoration: none;
-      }
-
-      .nav-links {
-        display: flex;
-        gap: 30px;
-        list-style: none;
-      }
-
-      .nav-links a {
-        color: white;
-        text-decoration: none;
-        font-weight: 500;
-        transition: color 0.3s ease;
-      }
-
-      .nav-links a:hover {
-        color: #ffd700;
-      }
-
       .container {
         max-width: 800px;
         margin: 0 auto;
@@ -2773,18 +2734,7 @@ app.get('/about', (req, res) => {
     </style>
   </head>
   <body>
-    <header class="header">
-      <nav class="nav">
-        <a href="/" class="logo">ZoneTrain</a>
-        <ul class="nav-links">
-          <li><a href="/">Home</a></li>
-          <li><a href="/about">About</a></li>
-          <li><a href="/contact">Contact</a></li>
-          <li><a href="/plans.html">Training Plans</a></li>
-        </ul>
-      </nav>
-    </header>
-
+   
     <div class="container">
       <h1>About ZoneTrain</h1>
 
@@ -4589,53 +4539,6 @@ app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
     }
 });
 
-
-// Dashboard data API route - ADD THIS
-app.get('/api/dashboard/data', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const user = await userManager.getUserById(userId);
-        
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-        
-        // Get latest zone analysis
-        const latestAnalysis = await userManager.getLatestZoneAnalysis(userId);
-        
-        // Check Strava connection
-        const stravaTokens = await userManager.getStravaTokens(userId);
-        const stravaConnected = !!stravaTokens;
-
-        res.json({
-            success: true,
-            data: {
-                user: {
-                    name: user.firstName || user.email.split('@')[0],
-                    email: user.email,
-                    subscriptionStatus: user.subscriptionStatus || 'free',
-                    currentPlan: user.currentPlan
-                },
-                strava: {
-                    connected: stravaConnected,
-                    connectionDate: user.stravaConnectedAt
-                },
-                latestAnalysis: latestAnalysis
-            }
-        });
-    } catch (error) {
-        console.error('Dashboard data error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to load dashboard data'
-        });
-    }
-});
-
-
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {
     try {
@@ -4735,188 +4638,6 @@ app.post('/api/analytics/track', async (req, res) => {
         console.error('❌ Analytics tracking error:', error);
         res.json({ success: false }); // Don't break user experience
     }
-});
-
-// Privacy Policy Route (If you don't have one)
-app.get('/privacy-policy', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <link rel="stylesheet" href="css/cookies.css">
-        <title>Privacy Policy - ZoneTrain</title>
-        <link rel="stylesheet" href="css/main.css">
-    </head>
-    <body style="padding: 40px; background: linear-gradient(135deg, #6B46C1, #8B5CF6); color: white;">
-        <div style="max-width: 800px; margin: 0 auto;">
-            <h1>ZoneTrain Privacy Policy</h1>
-            <p><strong>Last updated:</strong> ${new Date().toLocaleDateString()}</p>
-            
-            <h2>Information We Collect</h2>
-            <p>We collect information you provide directly, such as when you create an account, connect your Strava account, or use our training analysis features.</p>
-            
-            <h2>How We Use Your Information</h2>
-            <p>We use your information to provide personalized training analysis, improve our services, and communicate with you about your training progress.</p>
-            
-            <h2>Cookies and Tracking</h2>
-            <p>We use cookies to enhance your experience, analyze site usage, and provide personalized content. You can control cookie preferences through our cookie banner.</p>
-            
-            <h2>Data Sharing</h2>
-            <p>We do not sell your personal data. We may share data with service providers who help us operate our platform.</p>
-            
-            <h2>Contact Us</h2>
-            <p>If you have questions about this privacy policy, contact us at privacy@zonetrain.com</p>
-            
-            <p><a href="/" style="color: #A78BFA;">← Back to ZoneTrain</a></p>
-        </div>
-        ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-    </body>
-    </html>
-    `);
-});
-
-
-// Cookie Consent Logging (GDPR/DPDP Compliance)
-app.post('/api/cookie-consent', async (req, res) => {
-    try {
-        console.log('📝 Logging cookie consent for compliance');
-        
-        const consentData = {
-            ...req.body,
-            ip: req.ip,
-            userAgent: req.headers['user-agent'],
-            timestamp: new Date(),
-            source: 'zonetrain_banner',
-            app: 'zonetrain'
-        };
-        
-        // Log to Firebase for compliance audit trail
-        await db.collection('cookie_consents').add(consentData);
-        
-        console.log('✅ Cookie consent logged:', consentData.categories);
-        res.json({ 
-            success: true,
-            message: 'Consent preferences saved',
-            timestamp: consentData.timestamp
-        });
-    } catch (error) {
-        console.error('❌ Error logging cookie consent:', error);
-        res.status(500).json({ 
-            success: false,
-            error: 'Failed to save consent preferences' 
-        });
-    }
-});
-
-// Get User's Cookie Consent Status
-app.get('/api/cookie-consent/status', async (req, res) => {
-    try {
-        const userId = req.query.userId || req.user?.userId;
-        
-        if (userId) {
-            // Get latest consent for authenticated user
-            const consentQuery = await db.collection('cookie_consents')
-                .where('userId', '==', userId)
-                .orderBy('timestamp', 'desc')
-                .limit(1)
-                .get();
-            
-            if (!consentQuery.empty) {
-                const latestConsent = consentQuery.docs[0].data();
-                return res.json({
-                    hasConsent: true,
-                    consent: latestConsent,
-                    source: 'database'
-                });
-            }
-        }
-        
-        // Return default response for guests or users without consent
-        res.json({ 
-            hasConsent: false,
-            message: 'No consent record found',
-            defaultCategories: {
-                essential: true,
-                analytics: false,
-                marketing: false,
-                functional: false
-            }
-        });
-    } catch (error) {
-        console.error('❌ Error getting consent status:', error);
-        res.status(500).json({ 
-            error: 'Failed to get consent status' 
-        });
-    }
-});
-
-// Analytics Event Tracking (Only if consent given)
-app.post('/api/analytics/track', async (req, res) => {
-    try {
-        const { event, data, timestamp, source } = req.body;
-        
-        console.log('📊 Analytics event:', event, 'from', source);
-        
-        // Store analytics event in database
-        const analyticsEvent = {
-            event,
-            data,
-            timestamp: timestamp || new Date(),
-            source: source || 'unknown',
-            ip: req.ip,
-            userAgent: req.headers['user-agent'],
-            app: 'zonetrain'
-        };
-        
-        await db.collection('analytics_events').add(analyticsEvent);
-        
-        res.json({ success: true });
-    } catch (error) {
-        console.error('❌ Analytics tracking error:', error);
-        res.json({ success: false }); // Don't break user experience
-    }
-});
-
-// Privacy Policy Route (If you don't have one)
-app.get('/privacy-policy', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <link rel="stylesheet" href="css/cookies.css">
-        <title>Privacy Policy - ZoneTrain</title>
-        <link rel="stylesheet" href="css/main.css">
-    </head>
-    <body style="padding: 40px; background: linear-gradient(135deg, #6B46C1, #8B5CF6); color: white;">
-        <div style="max-width: 800px; margin: 0 auto;">
-            <h1>ZoneTrain Privacy Policy</h1>
-            <p><strong>Last updated:</strong> ${new Date().toLocaleDateString()}</p>
-            
-            <h2>Information We Collect</h2>
-            <p>We collect information you provide directly, such as when you create an account, connect your Strava account, or use our training analysis features.</p>
-            
-            <h2>How We Use Your Information</h2>
-            <p>We use your information to provide personalized training analysis, improve our services, and communicate with you about your training progress.</p>
-            
-            <h2>Cookies and Tracking</h2>
-            <p>We use cookies to enhance your experience, analyze site usage, and provide personalized content. You can control cookie preferences through our cookie banner.</p>
-            
-            <h2>Data Sharing</h2>
-            <p>We do not sell your personal data. We may share data with service providers who help us operate our platform.</p>
-            
-            <h2>Contact Us</h2>
-            <p>If you have questions about this privacy policy, contact us at privacy@zonetrain.com</p>
-            
-            <p><a href="/" style="color: #A78BFA;">← Back to ZoneTrain</a></p>
-        </div>
-        ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-    </body>
-    </html>
-    `);
 });
 
 // Cookie Policy Route
@@ -5080,57 +4801,38 @@ function calculateBMI(heightCm, weightKg) {
     return (weightKg / (heightM * heightM)).toFixed(1);
 }
 
+/**
+ * Calculate running pace (min:sec per km)
+ * @param {string} distance - Race distance ('5k', '10k', 'half_marathon', 'marathon')
+ * @param {string} time - Time in HH:MM:SS format
+ * @returns {string} Pace in MM:SS/km format
+ */
 function calculatePace(distance, time) {
-    // Convert time HH:MM:SS to total minutes
-    const timeParts = time.split(':');
-    const totalMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1]);
-    
-    // Distance in km
-    const distanceKm = {
-        '5k': 5,
-        '10k': 10,
-        'half_marathon': 21.1,
-        'marathon': 42.2
-    }[distance] || 10;
-    
-    const paceMinPerKm = totalMinutes / distanceKm;
-    const minutes = Math.floor(paceMinPerKm);
-    const seconds = Math.round((paceMinPerKm - minutes) * 60);
-    
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
-
-function calculateDaysToRace(raceDate) {
-    const race = new Date(raceDate);
-    const today = new Date();
-    const diffTime = race - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-}
-
-async function generateInitialTrainingPlan(aiProfile) {
     try {
-        const daysToRace = aiProfile.raceHistory.targetRace.daysToRace;
-        const weeklyMileage = aiProfile.raceHistory.currentWeeklyMileage;
-        const trainingDays = aiProfile.trainingStructure.preferredDays;
+        // Convert time HH:MM:SS to total minutes
+        const timeParts = time.split(':');
+        const totalMinutes = parseInt(timeParts[0]) * 60 + 
+                            parseInt(timeParts[1]) + 
+                            (parseInt(timeParts[2]) || 0) / 60;
         
-        console.log(`📅 Generating plan: ${daysToRace} days to race, ${weeklyMileage}km/week, ${trainingDays.length} days/week`);
+        // Distance in km
+        const distanceKm = {
+            '5k': 5,
+            '10k': 10,
+            'half_marathon': 21.1,
+            'marathon': 42.2
+        }[distance] || 10;
         
-        // Simple template plan for now
-        return {
-            planType: 'beginner_marathon',
-            totalWeeks: Math.min(16, Math.floor(daysToRace / 7)),
-            weeklySchedule: trainingDays.map((day, idx) => ({
-                day: day,
-                type: idx === trainingDays.length - 1 ? 'long_run' : (idx % 2 === 0 ? 'easy' : 'tempo'),
-                distance: idx === trainingDays.length - 1 ? weeklyMileage * 0.4 : weeklyMileage / trainingDays.length
-            })),
-            progressionStrategy: 'conservative',
-            peakWeek: Math.floor(daysToRace / 7) - 3
-        };
+        // Calculate pace per km
+        const paceMinPerKm = totalMinutes / distanceKm;
+        const minutes = Math.floor(paceMinPerKm);
+        const seconds = Math.round((paceMinPerKm - minutes) * 60);
+        
+        return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
+        
     } catch (error) {
-        console.error('⚠️ Plan generation error:', error);
-        return { planType: 'template', error: error.message };
+        console.error('Error calculating pace:', error);
+        return 'N/A';
     }
 }
 
@@ -5206,57 +4908,64 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             },
 
             location: {
-    usualTemp: onboardingData.usual_temp || null,
-    usualHumidity: onboardingData.usual_humidity || null,
-    elevation: onboardingData.elevation ? parseInt(onboardingData.elevation) : null,
-    raceClimate: onboardingData.race_climate || null
-},
-stravaConnected: onboardingData.strava_connected === 'true',
+                usualTemp: onboardingData.usual_temp || null,
+                usualHumidity: onboardingData.usual_humidity || null,
+                elevation: onboardingData.elevation ? parseInt(onboardingData.elevation) : null,
+                raceClimate: onboardingData.race_climate || null
+            },
+            stravaConnected: onboardingData.strava_connected === 'true',
 
             createdAt: new Date(),
             updatedAt: new Date()
         };
-          
-          
         
-        // Save to Firestore
         // Save AI profile
-await db.collection('aiprofiles').doc(userId).set(aiProfile);
-console.log('✅ AI profile saved');
+        await db.collection('aiprofiles').doc(userId).set(aiProfile);
+        console.log('✅ AI profile saved');
 
-// Try to update user record (non-critical)
-try {
-    await userManager.updateUser(userId, {
-        aiOnboardingCompleted: true,
-        aiProfileCreatedAt: new Date().toISOString()
-    });
-    console.log('✅ User record updated');
-} catch (userUpdateError) {
-    // User update failed but profile is saved, so continue
-    console.warn('⚠️ User update failed (non-critical):', userUpdateError.message);
-}
+        // Update user record (non-critical)
+        try {
+            await userManager.updateUser(userId, {
+                aiOnboardingCompleted: true,
+                aiProfileCreatedAt: new Date().toISOString()
+            });
+            console.log('✅ User record updated');
+        } catch (userUpdateError) {
+            console.warn('⚠️ User update failed (non-critical):', userUpdateError.message);
+        }
 
-
-        
-        // Generate initial training plan
+        // ========== GENERATE INITIAL TRAINING PLAN (NEW) ==========
         console.log('🎯 Generating initial AI training plan...');
-        const initialPlan = await generateInitialTrainingPlan(aiProfile);
+        let trainingPlan;
+        
+        try {
+            trainingPlan = await generateInitialTrainingPlan(aiProfile);
+        } catch (planError) {
+            console.error('⚠️ Plan generation failed, using fallback');
+            trainingPlan = {
+                type: 'fallback_error',
+                error: planError.message,
+                generatedAt: new Date().toISOString()
+            };
+        }
         
         // Save training plan
-        await db.collection('trainingplans').add({
+        const planDoc = await db.collection('trainingplans').add({
             userId: userId,
-            planType: 'ai_generated',
-            planData: initialPlan,
+            planType: 'race_coach',
+            planData: trainingPlan,
+            isActive: true,
             createdAt: new Date(),
-            isActive: true
+            version: 'v1'
         });
         
-        console.log('✅ AI onboarding completed successfully for user:', userId);
-        
+        console.log('✅ Training plan saved:', planDoc.id);
+
         // Track onboarding completion
         await db.collection('analytics_events').add({
             event: 'ai_onboarding_completed',
             userId: userId,
+            plan: 'race_coach',
             data: {
                 targetDistance: onboardingData.target_distance,
                 daysToRace: calculateDaysToRace(onboardingData.target_date),
@@ -5267,21 +4976,27 @@ try {
             source: 'ai_onboarding_system'
         });
         
+        console.log('✅ AI onboarding completed successfully for user:', userId);
+        
         res.json({
             success: true,
             message: 'AI coaching profile created successfully',
             userId: userId,
-            nextStep: 'training_plan_generated'
+            trainingPlanId: planDoc.id,
+            nextStep: 'training_plan_generated',
+            planType: trainingPlan.type
         });
         
     } catch (error) {
         console.error('❌ AI onboarding error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to complete AI onboarding setup'
+            message: 'Failed to complete AI onboarding setup',
+            error: error.message
         });
     }
 });
+
 
 // Basic Coach AI Onboarding (for habit-building users)
 app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
@@ -5291,7 +5006,7 @@ app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
 
         console.log('🎯 Creating Basic Coach profile for:', userId);
 
-        // Create Basic Coach AI profile (no race goals, focus on habits & HRV)
+        // Create Basic Coach AI profile
         const basicProfile = {
             userId: userId,
             planType: 'basic',
@@ -5322,7 +5037,7 @@ app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
             // Goals (habit-focused, not race-focused)
             goals: {
                 primaryGoal: data.primary_goal,
-                focusArea: 'habit_building'  // vs race_training
+                focusArea: 'habit_building'
             },
 
             // HRV & Recovery (critical for Basic Coach)
@@ -5342,37 +5057,54 @@ app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
         await db.collection('aiprofiles').doc(userId).set(basicProfile);
         console.log('✅ Basic Coach profile saved');
 
-        // Generate habit-building training plan (adaptive, not race-specific)
+        // ========== GENERATE HABIT-BUILDING PLAN (NEW) ==========
+        console.log('🎯 Generating habit-building training plan...');
+        
         const habitPlan = {
             userId: userId,
             planType: 'habit_building',
-            duration: '12_weeks',  // Focus on building 12-week habit
+            duration: '12_weeks',
             
-            // Weekly structure based on target frequency
             weeklyStructure: {
                 daysPerWeek: parseInt(data.target_frequency),
-                workoutTypes: ['easy_run', 'progression_run', 'fun_run'],  // No race-pace workouts
-                averageDuration: 30,  // Start with 30 min runs
-                buildupRate: 'conservative'  // Slow, steady progression
+                workoutTypes: ['easy_run', 'progression_run', 'fun_run'],
+                averageDuration: 30,
+                buildupRate: 'conservative'
             },
 
-            // HRV-adaptive logic
             adaptiveLogic: {
-                hrvThreshold: 'auto',  // Calculate from baseline
-                autoRest: true,  // Rest when HRV is low
-                progressionBased: 'recovery'  // Progress based on recovery, not calendar
+                hrvThreshold: 'auto',
+                autoRest: true,
+                progressionBased: 'recovery'
             },
 
             createdAt: new Date(),
-            isActive: true
+            isActive: true,
+            version: 'v1'
         };
 
-        await db.collection('trainingplans').add(habitPlan);
-        console.log('✅ Habit-building plan created');
+        const habitPlanDoc = await db.collection('trainingplans').add(habitPlan);
+        console.log('✅ Habit-building plan created:', habitPlanDoc.id);
+
+        // Track event
+        await db.collection('analytics_events').add({
+            event: 'ai_onboarding_completed',
+            userId: userId,
+            plan: 'basic_coach',
+            data: {
+                targetFrequency: data.target_frequency,
+                primaryGoal: data.primary_goal,
+                experienceLevel: data.experience_level
+            },
+            timestamp: new Date(),
+            source: 'ai_onboarding_system'
+        });
 
         res.json({
             success: true,
             message: 'Basic Coach profile created successfully',
+            userId: userId,
+            trainingPlanId: habitPlanDoc.id,
             profile: basicProfile
         });
 
@@ -5380,10 +5112,12 @@ app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
         console.error('❌ Basic Coach onboarding error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to create Basic Coach profile'
+            message: 'Failed to create Basic Coach profile',
+            error: error.message
         });
     }
 });
+
 
 // ============================================
 // AI ONBOARDING ROUTES (Frontend Pages)
@@ -5426,37 +5160,8 @@ app.get('/ai-onboarding-active', authenticateToken, (req, res) => {
     }
 });
 
-
-
 // Helper functions for AI onboarding
-function calculateBMI(height, weight) {
-    // Height in cm, weight in kg
-    const heightInMeters = height / 100;
-    return (weight / (heightInMeters * heightInMeters)).toFixed(1);
-}
 
-function calculatePace(distance, time) {
-    // Distance like "5k", "10k", "half_marathon", "marathon"
-    // Time like "00:25:30"
-    const distances = {
-        '5k': 5,
-        '10k': 10,
-        'half_marathon': 21.1,
-        'marathon': 42.2
-    };
-    
-    const km = distances[distance] || 0;
-    if (km === 0) return null;
-    
-    const [hours, minutes, seconds] = time.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes + seconds / 60;
-    const paceMinutes = totalMinutes / km;
-    
-    const paceMin = Math.floor(paceMinutes);
-    const paceSec = Math.round((paceMinutes - paceMin) * 60);
-    
-    return `${paceMin}:${paceSec.toString().padStart(2, '0')}/km`;
-}
 
 function calculateDaysToRace(raceDate) {
     const today = new Date();
@@ -5466,54 +5171,33 @@ function calculateDaysToRace(raceDate) {
     return diffDays > 0 ? diffDays : 0;
 }
 
-async function generateInitialTrainingPlan(profile) {
-    // Simple template plan for now
-    const daysToRace = profile.raceHistory.targetRace.daysToRace;
-    const weeklyMileage = profile.raceHistory.currentWeeklyMileage;
-    const trainingDays = profile.trainingStructure.daysPerWeek;
-    
-    return {
-        type: 'template_based',
-        weeks: Math.min(Math.floor(daysToRace / 7), 16),
-        weeklyStructure: {
-            baseWeeklyMileage: weeklyMileage,
-            progressionRate: 0.10,
-            workoutDays: trainingDays,
-            intensityDistribution: profile.trainingStructure.intensityPreference
-        },
-        targetRace: {
-            distance: profile.raceHistory.targetRace.distance,
-            date: profile.raceHistory.targetRace.raceDate,
-            targetTime: profile.raceHistory.targetRace.targetTime
-        },
-        generatedAt: new Date(),
-        source: 'ai_template'
-    };
-}
+// ==================== TRAINING PLAN GENERATION ====================
 
-
-// Generate initial training plan using AI
+/**
+ * Main function to generate initial training plan with AI + fallback
+ * PRODUCTION READY
+ */
 async function generateInitialTrainingPlan(profile) {
     try {
-        console.log('🤖 Generating AI training plan...');
+        console.log('🤖 Generating AI training plan for:', profile.personalProfile.email);
         
         const prompt = `Create a personalized training plan for:
         
-        Profile:
-        - Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
-        - Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
-        - Target race: ${profile.raceHistory.targetRace.distance} in ${profile.raceHistory.targetRace.daysToRace} days
-        - Preferred intensity: ${profile.trainingStructure.intensityPreference}
-        - Training days: ${profile.trainingStructure.preferredDays.join(', ')}
-        - Injuries: ${profile.personalProfile.injuries.join(', ') || 'None'}
-        
-        Generate a 4-week training block with:
-        1. Weekly structure
-        2. Daily workouts
-        3. Progression plan
-        4. Recovery recommendations
-        
-        Format as JSON.`;
+Profile:
+- Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
+- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
+- Target race: ${profile.raceHistory.targetRace.distance} in ${profile.raceHistory.targetRace.daysToRace} days
+- Preferred intensity: ${profile.trainingStructure.intensityPreference}
+- Training days: ${profile.trainingStructure.preferredDays?.join(', ') || 'Not specified'}
+- Injuries: ${profile.personalProfile.injuries?.join(', ') || 'None'}
+
+Generate a 4-week training block with:
+1. Weekly structure with specific daily workouts
+2. Progression plan
+3. Recovery recommendations
+4. Intensity distribution
+
+Format as JSON with: { weeks: [], totalDistance: number, intensityBreakdown: {}, notes: string }`;
         
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -5526,47 +5210,137 @@ async function generateInitialTrainingPlan(profile) {
         let trainingPlan;
         try {
             trainingPlan = JSON.parse(planText);
+            trainingPlan.type = 'ai_generated';
         } catch (e) {
+            console.warn('⚠️ Could not parse AI response as JSON, storing as text');
             trainingPlan = {
-                type: 'text',
+                type: 'ai_text',
                 content: planText,
                 generatedAt: new Date()
             };
         }
         
         console.log('✅ AI training plan generated successfully');
-        return trainingPlan;
+        return {
+            ...trainingPlan,
+            source: 'ai_gemini',
+            generatedAt: new Date().toISOString(),
+            version: 'v1'
+        };
         
     } catch (error) {
-        console.error('❌ Training plan generation failed:', error);
+        console.error('❌ AI plan generation failed:', error.message);
         
-        // Return basic fallback plan
+        // Graceful fallback to template-based plan
+        console.log('📋 Falling back to template-based plan...');
         return {
-            type: 'fallback',
-            message: 'AI plan generation failed, using template',
-            basicPlan: generateFallbackPlan(profile),
-            generatedAt: new Date()
+            type: 'template_fallback',
+            source: 'fallback_template',
+            plan: generateFallbackPlan(profile),
+            fallbackReason: error.message,
+            generatedAt: new Date().toISOString(),
+            version: 'v1'
         };
     }
 }
 
+/**
+ * Fallback plan generator - runs when AI fails or is unavailable
+ * Provides a solid template-based plan based on user preferences
+ * PRODUCTION READY
+ */
 function generateFallbackPlan(profile) {
-    // Basic template plan based on user preferences
-    const daysPerWeek = profile.trainingStructure.daysPerWeek;
-    const currentMileage = profile.raceHistory.currentWeeklyMileage;
-    
-    return {
-        weeklyStructure: {
-            totalDays: daysPerWeek,
-            weeklyMileage: currentMileage,
-            easyRuns: Math.max(1, daysPerWeek - 2),
-            hardWorkouts: Math.min(2, daysPerWeek - 1),
-            longRun: daysPerWeek >= 4 ? 1 : 0
-        },
-        progression: '10% weekly increase',
-        recoveryDays: 7 - daysPerWeek
-    };
+    try {
+        const daysPerWeek = profile.trainingStructure.daysPerWeek || 4;
+        const currentMileage = profile.raceHistory.currentWeeklyMileage || 20;
+        const daysToRace = profile.raceHistory.targetRace.daysToRace || 84;
+        const preferredDays = profile.trainingStructure.preferredDays || ['Monday', 'Tuesday', 'Thursday', 'Saturday'];
+        
+        const weeks = Math.min(Math.floor(daysToRace / 7), 16);
+        const progressionRate = 0.10; // 10% weekly increase
+        
+        return {
+            planType: 'template_based',
+            totalWeeks: weeks,
+            progressionRate: `${progressionRate * 100}% weekly increase`,
+            
+            weeklyStructure: {
+                totalDays: daysPerWeek,
+                baseWeeklyMileage: currentMileage,
+                easyRuns: Math.max(1, daysPerWeek - 2),
+                hardWorkouts: Math.min(2, daysPerWeek - 1),
+                longRun: daysPerWeek >= 4 ? 1 : 0,
+                recoveryDays: 7 - daysPerWeek
+            },
+            
+            workoutDistribution: preferredDays.map((day, idx) => {
+                const isLongRunDay = idx === preferredDays.length - 1;
+                const isTempo = idx % 2 === 0 && idx !== preferredDays.length - 1;
+                
+                return {
+                    day: day,
+                    type: isLongRunDay ? 'long_run' : (isTempo ? 'tempo' : 'easy'),
+                    distancePercentage: isLongRunDay 
+                        ? 0.40 
+                        : (1 - 0.40) / Math.max(1, daysPerWeek - 1),
+                    intensity: isLongRunDay ? 'easy' : (isTempo ? 'moderate' : 'easy'),
+                    notes: isLongRunDay 
+                        ? 'Build aerobic base' 
+                        : (isTempo ? 'Improve lactate threshold' : 'Easy recovery run')
+                };
+            }),
+            
+            raceTarget: {
+                distance: profile.raceHistory.targetRace.distance,
+                targetDate: profile.raceHistory.targetRace.raceDate,
+                targetTime: profile.raceHistory.targetRace.targetTime || 'N/A'
+            },
+            
+            progressionPlan: {
+                weeks_1_4: 'Build base fitness - moderate increase',
+                weeks_5_8: 'Increase intensity - tempo work',
+                weeks_9_12: 'Peak training - high volume + intensity',
+                weeks_13_16: 'Taper - reduce volume, maintain intensity'
+            },
+            
+            recoveryRecommendations: [
+                'Complete rest on non-running days',
+                `Sleep ${8 + (daysPerWeek > 4 ? 1 : 0)} hours per night`,
+                'Nutrition: 1.2-1.6g protein per kg body weight',
+                'Hydration: 2-3L water daily minimum',
+                'Foam rolling or massage: 2-3x per week'
+            ],
+            
+            notes: 'Template-based personalized plan. Adjust based on how you feel. Prioritize sleep and nutrition.',
+            disclaimer: 'This is a general template. Monitor for overtraining and adjust intensity as needed.'
+        };
+    } catch (error) {
+        console.error('⚠️ Error in fallback plan generation:', error);
+        
+        // Ultra-safe fallback
+        return {
+            planType: 'emergency_template',
+            weeks: 12,
+            recommendation: 'Contact support - plan generation encountered an error',
+            basicGuidance: 'Run 3-4x per week, include 1 long run, mix easy and moderate paces',
+            error: error.message
+        };
+    }
 }
+
+/**
+ * Helper: Get training intensity preference as string
+ */
+function getIntensityLabel(profile) {
+    const pref = profile.trainingStructure.intensityPreference || 'moderate';
+    const labels = {
+        'low': 'Easy (Base building)',
+        'moderate': 'Balanced (Speed + Endurance)',
+        'high': 'Aggressive (Race prep)'
+    };
+    return labels[pref] || labels['moderate'];
+}
+
 
 console.log('🤖 AI Onboarding System Routes Added');
 
@@ -5738,89 +5512,6 @@ async function getWeekWorkouts(userId, week) {
 // AI ENDPOINTS WITH COST OPTIMIZATION
 // ============================================
 
-// Get daily workout plan
-app.post('/api/ai/daily-workout', async (req, res) => {
-    try {
-        const { weatherData, preferences } = req.body;
-        
-        // Mock user data for testing (replace with real user data later)
-        const userData = {
-            age: 30,
-            gender: 'male',
-            height: 175,
-            weight: 70,
-            pb_time: '00:24:30',
-            pb_distance: '5k',
-            weekly_mileage: 30,
-            resting_hr: 60,
-            injury_history: 'None'
-        };
-        
-        console.log('🤖 Generating daily workout...');
-        const workout = await aiService.generateDailyWorkout('test-user', userData, weatherData);
-        
-        res.json({
-            success: true,
-            workout,
-            cached: workout.generated === 'template',
-            timestamp: new Date().toISOString()
-        });
-        
-    } catch (error) {
-        console.error('❌ Daily workout generation error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to generate workout',
-            fallback: {
-                type: 'easy',
-                duration: '45min',
-                pace: 'conversational',
-                notes: 'Take it easy today',
-                fallback: true
-            }
-        });
-    }
-});
-
-// Submit workout feedback
-app.post('/api/ai/workout-feedback', async (req, res) => {
-    try {
-        const { workoutId, feedback } = req.body;
-        
-        console.log('🤖 Processing workout feedback...');
-        const analysis = {
-            message: 'Great job on your workout!',
-            recommendations: ['Keep up the good work', 'Focus on recovery tomorrow'],
-            next_focus: 'Maintain consistency'
-        };
-        
-        res.json({
-            success: true,
-            analysis,
-            recommendations: analysis.recommendations
-        });
-        
-    } catch (error) {
-        console.error('❌ Workout feedback error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to process feedback'
-        });
-    }
-});
-
-// Test endpoint to check if AI system is working
-app.get('/api/ai/test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'AI system is online',
-        timestamp: new Date().toISOString(),
-        services: {
-            aiService: 'loaded',
-            dataProcessor: 'loaded'
-        }
-    });
-});
 
 
 app.get('/dashboard', authenticateToken, async (req, res) => {
@@ -9862,131 +9553,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// Privacy Policy page
-app.get('/privacy', (req, res) => {
-  const privacyHTML = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - ZoneTrain</title>
-    <style>
-      body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-      h1 { color: #6B46C1; }
-      h2 { color: #333; margin-top: 30px; }
-      .back-link { display: inline-block; margin-bottom: 20px; color: #6B46C1; text-decoration: none; }
-    </style>
-  </head>
-  <body>
-    <a href="/" class="back-link">← Back to ZoneTrain</a>
-    <h1>Privacy Policy</h1>
-    <p><strong>Last updated:</strong> ${new Date().toDateString()}</p>
-    
-    <h2>Information We Collect</h2>
-    <p>When you use ZoneTrain, we collect:</p>
-    <ul>
-      <li><strong>Account Information:</strong> Name, email address when you sign up</li>
-      <li><strong>Fitness Data:</strong> Running activities from Strava (with your permission)</li>
-      <li><strong>Usage Data:</strong> How you interact with our app</li>
-    </ul>
-
-    <h2>How We Use Your Information</h2>
-    <ul>
-      <li>Provide personalized running coaching</li>
-      <li>Analyze your training zones</li>
-      <li>Send coaching updates via WhatsApp (with consent)</li>
-      <li>Improve our services</li>
-    </ul>
-
-    <h2>Data Sharing</h2>
-    <p>We do not sell your personal information. We may share data with:</p>
-    <ul>
-      <li><strong>Service Providers:</strong> Google (authentication), Strava (activity data)</li>
-      <li><strong>Legal Requirements:</strong> When required by law</li>
-    </ul>
-
-    <h2>Your Rights</h2>
-    <p>You can:</p>
-    <ul>
-      <li>Access your data</li>
-      <li>Delete your account</li>
-      <li>Opt out of communications</li>
-    </ul>
-
-    <h2>Contact Us</h2>
-    <p>Questions? Email us at <a href="mailto:zonetrain@zohomail.in">zonetrain@zohomail.in</a></p>
-  <script src="/components/nav-header.js"></script>
-    </body>
-  </html>
-  `;
-  res.send(privacyHTML);
-});
-
-// Terms of Service page
-app.get('/terms', (req, res) => {
-  const termsHTML = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terms of Service - ZoneTrain</title>
-    <style>
-      body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-      h1 { color: #6B46C1; }
-      h2 { color: #333; margin-top: 30px; }
-      .back-link { display: inline-block; margin-bottom: 20px; color: #6B46C1; text-decoration: none; }
-    </style>
-  </head>
-  <body>
-    <a href="/" class="back-link">← Back to ZoneTrain</a>
-    <h1>Terms of Service</h1>
-    <p><strong>Last updated:</strong> ${new Date().toDateString()}</p>
-    
-    <h2>Service Description</h2>
-    <p>ZoneTrain provides AI-powered running coaching and personalized training plans.</p>
-
-    <h2>User Accounts</h2>
-    <ul>
-      <li>You must provide accurate information when creating an account</li>
-      <li>You are responsible for maintaining the security of your account</li>
-      <li>One account per person</li>
-    </ul>
-
-    <h2>Subscription & Payments</h2>
-    <ul>
-      <li>Free tier includes basic Strava analysis</li>
-      <li>Premium plans require monthly payment</li>
-      <li>14-day free trial available</li>
-      <li>Refunds available within 30 days</li>
-    </ul>
-
-    <h2>Prohibited Uses</h2>
-    <p>You may not:</p>
-    <ul>
-      <li>Share your account with others</li>
-      <li>Use the service for illegal purposes</li>
-      <li>Attempt to reverse engineer our algorithms</li>
-    </ul>
-
-    <h2>Limitation of Liability</h2>
-    <p>ZoneTrain is for informational purposes. Consult healthcare professionals before starting training programs.</p>
-
-    <h2>Termination</h2>
-    <p>We may terminate accounts that violate these terms. You can delete your account anytime.</p>
-
-    <h2>Contact</h2>
-    <p>Questions? Email <a href="mailto:zonetrain@zohomail.in">zonetrain@zohomail.in</a></p>
-  <script src="/components/nav-header.js"></script>
-    </body>
-  </html>
-  `;
-  res.send(termsHTML);
-});
-
 // ADD THESE PASSPORT SERIALIZATION FUNCTIONS - MISSING FROM YOUR CODE!
 passport.serializeUser((user, done) => {
     console.log('🔧 Serializing user:', user.id);
@@ -10009,84 +9575,6 @@ passport.deserializeUser(async (id, done) => {
         done(error, null);
     }
 });
-
-
-// Google OAuth Strategy - FIXED VERSION
-passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: `${process.env.BASE_URL || 'http://localhost:3000'}/auth/google/callback`,
-  userProfileURL: 'https://www.googleapis.com/oauth2/v3/userinfo'
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    console.log('🔵 Google OAuth callback received');
-    console.log('Profile ID:', profile.id);
-    
-    if (!profile.emails || !profile.emails[0]) {
-      console.error('❌ No email provided by Google');
-      return done(new Error('EMAIL_NOT_PROVIDED'), null);
-    }
-    
-    const email = profile.emails[0].value;
-    console.log('📧 Email:', email);
-    
-    let user = await userManager.getUserByEmail(email);
-    
-    if (user) {
-      console.log('👤 Existing user found:', user.id);
-      
-      await userManager.updateUser(user.id, {
-        googleId: profile.id,
-        firstName: profile.name?.givenName || user.firstName,
-        lastName: profile.name?.familyName || user.lastName,
-        avatar: profile.photos?.[0]?.value || user.avatar,
-        lastLogin: new Date(),
-        loginCount: (user.loginCount || 0) + 1,
-        emailVerified: true,
-        authProvider: 'google'
-      });
-      
-      user = await userManager.getUserById(user.id);
-      await userManager.trackActivity(user.id, 'google_login', { provider: 'google' });
-      
-      console.log('✅ Existing user logged in via Google');
-      return done(null, user);
-      
-    } else {
-      console.log('📝 Creating new user with Google data');
-      
-      const newUser = await userManager.createOAuthUser({
-        googleId: profile.id,
-        email: email,
-        firstName: profile.name?.givenName || 'User',
-        lastName: profile.name?.familyName || '',
-        avatar: profile.photos?.[0]?.value || null,
-        provider: 'google'
-      });
-      
-      console.log('✅ New user created via Google:', newUser.id);
-      await userManager.trackActivity(newUser.id, 'google_signup', { provider: 'google' });
-      
-      return done(null, newUser);
-    }
-    
-  } catch (error) {
-    console.error('❌ Google OAuth error:', error);
-    return done(error, null);
-  }
-}));
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await userManager.getUserById(id);
-    done(null, user);
-  } catch (error) {
-    done(error, null);
-  }
-});
-
-// Google OAuth routes
-
 
 // Google OAuth Strategy - Improved with error handling
 passport.use(new GoogleStrategy({
@@ -10166,22 +9654,6 @@ passport.use(new GoogleStrategy({
     return done(error, null);
   }
 }));
-
-// Serialize user for session
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-// Deserialize user from session
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await userManager.getUserById(id);
-    done(null, user);
-  } catch (error) {
-    console.error('❌ Deserialize user error:', error);
-    done(error, null);
-  }
-});
 
 // ==================== GOOGLE OAUTH ROUTES ====================
 
@@ -11126,53 +10598,6 @@ async function checkUserFeature(user, feature) {
 
 
 // Add this route to your app.js - it's missing!
-// Dashboard data endpoint - FIXED VERSION
-app.get('/api/dashboard-data', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const user = await userManager.getUserById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    // Get latest zone analysis
-    const latestAnalysis = await userManager.getLatestZoneAnalysis(userId);
-    
-    // Check Strava connection
-    const stravaTokens = await userManager.getStravaTokens(userId);
-    const stravaConnected = !!stravaTokens;
-
-    console.log('Dashboard API Response:', {
-      userId: userId,
-      subscriptionStatus: user.subscriptionStatus,
-      currentPlan: user.currentPlan,
-      stravaConnected: stravaConnected
-    });
-
-    res.json({
-      success: true,
-      data: {
-        user: {
-          name: user.firstName || user.email.split('@')[0],
-          email: user.email,
-          subscriptionStatus: user.subscriptionStatus || 'free',
-          currentPlan: user.currentPlan || null,
-          trialEndDate: user.trialEndDate || null,
-          planStartDate: user.planStartDate || null
-        },
-        strava: {
-          connected: stravaConnected,
-          connectionDate: user.stravaConnectedAt || null
-        },
-        latestAnalysis: latestAnalysis
-      }
-    });
-  } catch (error) {
-    console.error('Dashboard data error:', error);
-    res.status(500).json({ success: false, message: 'Failed to load dashboard data' });
-  }
-});
 
 
 // Add this DEBUG route to your app.js - TEMPORARY for debugging
@@ -11533,7 +10958,7 @@ function getCookieBannerHTML() {
                     We use cookies to enhance your ZoneTrain experience, analyze performance, and provide personalized training insights.
                 </div>
                 <div class="zt-cookie-links">
-                    <a href="/privacy-policy" class="zt-cookie-link">Privacy Policy</a>
+                    <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
                     <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
                 </div>
             </div>
