@@ -254,22 +254,6 @@ app.use('/components', express.static(path.join(__dirname, 'public/components'))
 const compression = require('compression');
 app.use(compression());
 
-app.use('/js', express.static(path.join(__dirname, 'public/js'), {
-    setHeaders: (res, path) => {
-        if (path.endsWith('.js')) {
-            res.setHeader('Content-Type', 'application/javascript');
-        }
-    }
-}));
-
-app.use('/css', express.static(path.join(__dirname, 'public/css'), {
-    setHeaders: (res, path) => {
-        if (path.endsWith('.css')) {
-            res.setHeader('Content-Type', 'text/css');
-        }
-    }
-}));
-
 // Session configuration - PRODUCTION READY with Firebase Firestore
 // Session configuration - using built-in memory store
 app.use(session({
@@ -8290,57 +8274,6 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 
-
-// HRV coaching endpoint (Premium feature)
-app.post('/api/coaching/hrv', 
-    authenticateToken, 
-    requirePlan(['basic', 'race']), // ✅ NEW - HRV coaching requires paid plan
-    async (req, res) => {
-        try {
-            const { hrvData, additionalData } = req.body;
-            const userId = req.user.userId;
-            
-            console.log('🏃 HRV coaching request from:', userId);
-            console.log('📊 HRV data:', hrvData);
-            
-            // Generate HRV-based coaching
-            const coaching = {
-                recommendation: "Sample coaching based on HRV",
-                intensity: "moderate",
-                duration: "45 minutes",
-                hrvValue: hrvData?.value || 50
-            };
-            
-            // Optional: Log usage to Firestore
-            try {
-                await db.collection('feature_usage').add({
-                    userId: userId,
-                    feature: 'hrv-coaching',
-                    timestamp: new Date(),
-                    data: {
-                        hrvValue: hrvData?.value,
-                        coachingType: coaching.intensity
-                    }
-                });
-            } catch (logError) {
-                console.warn('Failed to log usage:', logError.message);
-            }
-
-            res.json({
-                success: true,
-                coaching: coaching
-            });
-        } catch (error) {
-            console.error('❌ HRV coaching error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Coaching generation failed'
-            });
-        }
-    }
-);
-
-
 // User access status endpoint - FIXED
 app.get('/api/user/access-status', authenticateToken, async (req, res) => {
     try {
@@ -10246,42 +10179,95 @@ app.get('/api/strava/analyze',
     }
 );
 
-// HRV coaching endpoint
+// ==================== HRV COACHING API ====================
 app.post('/api/coaching/hrv', 
     authenticateToken, 
     requirePlan(['basic', 'race']), 
     async (req, res) => {
         try {
             const { hrvData, additionalData } = req.body;
-            const coaching = await generateHRVCoaching(req.user.userId, hrvData, additionalData);
+            const userId = req.user.userId;
             
+            console.log('🏃 HRV coaching request from:', userId);
+            console.log('📊 HRV data:', hrvData);
+            
+            // Generate HRV-based coaching via dedicated function
+            const coaching = await generateHRVCoaching(userId, hrvData, additionalData);
+            
+            // Log feature usage for analytics
             try {
                 await db.collection('feature_usage').add({
                     userId: userId,
                     feature: 'hrv-coaching',
                     timestamp: new Date(),
-                    data: {
-                        hrvValue: hrvData?.value,
-                        coachingType: coaching.intensity
-                    }
+                    hrvValue: hrvData?.value,
+                    coachingIntensity: coaching.intensity
                 });
             } catch (logError) {
-                console.warn('Failed to log usage:', logError.message);
+                console.warn('⚠️ Failed to log HRV usage:', logError.message);
             }
 
+            console.log('✅ HRV coaching generated:', coaching.intensity);
             res.json({
                 success: true,
                 coaching: coaching
             });
+            
         } catch (error) {
-            console.error('HRV coaching error:', error);
+            console.error('❌ HRV coaching error:', error);
             res.status(500).json({
                 success: false,
-                message: 'Coaching generation failed'
+                message: 'Coaching generation failed',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
 );
+
+// Helper function for HRV coaching generation
+async function generateHRVCoaching(userId, hrvData, additionalData) {
+    try {
+        const hrvValue = hrvData?.value || 50;
+        const trend = hrvData?.trend || 'stable';
+        
+        // Determine coaching based on HRV
+        let intensity, duration, recommendation;
+        
+        if (hrvValue > 70) {
+            intensity = 'high';
+            duration = '60 minutes';
+            recommendation = 'Your HRV is excellent! You can handle intense training today. Consider intervals or tempo runs.';
+        } else if (hrvValue >= 50) {
+            intensity = 'moderate';
+            duration = '45 minutes';
+            recommendation = 'Your HRV is good. Moderate training recommended. Easy pace or steady-state runs.';
+        } else {
+            intensity = 'low';
+            duration = '30 minutes';
+            recommendation = 'Your HRV is low. Focus on recovery today. Easy runs, stretching, or rest.';
+        }
+        
+        return {
+            recommendation,
+            intensity,
+            duration,
+            hrvValue,
+            trend,
+            generatedAt: new Date().toISOString()
+        };
+        
+    } catch (error) {
+        console.error('⚠️ HRV coaching generation error:', error);
+        // Return safe default
+        return {
+            recommendation: 'Moderate training recommended.',
+            intensity: 'moderate',
+            duration: '45 minutes',
+            hrvValue: 50,
+            fallback: true
+        };
+    }
+}
 
 // WhatsApp coaching with usage tracking
 app.post('/api/coaching/whatsapp', 
