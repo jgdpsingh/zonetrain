@@ -3507,7 +3507,6 @@ app.get('/login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// REPLACE your existing app.get('/callback', ...) with this FIXED version:
 // REPLACE your existing /callback route with this enhanced version
 app.get('/callback', async (req, res) => {
     console.log('🎯 STRAVA CALLBACK START');
@@ -3933,9 +3932,6 @@ app.get('/activities', async (req, res) => {
 });
 
 
-// NEW: Analyze training zones and update Strava
-// Updated analyze-zones route with beautiful styling
-// REPLACE your existing app.get('/analyze-zones', ...) with this:
 // Make sure your analyze-zones route looks like this:
 app.get('/analyze-zones', authenticateToken, async (req, res) => {
     try {
@@ -4014,10 +4010,6 @@ app.get('/analyze-zones', authenticateToken, async (req, res) => {
     }
 });
 
-// Add these NEW routes to your app.js
-
-// Dashboard data endpoint - ADD THIS NEW ROUTE
-// Make sure this route calls the right method
 // Make sure this route calls the right method
 app.get('/api/dashboard/data', authenticateToken, async (req, res) => {
     try {
@@ -4906,6 +4898,25 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         // Save AI profile
         await db.collection('aiprofiles').doc(userId).set(aiProfile);
         console.log('✅ AI profile saved');
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.data().notificationPreferences) {
+            const defaultPreferences = {
+                email: true,
+                workout: true,
+                payment: true,
+                recovery: true,
+                upgrade: true,
+                race: true
+            };
+            
+            await db.collection('users').doc(userId).update({
+                notificationPreferences: defaultPreferences
+            });
+            
+            console.log(`✅ Notification preferences initialized during onboarding`);
+        }
 
         // Update user record (non-critical)
         try {
@@ -6900,234 +6911,6 @@ app.post('/api/subscription/validate-promo', async (req, res) => {
     }
 });
 
-// ==================== UPGRADE FLOW ====================
-
-// Calculate upgrade cost (pro-rata with promo support)
-app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;
-
-        console.log('📊 Calculate upgrade request:', { userId, newPlan, billingCycle, promoCode });
-
-        const userDoc = await db.collection('users').doc(userId).get();
-        const user = { id: userDoc.id, ...userDoc.data() };
-
-        const calculation = subscriptionService.calculateProRataUpgrade(
-            user, 
-            newPlan, 
-            billingCycle,
-            promoCode || null
-        );
-
-        console.log('✅ Calculation result:', calculation);
-
-        res.json({
-            success: true,
-            calculation
-        });
-    } catch (error) {
-        console.error('❌ Calculate upgrade error:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: error.message 
-        });
-    }
-});
-
-// Process upgrade (create order)
-app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { newPlan, billingCycle, promoCode } = req.body;
-
-        console.log('💰 Processing upgrade:', { userId, newPlan, billingCycle, promoCode });
-
-        const userDoc = await db.collection('users').doc(userId).get();
-        const user = { id: userDoc.id, ...userDoc.data() };
-
-        // Calculate final amount with promo
-        const calculation = subscriptionService.calculateProRataUpgrade(
-            user, 
-            newPlan, 
-            billingCycle,
-            promoCode || null
-        );
-
-        console.log('Calculated amount to pay:', calculation.amountToPay);
-
-        // Create Razorpay order
-        const order = await razorpayService.createOrder({
-            amount: calculation.amountToPay,
-            currency: 'INR',
-            receipt: `upgrade_${userId}_${Date.now()}`,
-            notes: {
-                userId,
-                type: 'upgrade',
-                fromPlan: user.currentPlan || 'free',
-                toPlan: newPlan,
-                billingCycle,
-                promoCode: promoCode || 'none',
-                originalAmount: calculation.originalAmount || calculation.proRataCharge,
-                discountAmount: calculation.promoApplied?.discountAmount || 0,
-                discountPercent: calculation.promoApplied?.discount || 0
-            }
-        });
-
-        console.log('✅ Order created:', order.id);
-
-        res.json({
-            success: true,
-            paymentOrder: {
-                orderId: order.id,
-                amount: order.amount,
-                currency: order.currency,
-                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
-                plan: newPlan,
-                billingCycle: billingCycle,
-                email: user.email
-            }
-        });
-    } catch (error) {
-        console.error('❌ Upgrade error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-// Verify upgrade payment
-app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { paymentId, orderId, signature } = req.body;
-
-        console.log('🔍 Verifying upgrade payment:', { userId, paymentId, orderId });
-
-        // Verify signature
-        const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
-
-        if (!isValid) {
-            console.error('❌ Invalid signature');
-            return res.status(400).json({ success: false, message: 'Invalid payment signature' });
-        }
-
-        // Get order details
-        const order = await razorpayService.getOrder(orderId);
-        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;
-
-        console.log('Order details:', order.notes);
-
-        // Calculate new subscription end date
-        const subscriptionEndDate = new Date();
-        const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
-        subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + months);
-
-        // Update user subscription
-        await db.collection('users').doc(userId).update({
-            currentPlan: toPlan,
-            billingCycle: billingCycle,
-            subscriptionStatus: 'active',
-            subscriptionStartDate: new Date(),
-            subscriptionEndDate: subscriptionEndDate,
-            lastPaymentDate: new Date(),
-            lastPaymentAmount: order.amount / 100,
-            renewalReminderSent: false,
-            lastPromoCodeUsed: promoCode !== 'none' ? promoCode : null,
-            lastPromoDiscount: parseInt(discountAmount) || 0,
-            totalSavingsFromPromos: admin.firestore.FieldValue.increment(parseInt(discountAmount) || 0),
-            updatedAt: new Date()
-        });
-
-        // Log transaction
-        await db.collection('transactions').add({
-            userId,
-            type: 'upgrade',
-            fromPlan: order.notes.fromPlan,
-            toPlan: toPlan,
-            amount: order.amount / 100,
-            originalAmount: parseInt(originalAmount) || (order.amount / 100),
-            discountAmount: parseInt(discountAmount) || 0,
-            promoCode: promoCode !== 'none' ? promoCode : null,
-            currency: 'INR',
-            paymentId,
-            orderId,
-            status: 'success',
-            billingCycle,
-            createdAt: new Date()
-        });
-
-        console.log('✅ Upgrade verified and applied');
-
-        res.json({ 
-            success: true, 
-            message: 'Upgrade successful! Your new plan is now active.',
-            newPlan: toPlan,
-            validUntil: subscriptionEndDate
-        });
-    } catch (error) {
-        console.error('❌ Verify upgrade error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-// ==================== DOWNGRADE FLOW ====================
-
-// Downgrade (effective next billing cycle with credit)
-app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { newPlan } = req.body;
-
-        console.log('📉 Processing downgrade:', { userId, newPlan });
-
-        const userDoc = await db.collection('users').doc(userId).get();
-        const user = { id: userDoc.id, ...userDoc.data() };
-
-        const calculation = subscriptionService.calculateDowngradeWithCredit(user, newPlan);
-
-        console.log('Downgrade calculation:', calculation);
-
-        // Update user subscription
-        await db.collection('users').doc(userId).update({
-            currentPlan: newPlan,
-            subscriptionEndDate: calculation.extendedEndDate,
-            previousPlan: user.currentPlan,
-            downgradeDate: new Date(),
-            creditedDays: calculation.extraDaysGranted,
-            lastModified: new Date()
-        });
-
-        // Log transaction
-        await db.collection('transactions').add({
-            userId,
-            type: 'downgrade',
-            fromPlan: calculation.currentPlan,
-            toPlan: newPlan,
-            creditAmount: calculation.creditAmount,
-            extraDaysGranted: calculation.extraDaysGranted,
-            originalEndDate: calculation.originalEndDate,
-            extendedEndDate: calculation.extendedEndDate,
-            status: 'completed',
-            createdAt: new Date()
-        });
-
-        console.log('✅ Downgrade completed');
-
-        res.json({
-            success: true,
-            message: calculation.message,
-            details: {
-                newPlan: newPlan,
-                extendedEndDate: calculation.extendedEndDate,
-                extraDays: calculation.extraDaysGranted,
-                savings: calculation.creditAmount
-            }
-        });
-    } catch (error) {
-        console.error('❌ Downgrade error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
 // ==================== RENEWAL FLOW ====================
 
 // Get renewal information
@@ -7384,77 +7167,6 @@ app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
 });
 
 console.log('✅ All subscription routes initialized');
-
-
-// Notification endpoints
-app.get('/api/notifications', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        
-        const notificationsSnapshot = await db.collection('notifications')
-            .where('userId', '==', userId)
-            .orderBy('createdAt', 'desc')
-            .limit(50)
-            .get();
-        
-        const notifications = notificationsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                timeAgo: getTimeAgo(data.createdAt.toDate())
-            };
-        });
-        
-        const unreadCount = notifications.filter(n => !n.read).length;
-        
-        res.json({
-            success: true,
-            notifications,
-            unreadCount
-        });
-    } catch (error) {
-        console.error('Get notifications error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
-    try {
-        const notificationId = req.params.id;
-        
-        await db.collection('notifications').doc(notificationId).update({
-            read: true,
-            readAt: new Date()
-        });
-        
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-app.post('/api/notifications/mark-all-read', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        
-        const snapshot = await db.collection('notifications')
-            .where('userId', '==', userId)
-            .where('read', '==', false)
-            .get();
-        
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => {
-            batch.update(doc.ref, { read: true, readAt: new Date() });
-        });
-        
-        await batch.commit();
-        
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
 
 // Race status endpoints
 app.get('/api/race/status', authenticateToken, async (req, res) => {
@@ -8465,66 +8177,412 @@ app.put('/api/user/profile', authenticateToken, async (req, res) => {
 // ==================== SUBSCRIPTION ROUTES ====================
 
 app.post('/api/subscription/start-trial', authenticateToken, async (req, res) => {
-  try {
-    const { planType } = req.body;
-    await userManager.startTrial(req.user.userId, planType);
-    
-    res.json({
-      success: true,
-      message: 'Trial started successfully'
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
+    try {
+        const userId = req.user.userId;
+        const { planType } = req.body;
+
+        console.log('🎁 Starting trial for:', { userId, planType });
+
+        // Validate plan type
+        const validPlans = ['basic', 'race'];
+        if (!validPlans.includes(planType)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid plan type'
+            });
+        }
+
+        // Check if user already has trial/subscription
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+
+        if (user.currentPlan && user.currentPlan !== 'free') {
+            return res.status(400).json({
+                success: false,
+                message: 'User already has an active subscription'
+            });
+        }
+
+        const trialEndDate = new Date();
+        trialEndDate.setDate(trialEndDate.getDate() + 7); // 7-day trial
+
+        await db.collection('users').doc(userId).update({
+            currentPlan: planType,
+            subscriptionStatus: 'trial',
+            trialStartDate: new Date(),
+            trialEndDate: trialEndDate,
+            updatedAt: new Date()
+        });
+
+        // Track trial start
+        await db.collection('transactions').add({
+            userId,
+            type: 'trial_start',
+            plan: planType,
+            trialEndDate: trialEndDate,
+            status: 'active',
+            createdAt: new Date()
+        });
+
+        console.log('✅ Trial started:', { userId, planType, endDate: trialEndDate });
+
+        res.json({
+            success: true,
+            message: 'Trial started successfully',
+            trialEndDate: trialEndDate
+        });
+    } catch (error) {
+        console.error('❌ Trial start error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 });
 
 app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
-  try {
-    await userManager.upgradeToPaid(req.user.userId, req.body);
-    
-    res.json({
-      success: true,
-      message: 'Subscription upgraded successfully'
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
+    try {
+        const userId = req.user.userId;
+        const { newPlan, billingCycle, promoCode } = req.body;
+
+        console.log('💰 Processing upgrade:', { userId, newPlan, billingCycle, promoCode });
+
+        // Validate inputs
+        if (!newPlan || !billingCycle) {
+            return res.status(400).json({
+                success: false,
+                message: 'newPlan and billingCycle are required'
+            });
+        }
+
+        // ✅ Validate plan exists in pricing
+        if (!subscriptionService.pricing[newPlan]) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid plan: ${newPlan}`
+            });
+        }
+
+        // ✅ Validate billing cycle
+        const validCycles = ['monthly', 'quarterly', 'annual'];
+        if (!validCycles.includes(billingCycle)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid billing cycle. Must be: ${validCycles.join(', ')}`
+            });
+        }
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // ✅ Check if already on same plan
+        if (user.currentPlan === newPlan && user.billingCycle === billingCycle) {
+            return res.status(400).json({
+                success: false,
+                message: 'User already has this plan'
+            });
+        }
+
+        // Calculate final amount with promo
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user,
+            newPlan,
+            billingCycle,
+            promoCode || null
+        );
+
+        console.log('Calculated amount to pay:', calculation.amountToPay);
+
+        // Create Razorpay order
+        const order = await razorpayService.createOrder({
+            amount: calculation.amountToPay,
+            currency: 'INR',
+            receipt: `upgrade_${userId}_${Date.now()}`,
+            notes: {
+                userId,
+                type: 'upgrade',
+                fromPlan: user.currentPlan || 'free',
+                toPlan: newPlan,
+                billingCycle,
+                promoCode: promoCode || 'none',
+                originalAmount: calculation.originalAmount || calculation.proRataCharge,
+                discountAmount: calculation.promoApplied?.discountAmount || 0,
+                discountPercent: calculation.promoApplied?.discount || 0
+            }
+        });
+
+        console.log('✅ Order created:', order.id);
+
+        res.json({
+            success: true,
+            paymentOrder: {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+                plan: newPlan,
+                billingCycle: billingCycle,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        console.error('❌ Upgrade error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
+    }
 });
+
 
 app.get('/api/subscription', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         console.log('🔍 Fetching subscription for user:', userId);
 
-        // Get user from Firestore
         const userDoc = await db.collection('users').doc(userId).get();
-        
+
         if (!userDoc.exists) {
             console.error('❌ User not found:', userId);
-            return res.status(404).json({ success: false, message: 'User not found' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
         }
 
         const user = userDoc.data();
         console.log('✅ User found:', user.email);
 
+        // ✅ Get pricing from subscriptionService
+        const plan = user.currentPlan || 'free';
+        const billingCycle = user.billingCycle || 'monthly';
+        let price = 0;
+
+        if (plan !== 'free' && subscriptionService.pricing[plan]) {
+            price = subscriptionService.pricing[plan][billingCycle] || 0;
+        }
+
         const subscription = {
-            plan: user.subscriptionStatus || 'free',
-            status: user.subscriptionActive !== false ? 'active' : 'inactive',
+            plan: plan,
+            status: user.subscriptionStatus || 'active',
             startDate: user.subscriptionStartDate || user.createdAt || new Date(),
-            renewalDate: user.subscriptionRenewalDate || null,
-            price: user.subscriptionStatus === 'basic' ? 299 : user.subscriptionStatus === 'race' ? 499 : 0
+            endDate: user.subscriptionEndDate || null,
+            price: price,  // ✅ Dynamic pricing
+            billingCycle: billingCycle,
+            trialEndDate: user.trialEndDate || null,
+            isTrialActive: user.subscriptionStatus === 'trial'
         };
 
-        res.json({ success: true, subscription });
+        res.json({ 
+            success: true, 
+            subscription 
+        });
     } catch (error) {
-        console.error('❌ Subscription error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching subscription: ' + error.message });
+        console.error('❌ Subscription fetch error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error fetching subscription: ' + error.message 
+        });
+    }
+});
+
+
+app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { paymentId, orderId, signature } = req.body;
+
+        console.log('🔍 Verifying upgrade payment:', { userId, paymentId, orderId });
+
+        // Verify signature
+        const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
+
+        if (!isValid) {
+            console.error('❌ Invalid signature');
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid payment signature' 
+            });
+        }
+
+        // Get order details
+        const order = await razorpayService.getOrder(orderId);
+        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;
+
+        console.log('Order details:', order.notes);
+
+        // Calculate new subscription end date
+        const subscriptionEndDate = new Date();
+        const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
+        subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + months);
+
+        // Update user subscription
+        await db.collection('users').doc(userId).update({
+            currentPlan: toPlan,
+            billingCycle: billingCycle,
+            subscriptionStatus: 'active',
+            subscriptionStartDate: new Date(),
+            subscriptionEndDate: subscriptionEndDate,
+            lastPaymentDate: new Date(),
+            lastPaymentAmount: order.amount / 100,
+            renewalReminderSent: false,
+            lastPromoCodeUsed: promoCode !== 'none' ? promoCode : null,
+            lastPromoDiscount: parseInt(discountAmount) || 0,
+            totalSavingsFromPromos: admin.firestore.FieldValue.increment(parseInt(discountAmount) || 0),
+            trialStartDate: null,  // ✅ Clear trial dates
+            trialEndDate: null,
+            updatedAt: new Date()
+        });
+
+        // Log transaction
+        await db.collection('transactions').add({
+            userId,
+            type: 'upgrade',
+            fromPlan: order.notes.fromPlan,
+            toPlan: toPlan,
+            amount: order.amount / 100,
+            originalAmount: parseInt(originalAmount) || (order.amount / 100),
+            discountAmount: parseInt(discountAmount) || 0,
+            promoCode: promoCode !== 'none' ? promoCode : null,
+            currency: 'INR',
+            paymentId,
+            orderId,
+            status: 'success',
+            billingCycle,
+            createdAt: new Date()
+        });
+
+        console.log('✅ Upgrade verified and applied');
+
+        res.json({
+            success: true,
+            message: 'Upgrade successful! Your new plan is now active.',
+            newPlan: toPlan,
+            validUntil: subscriptionEndDate
+        });
+    } catch (error) {
+        console.error('❌ Verify upgrade error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
+    }
+});
+
+app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { newPlan } = req.body;
+
+        console.log('📉 Processing downgrade:', { userId, newPlan });
+
+        // ✅ Validate plan
+        if (!subscriptionService.pricing[newPlan]) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid plan: ${newPlan}`
+            });
+        }
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // Validate downgrade is to lower-cost plan
+        const planHierarchy = { free: 0, basic: 1, race: 2 };
+        if (planHierarchy[newPlan] >= planHierarchy[user.currentPlan]) {
+            return res.status(400).json({
+                success: false,
+                message: 'Can only downgrade to a lower-tier plan'
+            });
+        }
+
+        // ✅ Use service method for calculation
+        const calculation = subscriptionService.calculateDowngradeWithCredit(user, newPlan);
+
+        console.log('Downgrade calculation:', calculation);
+
+        // Update user subscription
+        await db.collection('users').doc(userId).update({
+            currentPlan: newPlan,
+            subscriptionEndDate: calculation.extendedEndDate,
+            previousPlan: user.currentPlan,
+            downgradeDate: new Date(),
+            creditedDays: calculation.extraDaysGranted,
+            updatedAt: new Date()
+        });
+
+        // Log transaction
+        await db.collection('transactions').add({
+            userId,
+            type: 'downgrade',
+            fromPlan: user.currentPlan,  // ✅ Use actual plan, not calculation.currentPlan
+            toPlan: newPlan,
+            creditAmount: calculation.creditAmount,
+            extraDaysGranted: calculation.extraDaysGranted,
+            originalEndDate: calculation.originalEndDate,
+            extendedEndDate: calculation.extendedEndDate,
+            status: 'completed',
+            createdAt: new Date()
+        });
+
+        console.log('✅ Downgrade completed');
+
+        res.json({
+            success: true,
+            message: calculation.message,
+            details: {
+                newPlan: newPlan,
+                extendedEndDate: calculation.extendedEndDate,
+                extraDays: calculation.extraDaysGranted,
+                savings: calculation.creditAmount
+            }
+        });
+    } catch (error) {
+        console.error('❌ Downgrade error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
+    }
+});
+
+app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { reason } = req.body;
+
+        console.log('❌ Cancelling subscription for:', userId);
+
+        // Call service method
+        const result = await subscriptionService.cancelSubscription(userId, reason);
+
+        console.log('✅ Subscription cancelled');
+
+        res.json({
+            success: true,
+            message: 'Subscription cancelled successfully. You will have access until ' + result.accessUntil.toDateString(),
+            accessUntil: result.accessUntil
+        });
+    } catch (error) {
+        console.error('❌ Cancellation error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 });
 
@@ -9536,8 +9594,11 @@ passport.use(new GoogleStrategy({
     if (user) {
       // User exists, update their info
       console.log('👤 Existing user found:', user.id);
+
+      const userDoc = await db.collection('users').doc(user.id).get();
+      const hasPreferences = userDoc.data().notificationPreferences;
       
-      await userManager.updateUser(user.id, {
+      const updateData = {
         googleId: profile.id,
         firstName: profile.name?.givenName || user.firstName,
         lastName: profile.name?.familyName || user.lastName,
@@ -9546,7 +9607,22 @@ passport.use(new GoogleStrategy({
         loginCount: (user.loginCount || 0) + 1,
         emailVerified: true,
         authProvider: 'google'
-      });
+      };
+      
+      // ✅ Add preferences if missing
+      if (!hasPreferences) {
+        console.log('⚠️ Preferences missing, initializing now');
+        updateData.notificationPreferences = {
+          email: true,
+          workout: true,
+          payment: true,
+          recovery: true,
+          upgrade: true,
+          race: true
+        };
+      }
+      
+      await userManager.updateUser(user.id, updateData);
       
       // Refresh user data
       user = await userManager.getUserById(user.id);
@@ -9569,7 +9645,15 @@ passport.use(new GoogleStrategy({
         firstName: profile.name?.givenName || 'User',
         lastName: profile.name?.familyName || '',
         avatar: profile.photos?.[0]?.value || null,
-        provider: 'google'
+        provider: 'google',
+        notificationPreferences: {
+          email: true,
+          workout: true,
+          payment: true,
+          recovery: true,
+          upgrade: true,
+          race: true
+        }
       });
       
       console.log('✅ New user created via Google:', newUser.id);
@@ -11154,12 +11238,20 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
         const userId = req.user.userId;
         const limit = parseInt(req.query.limit) || 20;
         
+        // Use service for business logic
         const notifications = await notificationService.getUserNotifications(userId, limit);
+        
+        // Add time formatting (from Option 2)
+        const formattedNotifications = notifications.map(notification => ({
+            ...notification,
+            timeAgo: getTimeAgo(notification.createdAt)
+        }));
+        
         const unreadCount = await notificationService.getUnreadCount(userId);
         
         res.json({
             success: true,
-            notifications,
+            notifications: formattedNotifications,
             unreadCount
         });
     } catch (error) {
@@ -11187,9 +11279,12 @@ app.get('/api/notifications/unread-count', authenticateToken, async (req, res) =
 // Mark notification as read
 app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     try {
-        await notificationService.markAsRead(req.params.id);
+        const notificationId = req.params.id;
+        await notificationService.markAsRead(notificationId);
+        
         res.json({ success: true });
     } catch (error) {
+        console.error('Mark notification read error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -11208,10 +11303,132 @@ app.post('/api/notifications/read-all', authenticateToken, async (req, res) => {
 // Delete notification
 app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
     try {
-        await notificationService.deleteNotification(req.params.id);
+        const notificationId = req.params.id;
+        await notificationService.deleteNotification(notificationId);
+        
         res.json({ success: true });
     } catch (error) {
+        console.error('Delete notification error:', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+/**
+ * Update notification preferences
+ */
+app.post('/api/notifications/preferences', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { email, workout, payment, recovery, upgrade, race } = req.body;
+
+        // Validate at least one preference is enabled
+        const preferences = {
+            email: email !== false,
+            workout: workout !== false,
+            payment: payment !== false,
+            recovery: recovery !== false,
+            upgrade: upgrade !== false,
+            race: race !== false
+        };
+
+        // Don't allow all disabled
+        if (Object.values(preferences).every(v => v === false)) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one notification type must be enabled'
+            });
+        }
+
+        await db.collection('users').doc(userId).update({
+            notificationPreferences: preferences,
+            updatedAt: new Date()
+        });
+
+        console.log(`✅ Notification preferences updated for ${userId}`);
+
+        res.json({
+            success: true,
+            message: 'Preferences updated successfully',
+            preferences
+        });
+    } catch (error) {
+        console.error('Update preferences error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+/**
+ * Get notification preferences
+ */
+app.get('/api/notifications/preferences', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const user = await db.collection('users').doc(userId).get();
+        
+        if (!user.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Default preferences if not set
+        const defaultPreferences = {
+            email: true,
+            workout: true,
+            payment: true,
+            recovery: true,
+            upgrade: true,
+            race: true
+        };
+
+        const preferences = user.data().notificationPreferences || defaultPreferences;
+
+        res.json({
+            success: true,
+            preferences
+        });
+    } catch (error) {
+        console.error('Get preferences error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/notifications/preferences/reset', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        const defaultPreferences = {
+            email: true,
+            workout: true,
+            payment: true,
+            recovery: true,
+            upgrade: true,
+            race: true
+        };
+
+        await db.collection('users').doc(userId).update({
+            notificationPreferences: defaultPreferences,
+            updatedAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'Preferences reset to defaults',
+            preferences: defaultPreferences
+        });
+    } catch (error) {
+        console.error('Reset preferences error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 });
 

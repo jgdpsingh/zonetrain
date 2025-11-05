@@ -48,6 +48,12 @@ class NotificationService {
             const userDoc = await this.db.collection('users').doc(userId).get();
             const user = userDoc.data();
 
+             // ✅ Check if workout notifications are enabled
+        if (user.notificationPreferences?.workout === false) {
+            console.log(`⏭️ Workout notification skipped for ${userId} (disabled)`);
+            return { success: true, skipped: true, reason: 'Workout notifications disabled' };
+        }
+
             // Create dashboard notification
             await this.createNotification(
                 userId,
@@ -157,6 +163,12 @@ class NotificationService {
             const userDoc = await this.db.collection('users').doc(userId).get();
             const user = userDoc.data();
 
+            // ✅ Check if payment notifications are enabled
+        if (user.notificationPreferences?.payment === false) {
+            console.log(`⏭️ Payment notification skipped for ${userId} (disabled)`);
+            return { success: true, skipped: true, reason: 'Payment notifications disabled' };
+        }
+
             // Dashboard notification
             await this.createNotification(
                 userId,
@@ -167,9 +179,11 @@ class NotificationService {
             );
 
             // Email notification
-            if (user.email) {
-                await this.sendPaymentEmail(user.email, user.firstName, daysUntilExpiry, amount);
-            }
+            
+if (user.email && user.notificationPreferences?.email !== false) {
+    await this.sendPaymentEmail(user.email, user.firstName, daysUntilExpiry, amount);
+}
+
 
             return { success: true };
         } catch (error) {
@@ -219,30 +233,37 @@ class NotificationService {
     }
 
     // Send upgrade offer
-    async sendUpgradeOffer(userId, promoCode = 'UPGRADE50', discount = 50) {
-        try {
-            const userDoc = await this.db.collection('users').doc(userId).get();
-            const user = userDoc.data();
+   async sendUpgradeOffer(userId, promoCode = 'UPGRADE50', discount = 50) {
+    try {
+        const userDoc = await this.db.collection('users').doc(userId).get();
+        const user = userDoc.data();
 
-            await this.createNotification(
-                userId,
-                'upgrade',
-                '🚀 Upgrade to Race Coach',
-                `Get ${discount}% off with code ${promoCode}. Limited time offer!`,
-                '/plans',
-                { promoCode, discount }
-            );
-
-            if (user.email) {
-                await this.sendUpgradeEmail(user.email, user.firstName, promoCode, discount);
-            }
-
-            return { success: true };
-        } catch (error) {
-            console.error('Send upgrade offer error:', error);
-            throw error;
+        // ✅ Check if upgrade notifications are enabled
+        if (user.notificationPreferences?.upgrade === false) {
+            console.log(`⏭️ Upgrade notification skipped for ${userId} (disabled)`);
+            return { success: true, skipped: true, reason: 'Upgrade notifications disabled' };
         }
+
+        await this.createNotification(
+            userId,
+            'upgrade',
+            '🚀 Upgrade to Race Coach',
+            `Get ${discount}% off with code ${promoCode}. Limited time offer!`,
+            '/plans',
+            { promoCode, discount }
+        );
+
+        // ✅ Check if email is enabled
+        if (user.email && user.notificationPreferences?.email !== false) {
+            await this.sendUpgradeEmail(user.email, user.firstName, promoCode, discount);
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error('Send upgrade offer error:', error);
+        throw error;
     }
+}
 
     // Send upgrade email
     async sendUpgradeEmail(email, firstName, promoCode, discount) {
@@ -296,28 +317,35 @@ class NotificationService {
 
     // Send recovery reminder
     async sendRecoveryReminder(userId) {
-        try {
-            const userDoc = await this.db.collection('users').doc(userId).get();
-            const user = userDoc.data();
+    try {
+        const userDoc = await this.db.collection('users').doc(userId).get();
+        const user = userDoc.data();
 
-            await this.createNotification(
-                userId,
-                'recovery',
-                '💪 Recovery Check',
-                'Log your HRV and recovery status for today',
-                '/recovery'
-            );
-
-            if (user.email) {
-                await this.sendRecoveryEmail(user.email, user.firstName);
-            }
-
-            return { success: true };
-        } catch (error) {
-            console.error('Send recovery reminder error:', error);
-            throw error;
+        // ✅ Check if recovery notifications are enabled
+        if (user.notificationPreferences?.recovery === false) {
+            console.log(`⏭️ Recovery notification skipped for ${userId} (disabled)`);
+            return { success: true, skipped: true, reason: 'Recovery notifications disabled' };
         }
+
+        await this.createNotification(
+            userId,
+            'recovery',
+            '💪 Recovery Check',
+            'Log your HRV and recovery status for today',
+            '/recovery'
+        );
+
+        // ✅ Check if email is enabled
+        if (user.email && user.notificationPreferences?.email !== false) {
+            await this.sendRecoveryEmail(user.email, user.firstName);
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error('Send recovery reminder error:', error);
+        throw error;
     }
+}
 
     // Send recovery email
     async sendRecoveryEmail(email, firstName) {
@@ -359,28 +387,35 @@ class NotificationService {
 
     // Send race completed notification
     async sendRaceCompleted(userId, raceName) {
-        try {
-            const userDoc = await this.db.collection('users').doc(userId).get();
-            const user = userDoc.data();
+    try {
+        const userDoc = await this.db.collection('users').doc(userId).get();
+        const user = userDoc.data();
 
-            await this.createNotification(
-                userId,
-                'race',
-                '🏁 Race Complete!',
-                `Congratulations on completing ${raceName}! Set your next goal.`,
-                '/races/new'
-            );
-
-            if (user.email) {
-                await this.sendRaceCompletedEmail(user.email, user.firstName, raceName);
-            }
-
-            return { success: true };
-        } catch (error) {
-            console.error('Send race completed error:', error);
-            throw error;
+        // ✅ Check if race notifications are enabled
+        if (user.notificationPreferences?.race === false) {
+            console.log(`⏭️ Race notification skipped for ${userId} (disabled)`);
+            return { success: true, skipped: true, reason: 'Race notifications disabled' };
         }
+
+        await this.createNotification(
+            userId,
+            'race',
+            '🏁 Race Complete!',
+            `Congratulations on completing ${raceName}! Set your next goal.`,
+            '/races/new'
+        );
+
+        // ✅ Check if email is enabled
+        if (user.email && user.notificationPreferences?.email !== false) {
+            await this.sendRaceCompletedEmail(user.email, user.firstName, raceName);
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error('Send race completed error:', error);
+        throw error;
     }
+}
 
     // Send race completed email
     async sendRaceCompletedEmail(email, firstName, raceName) {
@@ -505,6 +540,76 @@ class NotificationService {
             throw error;
         }
     }
+
+
+/**
+ * Convert timestamp to human-readable time
+ */
+getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffSecs < 60) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString();  // ← This line was missing
 }
+
+// Send cancellation email
+async sendCancellationEmail(email, firstName, data) {
+    const mailOptions = {
+        from: `"ZoneTrain" <${process.env.ZOHO_EMAIL}>`,
+        to: email,
+        subject: '😢 Your ZoneTrain Subscription Has Been Cancelled',
+        html: `
+            <!DOCTYPE html>
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 10px; padding: 30px;">
+                    <h2>Hi ${firstName},</h2>
+                    
+                    <p>We're sad to see you go! Your <strong>${data.plan}</strong> subscription has been cancelled.</p>
+                    
+                    <div style="background: #FEF3C7; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <p><strong>Cancellation Details:</strong></p>
+                        <p>Plan: ${data.plan}</p>
+                        <p>Access Until: ${new Date(data.accessUntil).toLocaleDateString()}</p>
+                        ${data.reason ? `<p>Reason: ${data.reason}</p>` : ''}
+                    </div>
+                    
+                    <p>You'll have access to all ${data.plan} features until ${new Date(data.accessUntil).toLocaleDateString()}, after which your account will revert to Free.</p>
+                    
+                    <p style="color: #666;">
+                        If you change your mind, you can always upgrade again anytime from your dashboard.
+                    </p>
+                    
+                    <center>
+                        <a href="${process.env.APP_URL}/plans" style="display: inline-block; padding: 14px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 8px; margin: 20px 0;">
+                            View Plans
+                        </a>
+                    </center>
+                    
+                    <p style="color: #999; font-size: 12px; text-align: center;">
+                        Thank you for being part of the ZoneTrain community!
+                    </p>
+                </div>
+            </body>
+            </html>
+        `
+    };
+
+    await this.transporter.sendMail(mailOptions);
+}
+
+
+
+}
+
 
 module.exports = NotificationService;

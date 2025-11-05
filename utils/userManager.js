@@ -350,6 +350,15 @@ class UserManager {
         lastName || 'Phone'
       );
       
+      const defaultPreferences = {
+        email: true,
+        workout: true,
+        payment: true,
+        recovery: true,
+        upgrade: true,
+        race: true
+      };
+
       const tempEmail = `${phoneNumber.replace('+', '')}@phone.zonetrain.com`;
       
       const newUser = {
@@ -382,6 +391,8 @@ class UserManager {
         promoCodesUsed: [],
         referralCode: userReferralCode,
         referredBy: null,
+
+        notificationPreferences: defaultPreferences,
         
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -592,171 +603,263 @@ class UserManager {
   
   async createUser(userData) {
     try {
-      const { email, password, firstName, lastName, phoneNumber, referralCode, provider } = userData;
-      
-      // **VALIDATE EMAIL FORMAT**
-      if (email) {
-        const emailValidation = await this.validateEmailFormat(email);
-        if (!emailValidation.valid) {
-          throw new Error(emailValidation.reason);
+        const { email, password, firstName, lastName, phoneNumber, referralCode, provider } = userData;
+        
+        // **VALIDATE EMAIL FORMAT**
+        if (email) {
+            const emailValidation = await this.validateEmailFormat(email);
+            if (!emailValidation.valid) {
+                throw new Error(emailValidation.reason);
+            }
         }
-      }
-      
-      // Check if user exists by email
-      if (email) {
-        const existingUser = await this.getUserByEmail(email);
-        if (existingUser) {
-          throw new Error('User already exists');
+        
+        // Check if user exists by email
+        if (email) {
+            const existingUser = await this.getUserByEmail(email);
+            if (existingUser) {
+                throw new Error('User already exists');
+            }
         }
-      }
-      
-      // Check if user exists by phone
-      if (phoneNumber) {
-        const existingPhone = await this.getUserByPhone(phoneNumber);
-        if (existingPhone) {
-          throw new Error('User already exists with this phone number');
+        
+        // Check if user exists by phone
+        if (phoneNumber) {
+            const existingPhone = await this.getUserByPhone(phoneNumber);
+            if (existingPhone) {
+                throw new Error('User already exists with this phone number');
+            }
         }
-      }
 
-      // Hash password if provided
-      let hashedPassword = null;
-      if (password) {
-        hashedPassword = await bcrypt.hash(password, 12);
-      } else {
-        hashedPassword = crypto.randomBytes(16).toString('hex');
-      }
-      
-      const userReferralCode = await this.generateReferralCode(
-        firstName || 'User', 
-        lastName || 'New'
-      );
-      
-      const newUser = {
-        email: email ? email.toLowerCase() : null,
-        phoneNumber: phoneNumber || null,
-        firstName: firstName || 'User',
-        lastName: lastName || '',
-        password: hashedPassword,
-        emailVerified: false,
-        emailVerificationToken: null,
-        emailVerificationSentAt: null,
-        phoneVerified: phoneNumber ? true : false,
-        
-        authProvider: provider || 'email',
-        firebaseUid: userData.firebaseUid || null,
-        googleId: userData.googleId || null,
-        facebookId: userData.facebookId || null,
-        
-        subscriptionStatus: 'free',
-        currentPlan: null,
-        currentPrice: 0,
-        originalPrice: 0,
-        
-        trialStartDate: null,
-        trialEndDate: null,
-        
-        loginCount: 0,
-        totalAnalyses: 0,
-        whatsappOptIn: false,
-        
-        promoCodesUsed: [],
-        referralCode: userReferralCode,
-        referredBy: referralCode || null,
-        
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        active: true
-      };
-
-      const userRef = await this.db.collection('users').add(newUser);
-      
-      await this.trackActivity(userRef.id, 'user_created', { 
-        referralCode: referralCode || null,
-        provider: provider || 'email'
-      });
-      
-      const createdUser = {
-        id: userRef.id,
-        ...newUser,
-        password: undefined
-      };
-
-      // **SEND VERIFICATION EMAIL**
-      if (email && provider === 'email') {
-        try {
-          await this.sendVerificationEmail(userRef.id, email, firstName);
-          console.log('✅ Verification email queued for:', email);
-        } catch (emailError) {
-          console.error('⚠️ Failed to send verification email:', emailError);
+        // Hash password if provided
+        let hashedPassword = null;
+        if (password) {
+            hashedPassword = await bcrypt.hash(password, 12);
+        } else {
+            hashedPassword = crypto.randomBytes(16).toString('hex');
         }
-      }
-      
-      return createdUser;
+        
+        const userReferralCode = await this.generateReferralCode(
+            firstName || 'User', 
+            lastName || 'New'
+        );
+        
+        // ✅ DEFAULT NOTIFICATION PREFERENCES (Already there - great!)
+        const defaultPreferences = {
+            email: true,
+            workout: true,
+            payment: true,
+            recovery: true,
+            upgrade: true,
+            race: true
+        };
+
+        const newUser = {
+            email: email ? email.toLowerCase() : null,
+            phoneNumber: phoneNumber || null,
+            firstName: firstName || 'User',
+            lastName: lastName || '',
+            password: hashedPassword,
+            emailVerified: false,
+            emailVerificationToken: null,
+            emailVerificationSentAt: null,
+            phoneVerified: phoneNumber ? true : false,
+            
+            authProvider: provider || 'email',
+            firebaseUid: userData.firebaseUid || null,
+            googleId: userData.googleId || null,
+            facebookId: userData.facebookId || null,
+            
+            subscriptionStatus: 'free',
+            currentPlan: null,
+            currentPrice: 0,
+            originalPrice: 0,
+            
+            trialStartDate: null,
+            trialEndDate: null,
+            
+            loginCount: 0,
+            totalAnalyses: 0,
+            whatsappOptIn: false,
+            
+            promoCodesUsed: [],
+            referralCode: userReferralCode,
+            referredBy: referralCode || null,
+
+            // ✅ NOTIFICATION PREFERENCES (Already included - perfect!)
+            notificationPreferences: defaultPreferences,
+            
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            active: true
+        };
+
+        const userRef = await this.db.collection('users').add(newUser);
+        
+        // ✅ OPTIMIZATION: Log preferences setup
+        await this.trackActivity(userRef.id, 'user_created', { 
+            referralCode: referralCode || null,
+            provider: provider || 'email',
+            preferencesInitialized: true  // Add this
+        });
+        
+        const createdUser = {
+            id: userRef.id,
+            ...newUser,
+            password: undefined  // Don't return password
+        };
+
+        // **SEND VERIFICATION EMAIL**
+        if (email && provider === 'email') {
+            try {
+                await this.sendVerificationEmail(userRef.id, email, firstName);
+                console.log('✅ Verification email queued for:', email);
+            } catch (emailError) {
+                console.warn('⚠️ Failed to send verification email:', emailError.message);
+                // Don't throw - email is non-critical
+            }
+        }
+        
+        console.log(`✅ User created with notification preferences:`, userRef.id);
+        return createdUser;
 
     } catch (error) {
-      console.error('Create user error:', error);
-      throw error;
+        console.error('Create user error:', error);
+        throw error;
     }
-  }
+}
+
 
   async createOAuthUser(userData) {
     try {
-      const { googleId, facebookId, email, firstName, lastName, avatar, provider } = userData;
-      
-      const existingUser = await this.getUserByEmail(email);
-      if (existingUser) {
-        const updates = {
-          lastLogin: new Date(),
-          emailVerified: true,
-          loginCount: (existingUser.loginCount || 0) + 1
+        const { 
+            googleId, 
+            facebookId, 
+            email, 
+            firstName, 
+            lastName, 
+            avatar, 
+            provider,
+            notificationPreferences  // ✅ Accept as parameter (for flexibility)
+        } = userData;
+
+        console.log(`👤 Creating OAuth user: ${email} via ${provider}`);
+
+        // ✅ Check if user exists
+        const existingUser = await this.getUserByEmail(email);
+        if (existingUser) {
+            console.log(`⚠️ User already exists, updating login info instead`);
+            
+            const updates = {
+                lastLogin: new Date(),
+                emailVerified: true,
+                loginCount: (existingUser.loginCount || 0) + 1
+            };
+            
+            // ✅ Only update if values provided (avoid overwriting)
+            if (googleId && !existingUser.googleId) updates.googleId = googleId;
+            if (facebookId && !existingUser.facebookId) updates.facebookId = facebookId;
+            if (avatar && !existingUser.avatar) updates.avatar = avatar;
+            if (firstName) updates.firstName = firstName;
+            if (lastName) updates.lastName = lastName;
+            
+            // ✅ Initialize preferences if missing
+            if (!existingUser.notificationPreferences) {
+                updates.notificationPreferences = {
+                    email: true,
+                    workout: true,
+                    payment: true,
+                    recovery: true,
+                    upgrade: true,
+                    race: true
+                };
+                console.log(`⚠️ Preferences missing, initializing for existing user`);
+            }
+            
+            await this.updateUser(existingUser.id, updates);
+            const updatedUser = await this.getUserById(existingUser.id);
+            
+            // Track login activity
+            await this.trackActivity(existingUser.id, 'oauth_login', { 
+                provider,
+                method: 'oauth_existing_user'
+            });
+            
+            console.log(`✅ Existing user logged in via ${provider}`);
+            return updatedUser;
+        }
+
+        // ========== CREATE NEW USER ==========
+        console.log(`📝 Creating new OAuth user via ${provider}`);
+
+        const userReferralCode = await this.generateReferralCode(firstName, lastName);
+
+        // ✅ Default notification preferences
+        const defaultPreferences = notificationPreferences || {
+            email: true,
+            workout: true,
+            payment: true,
+            recovery: true,
+            upgrade: true,
+            race: true
         };
+
+        // ✅ Generate secure random password (for security purposes)
+        const crypto = require('crypto');
+        const randomPassword = crypto.randomBytes(16).toString('hex');
+
+        const newUser = {
+            email: email.toLowerCase(),
+            firstName: firstName || 'User',
+            lastName: lastName || '',
+            googleId: googleId || null,
+            facebookId: facebookId || null,
+            avatar: avatar || null,
+            
+            // Security: Random password (user won't use it - OAuth only)
+            password: randomPassword,
+            
+            // Subscription
+            subscriptionStatus: 'free',
+            currentPlan: null,
+            currentPrice: 0,
+            originalPrice: 0,
+            
+            // Referral & Preferences
+            referralCode: userReferralCode,
+            notificationPreferences: defaultPreferences,  // ✅ ADDED
+            
+            // Metadata
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            lastLogin: new Date(),
+            loginCount: 1,
+            active: true,
+            authProvider: provider || 'oauth',
+            emailVerified: true  // ✅ OAuth emails pre-verified
+        };
+
+        // ✅ Create user with explicit ID strategy (optional - Firebase auto-generates if not provided)
+        const userRef = await this.db.collection('users').add(newUser);
         
-        if (googleId) updates.googleId = googleId;
-        if (facebookId) updates.facebookId = facebookId;
-        if (avatar) updates.avatar = avatar;
-        if (firstName) updates.firstName = firstName;
-        if (lastName) updates.lastName = lastName;
-        
-        await this.updateUser(existingUser.id, updates);
-        return existingUser;
-      }
-      
-      const userReferralCode = await this.generateReferralCode(firstName, lastName);
-      
-      const newUser = {
-        email: email.toLowerCase(),
-        firstName,
-        lastName,
-        googleId: googleId || null,
-        facebookId: facebookId || null,
-        avatar: avatar || null,
-        password: crypto.randomBytes(16).toString('hex'),
-        emailVerified: true,
-        
-        subscriptionStatus: 'free',
-        currentPlan: null,
-        currentPrice: 0,
-        originalPrice: 0,
-        
-        referralCode: userReferralCode,
-        
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        lastLogin: new Date(),
-        loginCount: 1,
-        active: true,
-        authProvider: provider || 'google'
-      };
-      
-      const userRef = await this.db.collection('users').add(newUser);
-      await this.trackActivity(userRef.id, 'oauth_signup', { provider });
-      
-      return { id: userRef.id, ...newUser, password: undefined };
+        console.log(`✅ New OAuth user created: ${userRef.id}`);
+
+        // ✅ Track signup activity
+        await this.trackActivity(userRef.id, 'oauth_signup', { 
+            provider,
+            method: 'new_oauth_user'
+        });
+
+        // ✅ Return user WITHOUT password
+        return { 
+            id: userRef.id, 
+            ...newUser, 
+            password: undefined  // Don't return password
+        };
+
     } catch (error) {
-      console.error('Create OAuth user error:', error);
-      throw error;
+        console.error('❌ Create OAuth user error:', error);
+        throw error;
     }
-  }
+}
 
   // ==================== AUTHENTICATION ====================
   
@@ -1073,58 +1176,3 @@ class UserManager {
 
 module.exports = UserManager;
 
-async function createTestUsers(userManager) {
-  try {
-    console.log('🔧 Creating test users...');
-    
-    const freeUser = {
-      email: 'free@test.com',
-      password: 'password123',
-      firstName: 'Free',
-      lastName: 'User',
-      phoneNumber: null
-    };
-    
-    try {
-      await userManager.createUser(freeUser);
-      console.log('✅ Free test user created');
-    } catch (error) {
-      if (error.message === 'User already exists') {
-        console.log('✅ Free test user already exists');
-      } else {
-        throw error;
-      }
-    }
-    
-    const premiumUserData = {
-      email: 'premium@test.com',
-      password: 'password123',
-      firstName: 'Premium',
-      lastName: 'User', 
-      phoneNumber: null
-    };
-    
-    try {
-      const premiumUser = await userManager.createUser(premiumUserData);
-      await userManager.updateUser(premiumUser.id, {
-        subscriptionStatus: 'active',
-        currentPlan: 'fitness',
-        currentPrice: 199,
-        originalPrice: 199,
-        planStartDate: new Date()
-      });
-      console.log('✅ Premium test user created and upgraded');
-    } catch (error) {
-      if (error.message === 'User already exists') {
-        console.log('✅ Premium test user already exists');
-      } else {
-        throw error;
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ Error creating test users:', error);
-  }
-}
-
-module.exports.createTestUsers = createTestUsers;
