@@ -4783,42 +4783,126 @@ function calculateBMI(heightCm, weightKg) {
  * @param {string} time - Time in HH:MM:SS format
  * @returns {string} Pace in MM:SS/km format
  */
-function calculatePace(distance, time) {
+/**
+ * Calculate pace - flexible for both use cases
+ * 
+ * @param {number|string} distance - Distance in km OR preset ('5k', '10k', 'half_marathon', 'marathon')
+ * @param {string} time - Time in HH:MM:SS format
+ * @param {string} format - Output format: 'numeric' or 'formatted' (default: 'formatted')
+ * 
+ * @returns {number|string} - Pace per km as number or formatted string
+ */
+function calculatePace(distance, time, format = 'formatted') {
     try {
-        // Convert time HH:MM:SS to total minutes
-        const timeParts = time.split(':');
-        const totalMinutes = parseInt(timeParts[0]) * 60 + 
-                            parseInt(timeParts[1]) + 
-                            (parseInt(timeParts[2]) || 0) / 60;
+        // ========== STEP 1: Normalize distance ==========
+        let distanceKm;
         
-        // Distance in km
-        const distanceKm = {
-            '5k': 5,
-            '10k': 10,
-            'half_marathon': 21.1,
-            'marathon': 42.2
-        }[distance] || 10;
+        if (typeof distance === 'string') {
+            // Handle preset distances
+            const presets = {
+                '5k': 5,
+                '10k': 10,
+                'half_marathon': 21.1,
+                'marathon': 42.2
+            };
+            distanceKm = presets[distance.toLowerCase()] || parseFloat(distance);
+        } else {
+            distanceKm = parseFloat(distance);
+        }
         
-        // Calculate pace per km
+        if (!distanceKm || distanceKm <= 0) {
+            throw new Error('Invalid distance');
+        }
+        
+        // ========== STEP 2: Parse time string ==========
+        const timeParts = time.split(':').map(Number);
+        
+        if (timeParts.length < 2) {
+            throw new Error('Time format should be HH:MM:SS or MM:SS');
+        }
+        
+        const hours = timeParts.length === 3 ? timeParts[0] : 0;
+        const minutes = timeParts.length === 3 ? timeParts[1] : timeParts[0];
+        const seconds = timeParts.length === 3 ? timeParts[2] : timeParts[1];
+        
+        const totalMinutes = hours * 60 + minutes + seconds / 60;
+        
+        // ========== STEP 3: Calculate pace ==========
         const paceMinPerKm = totalMinutes / distanceKm;
-        const minutes = Math.floor(paceMinPerKm);
-        const seconds = Math.round((paceMinPerKm - minutes) * 60);
         
-        return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
+        // ========== STEP 4: Format output ==========
+        if (format === 'numeric') {
+            // Return as decimal number (e.g., 5.25)
+            return parseFloat(paceMinPerKm.toFixed(2));
+        } else {
+            // Return as formatted string (e.g., "5:15/km")
+            const paceMinutes = Math.floor(paceMinPerKm);
+            const paceSeconds = Math.round((paceMinPerKm - paceMinutes) * 60);
+            
+            return `${paceMinutes}:${paceSeconds.toString().padStart(2, '0')}/km`;
+        }
         
     } catch (error) {
         console.error('Error calculating pace:', error);
+        return format === 'numeric' ? 0 : 'N/A';
+    }
+}
+
+/**
+ * Additional helper: Get pace category/intensity level
+ */
+function getPaceCategory(pacePerKm) {
+    try {
+        const pace = typeof pacePerKm === 'string' 
+            ? parseFloat(pacePerKm) 
+            : pacePerKm;
+        
+        if (pace <= 4.5) return 'Elite';
+        if (pace <= 5.5) return 'Fast';
+        if (pace <= 6.5) return 'Moderate';
+        if (pace <= 7.5) return 'Easy';
+        return 'Recovery';
+    } catch (e) {
+        return 'Unknown';
+    }
+}
+
+/**
+ * Convert pace string to numeric value
+ * Usage: "5:30/km" → 5.5
+ */
+function parsePaceToNumeric(paceString) {
+    try {
+        const [minutes, seconds] = paceString.split(':').map(Number);
+        return minutes + seconds / 60;
+    } catch (e) {
+        return 0;
+    }
+}
+
+/**
+ * Format numeric pace to string
+ * Usage: 5.5 → "5:30/km"
+ */
+function formatPaceToString(numericPace) {
+    try {
+        const minutes = Math.floor(numericPace);
+        const seconds = Math.round((numericPace - minutes) * 60);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}/km`;
+    } catch (e) {
         return 'N/A';
     }
 }
+
 
 // Save AI onboarding data
 app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const onboardingData = req.body;
+        const planType = onboardingData.planType || 'race';
         
-        console.log('🤖 Saving AI onboarding data for user:', userId);
+        console.log('🤖 Saving AI onboarding data for user:', userId, `(${planType})`);
         
         // Validate required fields
         const requiredFields = ['age', 'gender', 'height', 'weight', 'pb_distance', 'pb_time', 
@@ -4855,7 +4939,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                     time: onboardingData.pb_time,
                     date: onboardingData.pb_date || null,
                     location: onboardingData.pb_location || null,
-                    pace: calculatePace(onboardingData.pb_distance, onboardingData.pb_time)
+                    pace: calculatePace(onboardingData.pb_distance, onboardingData.pb_time, 'numeric')
                 },
                 targetRace: {
                     distance: onboardingData.target_distance,
@@ -4883,6 +4967,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 daysPerWeek: (onboardingData.running_days || []).length
             },
 
+            // Location
             location: {
                 usualTemp: onboardingData.usual_temp || null,
                 usualHumidity: onboardingData.usual_humidity || null,
@@ -4899,6 +4984,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         await db.collection('aiprofiles').doc(userId).set(aiProfile);
         console.log('✅ AI profile saved');
 
+        // Initialize notification preferences if missing
         const userDoc = await db.collection('users').doc(userId).get();
         
         if (!userDoc.data().notificationPreferences) {
@@ -4915,13 +5001,14 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 notificationPreferences: defaultPreferences
             });
             
-            console.log(`✅ Notification preferences initialized during onboarding`);
+            console.log(`✅ Notification preferences initialized`);
         }
 
         // Update user record (non-critical)
         try {
             await userManager.updateUser(userId, {
                 aiOnboardingCompleted: true,
+                planType: planType,
                 aiProfileCreatedAt: new Date().toISOString()
             });
             console.log('✅ User record updated');
@@ -4929,12 +5016,12 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             console.warn('⚠️ User update failed (non-critical):', userUpdateError.message);
         }
 
-        // ========== GENERATE INITIAL TRAINING PLAN (NEW) ==========
-        console.log('🎯 Generating initial AI training plan...');
+        // Generate initial training plan
+        console.log(`🎯 Generating ${planType} training plan...`);
         let trainingPlan;
         
         try {
-            trainingPlan = await generateInitialTrainingPlan(aiProfile);
+            trainingPlan = await generateInitialTrainingPlan(aiProfile, planType);
         } catch (planError) {
             console.error('⚠️ Plan generation failed, using fallback');
             trainingPlan = {
@@ -4947,7 +5034,8 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         // Save training plan
         const planDoc = await db.collection('trainingplans').add({
             userId: userId,
-            planType: 'race_coach',
+            profileId: userId,
+            planType: planType,
             planData: trainingPlan,
             isActive: true,
             createdAt: new Date(),
@@ -4956,20 +5044,24 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         
         console.log('✅ Training plan saved:', planDoc.id);
 
-        // Track onboarding completion
-        await db.collection('analytics_events').add({
-            event: 'ai_onboarding_completed',
-            userId: userId,
-            plan: 'race_coach',
-            data: {
-                targetDistance: onboardingData.target_distance,
-                daysToRace: calculateDaysToRace(onboardingData.target_date),
-                weeklyMileage: onboardingData.weekly_mileage,
-                intensityPreference: onboardingData.intensity_preference
-            },
-            timestamp: new Date(),
-            source: 'ai_onboarding_system'
-        });
+        // Track analytics
+        try {
+            await db.collection('analytics_events').add({
+                event: 'ai_onboarding_completed',
+                userId: userId,
+                planType: planType,
+                data: {
+                    targetDistance: onboardingData.target_distance,
+                    daysToRace: calculateDaysToRace(onboardingData.target_date),
+                    weeklyMileage: onboardingData.weekly_mileage,
+                    intensityPreference: onboardingData.intensity_preference
+                },
+                timestamp: new Date(),
+                source: 'ai_onboarding_system'
+            });
+        } catch (analyticsError) {
+            console.warn('⚠️ Analytics tracking failed (non-critical):', analyticsError.message);
+        }
         
         console.log('✅ AI onboarding completed successfully for user:', userId);
         
@@ -4978,8 +5070,8 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             message: 'AI coaching profile created successfully',
             userId: userId,
             trainingPlanId: planDoc.id,
-            nextStep: 'training_plan_generated',
-            planType: trainingPlan.type
+            planType: planType,
+            nextStep: 'training_plan_generated'
         });
         
     } catch (error) {
@@ -4992,126 +5084,775 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
     }
 });
 
+// ==================== UPDATE RACE GOALS & REGENERATE PLAN ====================
 
-// Basic Coach AI Onboarding (for habit-building users)
-app.post('/api/ai-onboarding-basic', authenticateToken, async (req, res) => {
+/**
+ * Update race goals and regenerate training plan
+ * POST /api/race-goals/update
+ * 
+ * This endpoint allows users to update their race goals and automatically
+ * regenerates a new training plan based on the updated information
+ */
+app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const data = req.body;
-
-        console.log('🎯 Creating Basic Coach profile for:', userId);
-
-        // Create Basic Coach AI profile
-        const basicProfile = {
-            userId: userId,
-            planType: 'basic',
-            
-            // Personal info
-            personalInfo: {
-                age: parseInt(data.age),
-                gender: data.gender,
-                height: parseInt(data.height),
-                weight: parseFloat(data.weight),
-                injuryHistory: data.injury_history || ''
-            },
-
-            // Location for weather-based coaching
-            location: {
-                latitude: parseFloat(data.latitude),
-                longitude: parseFloat(data.longitude)
-            },
-
-            // Current activity level
-            activityLevel: {
-                experienceLevel: data.experience_level,
-                currentFrequency: parseInt(data.weekly_frequency) || 0,
-                targetFrequency: parseInt(data.target_frequency),
-                preferredDays: data.preferred_days || []
-            },
-
-            // Goals (habit-focused, not race-focused)
-            goals: {
-                primaryGoal: data.primary_goal,
-                focusArea: 'habit_building'
-            },
-
-            // HRV & Recovery (critical for Basic Coach)
-            recovery: {
-                restingHR: parseInt(data.resting_hr) || null,
-                baselineHRV: parseInt(data.baseline_hrv) || null,
-                hasHRVDevice: data.has_hrv_device,
-                devices: data.devices || [],
-                sleepQuality: parseInt(data.sleep_quality) || 7
-            },
-
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-
-        // Save to Firestore
-        await db.collection('aiprofiles').doc(userId).set(basicProfile);
-        console.log('✅ Basic Coach profile saved');
-
-        // ========== GENERATE HABIT-BUILDING PLAN (NEW) ==========
-        console.log('🎯 Generating habit-building training plan...');
+        const { targetDistance, targetDate, targetTime, newGoals, constraints } = req.body;
         
-        const habitPlan = {
-            userId: userId,
-            planType: 'habit_building',
-            duration: '12_weeks',
-            
-            weeklyStructure: {
-                daysPerWeek: parseInt(data.target_frequency),
-                workoutTypes: ['easy_run', 'progression_run', 'fun_run'],
-                averageDuration: 30,
-                buildupRate: 'conservative'
+        console.log('🎯 Updating race goals for user:', userId);
+        
+        // Validate at least one field is provided
+        if (!targetDistance && !targetDate && !targetTime && !newGoals) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide at least one field to update (targetDistance, targetDate, targetTime, or newGoals)'
+            });
+        }
+        
+        // Get current AI profile
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        
+        if (!profileDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'AI profile not found. Please complete onboarding first.'
+            });
+        }
+        
+        const currentProfile = profileDoc.data();
+        
+        // ========== STEP 1: UPDATE AI PROFILE WITH NEW GOALS ==========
+        const updatedProfile = {
+            ...currentProfile,
+            raceHistory: {
+                ...currentProfile.raceHistory,
+                targetRace: {
+                    ...currentProfile.raceHistory.targetRace,
+                    distance: targetDistance || currentProfile.raceHistory.targetRace.distance,
+                    targetTime: targetTime || currentProfile.raceHistory.targetRace.targetTime,
+                    raceDate: targetDate || currentProfile.raceHistory.targetRace.raceDate,
+                    daysToRace: targetDate ? calculateDaysToRace(targetDate) : currentProfile.raceHistory.targetRace.daysToRace
+                }
             },
-
-            adaptiveLogic: {
-                hrvThreshold: 'auto',
-                autoRest: true,
-                progressionBased: 'recovery'
+            trainingStructure: {
+                ...currentProfile.trainingStructure,
+                constraints: constraints || currentProfile.trainingStructure.constraints
             },
-
-            createdAt: new Date(),
-            isActive: true,
-            version: 'v1'
+            updatedAt: new Date()
         };
-
-        const habitPlanDoc = await db.collection('trainingplans').add(habitPlan);
-        console.log('✅ Habit-building plan created:', habitPlanDoc.id);
-
-        // Track event
-        await db.collection('analytics_events').add({
-            event: 'ai_onboarding_completed',
+        
+        // Save updated profile
+        await db.collection('aiprofiles').doc(userId).update(updatedProfile);
+        console.log('✅ Race goals updated');
+        
+        // ========== STEP 2: REGENERATE TRAINING PLAN ==========
+        console.log('🤖 Regenerating training plan with updated goals...');
+        
+        // Get current plan type
+        const currentPlanDoc = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('isActive', '==', true)
+            .limit(1)
+            .get();
+        
+        const planType = currentPlanDoc.empty ? 'race' : currentPlanDoc.docs[0].data().planType;
+        
+        let newTrainingPlan;
+        try {
+            newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, planType);
+        } catch (planError) {
+            console.error('⚠️ Plan regeneration failed:', planError.message);
+            newTrainingPlan = {
+                type: 'fallback_error',
+                error: planError.message,
+                generatedAt: new Date().toISOString()
+            };
+        }
+        
+        // ========== STEP 3: DEACTIVATE OLD PLAN ==========
+        if (!currentPlanDoc.empty) {
+            await db.collection('trainingplans')
+                .doc(currentPlanDoc.docs[0].id)
+                .update({
+                    isActive: false,
+                    deactivatedAt: new Date(),
+                    deactivationReason: 'Goals updated'
+                });
+            console.log('✅ Old plan deactivated');
+        }
+        
+        // ========== STEP 4: SAVE NEW PLAN ==========
+        const newPlanDoc = await db.collection('trainingplans').add({
             userId: userId,
-            plan: 'basic_coach',
-            data: {
-                targetFrequency: data.target_frequency,
-                primaryGoal: data.primary_goal,
-                experienceLevel: data.experience_level
+            profileId: userId,
+            planType: planType,
+            planData: newTrainingPlan,
+            isActive: true,
+            createdAt: new Date(),
+            version: 'v1',
+            reason: 'Goals updated',
+            previousGoals: {
+                distance: currentProfile.raceHistory.targetRace.distance,
+                date: currentProfile.raceHistory.targetRace.raceDate,
+                daysToRace: currentProfile.raceHistory.targetRace.daysToRace
             },
-            timestamp: new Date(),
-            source: 'ai_onboarding_system'
+            newGoals: {
+                distance: updatedProfile.raceHistory.targetRace.distance,
+                date: updatedProfile.raceHistory.targetRace.raceDate,
+                daysToRace: updatedProfile.raceHistory.targetRace.daysToRace
+            }
         });
-
+        
+        console.log('✅ New training plan generated:', newPlanDoc.id);
+        
+        // ========== STEP 5: SEND NOTIFICATION ==========
+        try {
+            const notificationService = new NotificationService(db);
+            await notificationService.createNotification(
+                userId,
+                'race_goals_updated',
+                '🎯 Training Plan Updated',
+                `Your race goals have been updated! New training plan generated for ${updatedProfile.raceHistory.targetRace.distance}km race in ${updatedProfile.raceHistory.targetRace.daysToRace} days.`,
+                '/dashboard',
+                {
+                    oldGoals: currentProfile.raceHistory.targetRace.distance,
+                    newGoals: targetDistance
+                }
+            );
+        } catch (notificationError) {
+            console.warn('⚠️ Notification failed (non-critical):', notificationError.message);
+        }
+        
+        // ========== STEP 6: TRACK ANALYTICS ==========
+        try {
+            await db.collection('analytics_events').add({
+                event: 'race_goals_updated',
+                userId: userId,
+                oldGoals: {
+                    distance: currentProfile.raceHistory.targetRace.distance,
+                    daysToRace: currentProfile.raceHistory.targetRace.daysToRace
+                },
+                newGoals: {
+                    distance: updatedProfile.raceHistory.targetRace.distance,
+                    daysToRace: updatedProfile.raceHistory.targetRace.daysToRace
+                },
+                timestamp: new Date(),
+                source: 'race_goals_update'
+            });
+        } catch (analyticsError) {
+            console.warn('⚠️ Analytics tracking failed (non-critical):', analyticsError.message);
+        }
+        
+        console.log('✅ Race goals update completed');
+        
         res.json({
             success: true,
-            message: 'Basic Coach profile created successfully',
-            userId: userId,
-            trainingPlanId: habitPlanDoc.id,
-            profile: basicProfile
+            message: 'Race goals updated successfully! New training plan generated.',
+            previousPlan: {
+                distance: currentProfile.raceHistory.targetRace.distance,
+                daysToRace: currentProfile.raceHistory.targetRace.daysToRace
+            },
+            newPlan: {
+                id: newPlanDoc.id,
+                distance: updatedProfile.raceHistory.targetRace.distance,
+                daysToRace: updatedProfile.raceHistory.targetRace.daysToRace,
+                type: planType
+            },
+            recommendations: {
+                weeksToPeak: Math.floor(updatedProfile.raceHistory.targetRace.daysToRace / 7),
+                periodization: generatePeriodizationSummary(updatedProfile)
+            }
         });
-
+        
     } catch (error) {
-        console.error('❌ Basic Coach onboarding error:', error);
+        console.error('❌ Race goals update error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to create Basic Coach profile',
+            message: 'Failed to update race goals',
             error: error.message
         });
     }
 });
+
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Generate periodization summary for the updated plan
+ */
+function generatePeriodizationSummary(profile) {
+    const daysToRace = profile.raceHistory.targetRace.daysToRace;
+    const totalWeeks = Math.min(16, Math.floor(daysToRace / 7));
+    
+    return {
+        totalWeeks: totalWeeks,
+        buildingWeeks: Math.floor(totalWeeks * 0.40),
+        intensityWeeks: Math.floor(totalWeeks * 0.35),
+        peakWeeks: Math.floor(totalWeeks * 0.15),
+        taperWeeks: totalWeeks - Math.floor(totalWeeks * 0.40) - Math.floor(totalWeeks * 0.35) - Math.floor(totalWeeks * 0.15),
+        currentWeeklyMileage: profile.raceHistory.currentWeeklyMileage,
+        expectedPeakMileage: Math.round(profile.raceHistory.currentWeeklyMileage * 1.2),
+        notes: 'Plan adjusted for new race date and goals'
+    };
+}
+
+/**
+ * Get current plan and compare with potential updates
+ * POST /api/race-goals/compare
+ * 
+ * Allows user to preview what changes would occur if they updated goals
+ */
+app.post('/api/race-goals/compare', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetDistance, targetDate, targetTime } = req.body;
+        
+        console.log('🔍 Comparing race goal changes for user:', userId);
+        
+        // Get current profile
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        
+        if (!profileDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'AI profile not found'
+            });
+        }
+        
+        const currentProfile = profileDoc.data();
+        const currentGoals = currentProfile.raceHistory.targetRace;
+        
+        // Calculate new values
+        const newDaysToRace = targetDate ? calculateDaysToRace(targetDate) : currentGoals.daysToRace;
+        const newDistance = targetDistance || currentGoals.distance;
+        
+        // Calculate implications
+        const implications = {
+            daysChange: newDaysToRace - currentGoals.daysToRace,
+            distanceChange: newDistance - currentGoals.distance,
+            weeksDifference: Math.floor(newDaysToRace / 7) - Math.floor(currentGoals.daysToRace / 7),
+            impact: ''
+        };
+        
+        // Determine impact
+        if (implications.daysChange < 0) {
+            implications.impact = '⚠️ AGGRESSIVE - Less time to prepare';
+        } else if (implications.daysChange > 30) {
+            implications.impact = '✅ RELAXED - More preparation time';
+        } else {
+            implications.impact = '⚖️ SIMILAR - Similar preparation timeline';
+        }
+        
+        res.json({
+            success: true,
+            currentGoals: {
+                distance: currentGoals.distance,
+                date: currentGoals.raceDate,
+                daysToRace: currentGoals.daysToRace
+            },
+            proposedGoals: {
+                distance: newDistance,
+                date: targetDate || currentGoals.raceDate,
+                daysToRace: newDaysToRace
+            },
+            implications: implications,
+            recommendation: generateComparisonRecommendation(implications, currentProfile)
+        });
+        
+    } catch (error) {
+        console.error('❌ Race goals comparison error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to compare race goals',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Generate recommendation based on goal changes
+ */
+function generateComparisonRecommendation(implications, profile) {
+    if (implications.daysChange < -30) {
+        return '🚨 Warning: Very aggressive timeline. Consider increasing weekly mileage carefully to avoid injury.';
+    } else if (implications.daysChange < 0) {
+        return '⚠️ Shorter timeline ahead. We\'ll intensify training to match new deadline.';
+    } else if (implications.daysChange > 60) {
+        return '✅ More time available. We\'ll build more gradually and focus on building aerobic base.';
+    } else {
+        return '⚖️ Similar timeline. Minor plan adjustments will be made.';
+    }
+}
+
+/**
+ * Get all previous plans (history)
+ * GET /api/race-plans/history
+ */
+app.get('/api/race-plans/history', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const limit = parseInt(req.query.limit) || 10;
+        
+        const plansSnapshot = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .limit(limit)
+            .get();
+        
+        const plans = plansSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt.toDate?.() || doc.data().createdAt
+        }));
+        
+        res.json({
+            success: true,
+            totalPlans: plans.length,
+            plans: plans
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching plan history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch plan history',
+            error: error.message
+        });
+    }
+});
+
+
+// ==================== GET ENDPOINTS FOR RACE GOALS ====================
+
+/**
+ * GET current race goals
+ * GET /api/race-goals/current
+ */
+app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Get AI profile with current goals
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        
+        if (!profileDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'No AI profile found'
+            });
+        }
+        
+        const profile = profileDoc.data();
+        const currentGoals = profile.raceHistory.targetRace;
+        
+        res.json({
+            success: true,
+            goals: {
+                distance: currentGoals.distance,
+                date: currentGoals.raceDate,
+                targetTime: currentGoals.targetTime,
+                daysToRace: currentGoals.daysToRace,
+                location: currentGoals.location
+            },
+            profile: {
+                weeklyMileage: profile.raceHistory.currentWeeklyMileage,
+                trainingDays: profile.trainingStructure.preferredDays,
+                intensityPreference: profile.trainingStructure.intensityPreference
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fetching current goals:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch goals',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET active training plan
+ * GET /api/race-goals/plan/current
+ */
+app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Get current active plan
+        const planDoc = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('isActive', '==', true)
+            .limit(1)
+            .get();
+        
+        if (planDoc.empty) {
+            return res.status(404).json({
+                success: false,
+                message: 'No active training plan found'
+            });
+        }
+        
+        const plan = planDoc.docs[0].data();
+        
+        res.json({
+            success: true,
+            planId: planDoc.docs[0].id,
+            planType: plan.planType,
+            coachType: plan.planData?.coachType || 'race',
+            createdAt: plan.createdAt,
+            data: plan.planData,
+            progress: {
+                weeksElapsed: calculateWeeksElapsed(plan.createdAt),
+                totalWeeks: getTotalWeeks(plan.planData)
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fetching current plan:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch training plan',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET plan history
+ * GET /api/race-goals/plans/history?limit=10
+ */
+app.get('/api/race-goals/plans/history', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const limit = parseInt(req.query.limit) || 10;
+        
+        const plansSnapshot = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .limit(limit)
+            .get();
+        
+        if (plansSnapshot.empty) {
+            return res.json({
+                success: true,
+                totalPlans: 0,
+                plans: []
+            });
+        }
+        
+        const plans = plansSnapshot.docs.map(doc => ({
+            id: doc.id,
+            planType: doc.data().planType,
+            isActive: doc.data().isActive,
+            createdAt: doc.data().createdAt,
+            reason: doc.data().reason || 'Initial plan',
+            goals: doc.data().newGoals || doc.data().previousGoals
+        }));
+        
+        res.json({
+            success: true,
+            totalPlans: plans.length,
+            plans: plans
+        });
+        
+    } catch (error) {
+        console.error('Error fetching plan history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch plan history',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET plan details
+ * GET /api/race-goals/plan/:planId
+ */
+app.get('/api/race-goals/plan/:planId', authenticateToken, async (req, res) => {
+    try {
+        const { planId } = req.params;
+        const userId = req.user.userId;
+        
+        // Verify ownership
+        const planDoc = await db.collection('trainingplans').doc(planId).get();
+        
+        if (!planDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Plan not found'
+            });
+        }
+        
+        if (planDoc.data().userId !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized'
+            });
+        }
+        
+        const plan = planDoc.data();
+        
+        res.json({
+            success: true,
+            id: planId,
+            planType: plan.planType,
+            planData: plan.planData,
+            createdAt: plan.createdAt,
+            isActive: plan.isActive,
+            details: {
+                previousGoals: plan.previousGoals || null,
+                newGoals: plan.newGoals || null,
+                reason: plan.reason || 'Initial plan'
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fetching plan details:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch plan',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET goals comparison (current vs what they could be)
+ * GET /api/race-goals/comparison?targetDistance=42.2&targetDate=2025-12-15
+ */
+app.get('/api/race-goals/comparison', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetDistance, targetDate, targetTime } = req.query;
+        
+        // Get current profile
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        
+        if (!profileDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'AI profile not found'
+            });
+        }
+        
+        const profile = profileDoc.data();
+        const currentGoals = profile.raceHistory.targetRace;
+        
+        // Calculate new values
+        const newDaysToRace = targetDate ? calculateDaysToRace(targetDate) : currentGoals.daysToRace;
+        const newDistance = targetDistance ? parseFloat(targetDistance) : currentGoals.distance;
+        
+        // Calculate implications
+        const implications = {
+            daysChange: newDaysToRace - currentGoals.daysToRace,
+            distanceChange: newDistance - currentGoals.distance,
+            weeksDifference: Math.floor(newDaysToRace / 7) - Math.floor(currentGoals.daysToRace / 7)
+        };
+        
+        // Determine impact
+        let impactLevel = 'SIMILAR';
+        if (implications.daysChange < -30) {
+            impactLevel = 'AGGRESSIVE';
+        } else if (implications.daysChange > 30) {
+            impactLevel = 'RELAXED';
+        }
+        
+        res.json({
+            success: true,
+            comparison: {
+                current: {
+                    distance: currentGoals.distance,
+                    date: currentGoals.raceDate,
+                    daysToRace: currentGoals.daysToRace,
+                    time: currentGoals.targetTime
+                },
+                proposed: {
+                    distance: newDistance,
+                    date: targetDate || currentGoals.raceDate,
+                    daysToRace: newDaysToRace,
+                    time: targetTime || currentGoals.targetTime
+                },
+                implications: implications,
+                impactLevel: impactLevel,
+                recommendation: generateComparisonRecommendation(implications, profile)
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fetching comparison:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch comparison',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET goals summary for dashboard
+ * GET /api/race-goals/summary
+ */
+app.get('/api/race-goals/summary', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Get current goals
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        if (!profileDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'No profile'
+            });
+        }
+        
+        const profile = profileDoc.data();
+        const goals = profile.raceHistory.targetRace;
+        
+        // Get current plan
+        const planDoc = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('isActive', '==', true)
+            .limit(1)
+            .get();
+        
+        const summary = {
+            raceGoal: {
+                distance: goals.distance,
+                date: goals.raceDate,
+                daysRemaining: goals.daysToRace,
+                targetTime: goals.targetTime,
+                location: goals.location
+            },
+            currentTraining: {
+                weeklyMileage: profile.raceHistory.currentWeeklyMileage,
+                trainingDays: profile.trainingStructure.preferredDays.length,
+                coachType: planDoc.empty ? 'none' : planDoc.docs[0].data().planType,
+                planCreated: planDoc.empty ? null : planDoc.docs[0].data().createdAt
+            },
+            personalBest: {
+                distance: profile.raceHistory.recentPB.distance,
+                time: profile.raceHistory.recentPB.time,
+                pace: profile.raceHistory.recentPB.pace,
+                date: profile.raceHistory.recentPB.date
+            },
+            statistics: {
+                weeksToPeak: Math.floor(goals.daysToRace / 7),
+                estimatedPeakMileage: Math.round(profile.raceHistory.currentWeeklyMileage * 1.2),
+                recoveryFocus: profile.trainingStructure.intensityPreference
+            }
+        };
+        
+        res.json({
+            success: true,
+            summary: summary
+        });
+        
+    } catch (error) {
+        console.error('Error fetching summary:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch summary',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET goals with previous versions
+ * GET /api/race-goals/timeline
+ */
+app.get('/api/race-goals/timeline', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Get all plans in chronological order
+        const plansSnapshot = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        if (plansSnapshot.empty) {
+            return res.json({
+                success: true,
+                timeline: [],
+                message: 'No training history'
+            });
+        }
+        
+        const timeline = plansSnapshot.docs.map((doc, index) => ({
+            version: index + 1,
+            date: doc.data().createdAt,
+            goals: doc.data().newGoals || doc.data().previousGoals,
+            reason: doc.data().reason || 'Initial plan',
+            isActive: doc.data().isActive,
+            planType: doc.data().planType
+        }));
+        
+        res.json({
+            success: true,
+            totalVersions: timeline.length,
+            timeline: timeline
+        });
+        
+    } catch (error) {
+        console.error('Error fetching timeline:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch timeline',
+            error: error.message
+        });
+    }
+});
+
+// ==================== HELPER FUNCTIONS ====================
+
+function calculateWeeksElapsed(createdAt) {
+    const now = new Date();
+    const created = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+    const diffMs = now - created;
+    return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
+function getTotalWeeks(planData) {
+    return planData?.weeklyPlans?.length || 16;
+}
+
+/**
+ * Calculate days until race date
+ * ✅ Handles past dates (returns 0)
+ * ✅ Rounds up for accuracy (partial days = full day)
+ * ✅ Works with string and Date inputs
+ */
+function calculateDaysToRace(targetDate) {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);  // Reset time to midnight (accurate day calculation)
+        
+        const race = new Date(targetDate);
+        race.setHours(0, 0, 0, 0);   // Reset time to midnight
+        
+        const diffTime = race - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        return diffDays > 0 ? diffDays : 0;  // Never negative
+    } catch (error) {
+        console.error('Invalid date:', error);
+        return 0;  // Safe fallback
+    }
+}
+
+function generateComparisonRecommendation(implications, profile) {
+    if (implications.daysChange < -30) {
+        return '🚨 Warning: Very aggressive timeline. Consider gradual increases.';
+    } else if (implications.daysChange < 0) {
+        return '⚠️ Shorter timeline. We\'ll intensify training carefully.';
+    } else if (implications.daysChange > 60) {
+        return '✅ More time available. Focus on aerobic base building.';
+    } else {
+        return '⚖️ Similar timeline. Minor plan adjustments.';
+    }
+}
+
 
 
 // ============================================
@@ -5158,41 +5899,39 @@ app.get('/ai-onboarding-active', authenticateToken, (req, res) => {
 // Helper functions for AI onboarding
 
 
-function calculateDaysToRace(raceDate) {
-    const today = new Date();
-    const race = new Date(raceDate);
-    const diffTime = race - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
-}
-
 // ==================== TRAINING PLAN GENERATION ====================
 
 /**
  * Main function to generate initial training plan with AI + fallback
  * PRODUCTION READY
+/**
+ * RACE COACH PLAN GENERATOR
+ * Optimized for periodization, peak performance, race strategy
  */
-async function generateInitialTrainingPlan(profile) {
+async function generateRaceCoachPlan(profile) {
     try {
-        console.log('🤖 Generating AI training plan for:', profile.personalProfile.email);
+        console.log('🤖 Generating RACE COACH plan for:', profile.personalProfile.email);
         
-        const prompt = `Create a personalized training plan for:
+        const daysToRace = profile.raceHistory.targetRace.daysToRace;
         
+        const prompt = `Create an advanced race-focused periodized training plan:
+
 Profile:
 - Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
 - Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
-- Target race: ${profile.raceHistory.targetRace.distance} in ${profile.raceHistory.targetRace.daysToRace} days
-- Preferred intensity: ${profile.trainingStructure.intensityPreference}
-- Training days: ${profile.trainingStructure.preferredDays?.join(', ') || 'Not specified'}
-- Injuries: ${profile.personalProfile.injuries?.join(', ') || 'None'}
+- Target race: ${profile.raceHistory.targetRace.distance} in ${daysToRace} days
+- Target time: ${profile.raceHistory.targetRace.targetTime || 'Personal best attempt'}
+- Training days: ${profile.trainingStructure.preferredDays?.join(', ')}
+- Recent PB: ${profile.raceHistory.recentPB?.distance} in ${profile.raceHistory.recentPB?.time || 'N/A'}
 
-Generate a 4-week training block with:
-1. Weekly structure with specific daily workouts
-2. Progression plan
-3. Recovery recommendations
-4. Intensity distribution
+Create a ${Math.min(16, Math.floor(daysToRace / 7))}-week plan with:
+1. PERIODIZATION: Build → Intensity → Peak → Taper phases
+2. Race-specific workouts (tempo, intervals, threshold)
+3. Strategic mileage progression
+4. HRV-based recovery guidance
+5. Race day strategy
 
-Format as JSON with: { weeks: [], totalDistance: number, intensityBreakdown: {}, notes: string }`;
+Format as JSON with detailed weekly breakdowns.`;
         
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -5201,127 +5940,158 @@ Format as JSON with: { weeks: [], totalDistance: number, intensityBreakdown: {},
         const response = await result.response;
         const planText = response.text();
         
-        // Try to parse JSON, fallback to structured text
         let trainingPlan;
         try {
-            trainingPlan = JSON.parse(planText);
-            trainingPlan.type = 'ai_generated';
+            const cleanedText = planText.replace(/``````/g, '').trim();
+            trainingPlan = JSON.parse(cleanedText);
+            trainingPlan.type = 'ai_generated_race';
         } catch (e) {
-            console.warn('⚠️ Could not parse AI response as JSON, storing as text');
             trainingPlan = {
                 type: 'ai_text',
-                content: planText,
-                generatedAt: new Date()
+                content: planText
             };
         }
         
-        console.log('✅ AI training plan generated successfully');
+        console.log('✅ AI RACE COACH plan generated');
         return {
             ...trainingPlan,
-            source: 'ai_gemini',
-            generatedAt: new Date().toISOString(),
-            version: 'v1'
+            coachType: 'race',
+            source: 'ai_gemini_race',
+            generatedAt: new Date().toISOString()
         };
         
     } catch (error) {
-        console.error('❌ AI plan generation failed:', error.message);
-        
-        // Graceful fallback to template-based plan
-        console.log('📋 Falling back to template-based plan...');
+        console.error('❌ Race coach plan generation failed:', error.message);
         return {
             type: 'template_fallback',
-            source: 'fallback_template',
-            plan: generateFallbackPlan(profile),
+            coachType: 'race',
+            source: 'fallback_template_race',
+            plan: generateRaceFallbackPlan(profile),
             fallbackReason: error.message,
-            generatedAt: new Date().toISOString(),
-            version: 'v1'
+            generatedAt: new Date().toISOString()
         };
     }
 }
 
 /**
- * Fallback plan generator - runs when AI fails or is unavailable
- * Provides a solid template-based plan based on user preferences
- * PRODUCTION READY
+ * BASIC COACH PLAN GENERATOR
+ * Optimized for habit formation, consistency, beginner-friendly
  */
-function generateFallbackPlan(profile) {
+async function generateBasicCoachPlan(profile) {
     try {
-        const daysPerWeek = profile.trainingStructure.daysPerWeek || 4;
-        const currentMileage = profile.raceHistory.currentWeeklyMileage || 20;
-        const daysToRace = profile.raceHistory.targetRace.daysToRace || 84;
-        const preferredDays = profile.trainingStructure.preferredDays || ['Monday', 'Tuesday', 'Thursday', 'Saturday'];
+        console.log('🤖 Generating BASIC COACH plan for:', profile.personalProfile.email);
         
-        const weeks = Math.min(Math.floor(daysToRace / 7), 16);
-        const progressionRate = 0.10; // 10% weekly increase
+        const prompt = `Create a beginner-friendly running plan focused on HABIT FORMATION:
+
+Profile:
+- Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
+- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
+- Training days per week: ${profile.trainingStructure.daysPerWeek}
+- Preferred days: ${profile.trainingStructure.preferredDays?.join(', ')}
+
+Focus on:
+1. Building running habits (consistency over intensity)
+2. Sustainable easy paces
+3. Gradual progression (max 5-10% weekly increase)
+4. Making running enjoyable
+5. Recovery emphasis
+
+Create a 4-week plan emphasizing CONSISTENCY with daily structure, motivation tips.
+Format as JSON.`;
         
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const planText = response.text();
+        
+        let trainingPlan;
+        try {
+            const cleanedText = planText.replace(/``````/g, '').trim();
+            trainingPlan = JSON.parse(cleanedText);
+            trainingPlan.type = 'ai_generated_basic';
+        } catch (e) {
+            trainingPlan = {
+                type: 'ai_text',
+                content: planText
+            };
+        }
+        
+        console.log('✅ AI BASIC COACH plan generated');
         return {
-            planType: 'template_based',
-            totalWeeks: weeks,
-            progressionRate: `${progressionRate * 100}% weekly increase`,
-            
-            weeklyStructure: {
-                totalDays: daysPerWeek,
-                baseWeeklyMileage: currentMileage,
-                easyRuns: Math.max(1, daysPerWeek - 2),
-                hardWorkouts: Math.min(2, daysPerWeek - 1),
-                longRun: daysPerWeek >= 4 ? 1 : 0,
-                recoveryDays: 7 - daysPerWeek
-            },
-            
-            workoutDistribution: preferredDays.map((day, idx) => {
-                const isLongRunDay = idx === preferredDays.length - 1;
-                const isTempo = idx % 2 === 0 && idx !== preferredDays.length - 1;
-                
-                return {
-                    day: day,
-                    type: isLongRunDay ? 'long_run' : (isTempo ? 'tempo' : 'easy'),
-                    distancePercentage: isLongRunDay 
-                        ? 0.40 
-                        : (1 - 0.40) / Math.max(1, daysPerWeek - 1),
-                    intensity: isLongRunDay ? 'easy' : (isTempo ? 'moderate' : 'easy'),
-                    notes: isLongRunDay 
-                        ? 'Build aerobic base' 
-                        : (isTempo ? 'Improve lactate threshold' : 'Easy recovery run')
-                };
-            }),
-            
-            raceTarget: {
-                distance: profile.raceHistory.targetRace.distance,
-                targetDate: profile.raceHistory.targetRace.raceDate,
-                targetTime: profile.raceHistory.targetRace.targetTime || 'N/A'
-            },
-            
-            progressionPlan: {
-                weeks_1_4: 'Build base fitness - moderate increase',
-                weeks_5_8: 'Increase intensity - tempo work',
-                weeks_9_12: 'Peak training - high volume + intensity',
-                weeks_13_16: 'Taper - reduce volume, maintain intensity'
-            },
-            
-            recoveryRecommendations: [
-                'Complete rest on non-running days',
-                `Sleep ${8 + (daysPerWeek > 4 ? 1 : 0)} hours per night`,
-                'Nutrition: 1.2-1.6g protein per kg body weight',
-                'Hydration: 2-3L water daily minimum',
-                'Foam rolling or massage: 2-3x per week'
-            ],
-            
-            notes: 'Template-based personalized plan. Adjust based on how you feel. Prioritize sleep and nutrition.',
-            disclaimer: 'This is a general template. Monitor for overtraining and adjust intensity as needed.'
+            ...trainingPlan,
+            coachType: 'basic',
+            source: 'ai_gemini_basic',
+            generatedAt: new Date().toISOString()
         };
-    } catch (error) {
-        console.error('⚠️ Error in fallback plan generation:', error);
         
-        // Ultra-safe fallback
+    } catch (error) {
+        console.error('❌ Basic coach plan generation failed:', error.message);
         return {
-            planType: 'emergency_template',
-            weeks: 12,
-            recommendation: 'Contact support - plan generation encountered an error',
-            basicGuidance: 'Run 3-4x per week, include 1 long run, mix easy and moderate paces',
-            error: error.message
+            type: 'template_fallback',
+            coachType: 'basic',
+            source: 'fallback_template_basic',
+            plan: generateBasicFallbackPlan(profile),
+            fallbackReason: error.message,
+            generatedAt: new Date().toISOString()
         };
     }
 }
+
+/**
+ * RACE FALLBACK: Safe template if AI fails
+ */
+function generateRaceFallbackPlan(profile) {
+    const daysToRace = profile.raceHistory.targetRace.daysToRace;
+    const totalWeeks = Math.min(16, Math.floor(daysToRace / 7));
+    
+    return {
+        planType: 'race_template',
+        totalWeeks,
+        phases: {
+            building: Math.floor(totalWeeks * 0.40),
+            intensity: Math.floor(totalWeeks * 0.35),
+            peak: Math.floor(totalWeeks * 0.15),
+            taper: totalWeeks - Math.floor(totalWeeks * 0.40) - Math.floor(totalWeeks * 0.35) - Math.floor(totalWeeks * 0.15)
+        },
+        notes: 'Periodized approach: Build → Intensity → Peak → Taper'
+    };
+}
+
+/**
+ * BASIC FALLBACK: Safe template if AI fails
+ */
+function generateBasicFallbackPlan(profile) {
+    const daysPerWeek = profile.trainingStructure.daysPerWeek || 3;
+    
+    return {
+        planType: 'basic_template',
+        weeklyStructure: {
+            totalDays: daysPerWeek,
+            easyRuns: daysPerWeek - 1,
+            moderateRun: 1,
+            restDays: 7 - daysPerWeek
+        },
+        notes: 'Start easy, focus on showing up, enjoy the process'
+    };
+}
+
+/**
+ * FACTORY FUNCTION: Route to correct generator based on plan type
+ */
+async function generateInitialTrainingPlan(profile, planType = 'race') {
+    console.log(`🎯 Routing to ${planType} coach plan generator...`);
+    
+    if (planType === 'basic') {
+        return generateBasicCoachPlan(profile);
+    } else if (planType === 'race') {
+        return generateRaceCoachPlan(profile);
+    } else {
+        throw new Error(`Unknown plan type: ${planType}`);
+    }
+}
+
 
 /**
  * Helper: Get training intensity preference as string
@@ -10391,263 +11161,6 @@ app.post('/api/coaching/whatsapp',
     }
 );
 
-// Race planning (paid feature)
-app.post('/api/planning/race', 
-    authenticateToken, 
-    requirePlan(['basic', 'race']), 
-    async (req, res) => {
-        try {
-            const { raceData, goals } = req.body;
-            const racePlan = await generateRacePlan(req.user.userId, raceData, goals);
-            
-            try {
-                await db.collection('feature_usage').add({
-                    userId: userId,
-                    feature: 'hrv-coaching',
-                    timestamp: new Date(),
-                    data: {
-                        hrvValue: hrvData?.value,
-                        coachingType: coaching.intensity
-                    }
-                });
-            } catch (logError) {
-                console.warn('Failed to log usage:', logError.message);
-            }
-
-            res.json({
-                success: true,
-                plan: racePlan
-            });
-        } catch (error) {
-            console.error('Race planning error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Race plan generation failed'
-            });
-        }
-    }
-);
-
-// AI ONBOARDING - Save profile and generate training plan
-app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const onboardingData = req.body;
-        
-        console.log('🔧 Saving AI onboarding data for user:', userId);
-        console.log('📋 Onboarding data received:', Object.keys(onboardingData));
-        
-        // Save AI profile to Firestore
-        const aiProfile = {
-            userId: userId,
-            personalProfile: {
-                age: parseInt(onboardingData.age),
-                gender: onboardingData.gender,
-                height: parseInt(onboardingData.height),
-                weight: parseFloat(onboardingData.weight),
-                injuries: onboardingData.injuries || []
-            },
-            raceHistory: {
-                recentPB: {
-                    distance: onboardingData.pbdistance,
-                    time: onboardingData.pbtime,
-                    date: onboardingData.pbdate,
-                    location: onboardingData.pblocation
-                },
-                targetRace: {
-                    distance: onboardingData.targetdistance,
-                    date: onboardingData.targetdate,
-                    targetTime: onboardingData.targettime,
-                    location: onboardingData.targetlocation
-                },
-                currentWeeklyMileage: parseInt(onboardingData.weeklymileage)
-            },
-            recovery: {
-                restingHR: parseInt(onboardingData.restinghr) || null,
-                hrvBaseline: parseInt(onboardingData.hrvbaseline) || null,
-                sleepQuality: parseInt(onboardingData.sleepquality) || 7,
-                devices: onboardingData.devices || []
-            },
-            trainingStructure: {
-                preferredDays: onboardingData.runningdays || [],
-                intensityPreference: onboardingData.intensitypreference,
-                constraints: onboardingData.constraints || ''
-            },
-            location: {
-                homeLocation: onboardingData.homelocation,
-                raceLocationWeather: onboardingData.racelocationweather || null
-            },
-            stravaConnected: onboardingData.stravaConnected || false,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        };
-        
-        // Save to Firestore
-        const profileRef = await db.collection('aiprofiles').add(aiProfile);
-        console.log('✅ AI profile saved:', profileRef.id);
-        
-        // Update user record
-        await userManager.updateUser(userId, {
-            aiOnboardingCompleted: true,
-            aiProfileId: profileRef.id,
-            updatedAt: new Date()
-        });
-        
-        // Generate AI training plan
-        console.log('🤖 Generating AI training plan...');
-        const trainingPlan = await generateTrainingPlan(aiProfile);
-        
-        // Save training plan
-        const planRef = await db.collection('trainingplans').add({
-            userId: userId,
-            profileId: profileRef.id,
-            ...trainingPlan,
-            createdAt: new Date(),
-            status: 'active'
-        });
-        
-        console.log('✅ Training plan saved:', planRef.id);
-        
-        res.json({
-            success: true,
-            message: 'AI onboarding completed successfully',
-            profileId: profileRef.id,
-            planId: planRef.id,
-            userId: userId
-        });
-        
-    } catch (error) {
-        console.error('❌ AI onboarding error:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Failed to complete AI onboarding'
-        });
-    }
-});
-
-// Generate training plan using Gemini AI
-async function generateTrainingPlan(profile) {
-    try {
-        // Calculate days to race
-        const raceDate = new Date(profile.raceHistory.targetRace.date);
-        const today = new Date();
-        const daysToRace = Math.floor((raceDate - today) / (1000 * 60 * 60 * 24));
-        
-        console.log(`📅 Race in ${daysToRace} days`);
-        
-        // If Gemini API key exists, use AI
-        if (process.env.GEMINI_API_KEY) {
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-            
-            const prompt = `Create a personalized running training plan:
-            
-Profile:
-- Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
-- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
-- Target race: ${profile.raceHistory.targetRace.distance} in ${daysToRace} days
-- Recent PB: ${profile.raceHistory.recentPB.distance} in ${profile.raceHistory.recentPB.time}
-- Training days: ${profile.trainingStructure.preferredDays.join(', ')}
-- Intensity preference: ${profile.trainingStructure.intensityPreference}
-- Resting HR: ${profile.recovery.restingHR || 'unknown'} bpm
-
-Generate a 4-week training block with:
-1. Weekly structure (total km, easy runs, workouts, long run)
-2. Daily breakdown for each training day
-3. Progression plan
-4. Recovery recommendations
-
-Format as JSON with structure:
-{
-  "weeklyPlans": [
-    {
-      "week": 1,
-      "totalDistance": 30,
-      "days": [
-        {"day": "Monday", "type": "Easy Run", "distance": 5, "pace": "5:30-6:00/km", "notes": "Focus on easy effort"}
-      ]
-    }
-  ],
-  "progression": "...",
-  "recoveryGuidance": "..."
-}`;
-
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
-            
-            // Parse JSON from response
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const plan = JSON.parse(jsonMatch[0]);
-                console.log('✅ AI plan generated via Gemini');
-                return {
-                    type: 'ai-generated',
-                    source: 'gemini',
-                    ...plan
-                };
-            }
-        }
-        
-        // Fallback template plan
-        console.log('⚠️ Using template plan (no Gemini API key)');
-        return generateTemplatePlan(profile, daysToRace);
-        
-    } catch (error) {
-        console.error('⚠️ AI generation failed, using template:', error.message);
-        const raceDate = new Date(profile.raceHistory.targetRace.date);
-        const daysToRace = Math.floor((raceDate - new Date()) / (1000 * 60 * 60 * 24));
-        return generateTemplatePlan(profile, daysToRace);
-    }
-}
-
-// Template plan fallback
-function generateTemplatePlan(profile, daysToRace) {
-    const baseMileage = profile.raceHistory.currentWeeklyMileage;
-    const trainingDays = profile.trainingStructure.preferredDays.length;
-    
-    return {
-        type: 'template',
-        weeklyPlans: [
-            {
-                week: 1,
-                totalDistance: baseMileage,
-                days: generateWeekDays(profile, baseMileage, 1)
-            },
-            {
-                week: 2,
-                totalDistance: Math.round(baseMileage * 1.1),
-                days: generateWeekDays(profile, Math.round(baseMileage * 1.1), 2)
-            },
-            {
-                week: 3,
-                totalDistance: Math.round(baseMileage * 1.15),
-                days: generateWeekDays(profile, Math.round(baseMileage * 1.15), 3)
-            },
-            {
-                week: 4,
-                totalDistance: Math.round(baseMileage * 0.8),
-                days: generateWeekDays(profile, Math.round(baseMileage * 0.8), 4)
-            }
-        ],
-        progression: '10% weekly increase, with deload every 4th week',
-        recoveryGuidance: 'Monitor HRV, take rest days seriously, prioritize sleep'
-    };
-}
-
-function generateWeekDays(profile, weeklyDistance, weekNumber) {
-    const days = profile.trainingStructure.preferredDays;
-    const distancePerDay = Math.floor(weeklyDistance / days.length);
-    
-    return days.map((day, index) => ({
-        day: day.charAt(0).toUpperCase() + day.slice(1),
-        type: index === days.length - 1 ? 'Long Run' : (index % 2 === 0 ? 'Easy Run' : 'Tempo Run'),
-        distance: index === days.length - 1 ? Math.round(distancePerDay * 1.5) : distancePerDay,
-        pace: '5:30-6:00/km',
-        notes: `Week ${weekNumber} - ${index === days.length - 1 ? 'Build endurance' : 'Moderate effort'}`
-    }));
-}
 
 const USER_FEATURE_MAP = {
     'strava_connect': ['free', 'premium'],

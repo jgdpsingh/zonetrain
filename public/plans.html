@@ -680,8 +680,8 @@
             let raceFinal = Math.round(racePrice);
             
             if (promoActive) {
-                fitFinal = Math.round(fitPrice * 0.5-1);
-                raceFinal = Math.round(racePrice * 0.5-1);
+                fitFinal = Math.round(fitPrice * 0.5)-1;
+                raceFinal = Math.round(racePrice * 0.5)-1;
             }
             
             document.getElementById('fit-price').textContent = '₹' + fitFinal;
@@ -777,7 +777,7 @@
         async function purchase(plan) {
             const promo = sessionStorage.getItem('promoCode');
             const price = PRICES[plan][currentCycle];
-            const amount = promoActive ? Math.round(price * 0.5-1) : Math.round(price);
+            const amount = promoActive ? Math.round(price * 0.5)-1 : Math.round(price);
             
             if (typeof window.purchaseSubscriptionWithPromo === 'function') {
                 await window.purchaseSubscriptionWithPromo(plan, currentCycle, amount, promo);

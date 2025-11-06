@@ -256,8 +256,8 @@ function updatePlanPrices() {
     
     if (promoDiscount > 0) {
         // WITH PROMO - Apply 50% discount
-        basicFinal = Math.round(basicCyclePrice * 0.5-1); // 50% of cycle price
-        raceFinal = Math.round(raceCyclePrice * 0.5-1);
+        basicFinal = Math.round(basicCyclePrice * 0.5)-1; // 50% of cycle price
+        raceFinal = Math.round(raceCyclePrice * 0.5)-1;
         console.log('✅ With Promo:', { basicFinal, raceFinal });
     } else {
         // NO PROMO - Use full cycle price
