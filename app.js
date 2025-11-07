@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 // AI SERVICE INTEGRATION - Add after your existing requires
@@ -18,6 +19,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
 const db = admin.firestore();
+const FileStore = require('session-file-store')(session);
 const axios = require('axios');
 const path = require('path');
 const bcrypt = require('bcrypt');
@@ -116,7 +118,13 @@ cron.schedule('0 * * * *', async () => {
 });
 
 console.log('✅ Scheduled job initialized: Unverified user cleanup runs every hour');
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/components', express.static(path.join(__dirname, 'public/components')));
 
+const compression = require('compression');
+app.use(compression());
 
 // Trust proxy - Required for rate limiting behind reverse proxies
 app.set('trust proxy', 1);
@@ -246,25 +254,24 @@ app.use(cors({
 
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/components', express.static(path.join(__dirname, 'public/components')));
 
-const compression = require('compression');
-app.use(compression());
 
 // Session configuration - PRODUCTION READY with Firebase Firestore
-// Session configuration - using built-in memory store
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-session-secret-key-zonetrain-2025',
+  store: new FileStore({
+    path: path.join(__dirname, 'sessions'), // Stored in your app directory
+    ttl: 24 * 60 * 60, // 24 hours
+    retries: 5,
+    reapInterval: 60 * 60 // Clean up every hour
+  }),
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // true only with HTTPS in prod
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: 'strict',
-    maxAge: 24 * 60 * 60 * 1000  // 24 hours
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
@@ -1821,6 +1828,7 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // Login form handler
+// In your login.html <script> section - IMPROVED VERSION
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -1836,58 +1844,71 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
     };
 
     try {
+        console.log('🔄 Login attempt for:', loginData.email);
+        
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json' 
             },
+            credentials: 'include', // ✅ CRITICAL: Include cookies in request/response
             body: JSON.stringify(loginData)
         });
 
         const result = await response.json();
+        console.log('✅ Login response received:', result.success);
 
         if (result.success) {
-            // Store user data
-            localStorage.setItem('userToken', result.token);
-            localStorage.setItem('userId', result.user.id);
-            localStorage.setItem('userEmail', result.user.email);
-            localStorage.setItem('userType', result.userType);
-            localStorage.setItem('userInfo', JSON.stringify(result.user));
+            // ✅ Save all user data to localStorage
+            if (result.token) {
+                console.log('💾 Saving token to localStorage');
+                localStorage.setItem('userToken', result.token);
+                localStorage.setItem('userId', result.user.id);
+                localStorage.setItem('userEmail', result.user.email);
+                localStorage.setItem('userType', result.userType);
+                localStorage.setItem('subscriptionStatus', result.user.subscriptionStatus || 'free');
+                localStorage.setItem('currentPlan', result.user.currentPlan || 'free');
+                localStorage.setItem('userInfo', JSON.stringify(result.user));
+                console.log('✅ Token saved. Expires in:', result.token.split('.')[0]); // Debug
+            }
 
-            // Check if email verification is required
+            // Email verification check
             if (result.requiresVerification) {
                 console.log('⚠️ Email verification required');
                 
                 let warningMessage = result.message || 'Please verify your email address.';
                 
-                // Add countdown warning based on hours remaining
                 if (result.hoursRemaining !== undefined) {
                     if (result.hoursRemaining === 0) {
                         warningMessage = '🚨 URGENT: Your account will be blocked soon! Verify your email immediately.';
                     } else if (result.hoursRemaining < 2) {
-                        warningMessage = "⚠️ URGENT: Only " + result.hoursRemaining + " hour(s) left to verify your email! Your account will be blocked if not verified.";
+                        warningMessage = "⚠️ URGENT: Only " + result.hoursRemaining + " hour(s) left to verify your email!";
                     } else {
-                        warningMessage = "⏰ Please verify your email within " + result.hoursRemaining + " hours to keep your account active.";
+                        warningMessage = "⏰ Please verify your email within " + result.hoursRemaining + " hours.";
                     }
                 }
                 
-                // Show warning and redirect
                 showMessage(warningMessage, 'urgent');
                 
                 setTimeout(function() {
+                    console.log('🔄 Redirecting to verify email...');
                     window.location.href = result.redirect || '/dashboard?verify=required';
                 }, 2000);
                 
                 return;
             }
 
-            // Email verified - proceed with normal login
+            // ✅ Verified email - normal login
             const urlParams = new URLSearchParams(window.location.search);
             const redirectParam = urlParams.get('redirect');
 
             showMessage('✅ Welcome back! Redirecting...', 'success');
 
             setTimeout(function() {
+                console.log('🔄 Login complete, redirecting...');
+                // Clear URL params to prevent loops
+                window.history.replaceState({}, document.title, '/login');
+                
                 if (redirectParam === 'plans') {
                     window.location.href = '/plans.html';
                 } else {
@@ -1896,36 +1917,32 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             }, 1000);
             
         } else if (result.blocked) {
-            // Account is blocked
             console.error('🚫 Account blocked:', result.message);
-            
-            const blockedMessage = '🚫 Account Blocked: ' + result.message + ' ' + (result.help || 'Please contact support for assistance.');
-            showMessage(blockedMessage, 'error');
-            
-            submitButton.disabled = false;
-            submitButton.textContent = originalText;
+            showMessage('🚫 Account Blocked: ' + result.message, 'error');
             
         } else {
-            // Login failed
+            console.error('❌ Login failed:', result.message);
             showMessage(result.message || 'Login failed. Please check your credentials.', 'error');
-            submitButton.disabled = false;
-            submitButton.textContent = originalText;
         }
         
     } catch (error) {
-        console.error('Login error:', error);
-        showMessage('❌ Login failed. Please try again.', 'error');
+        console.error('❌ Login error:', error);
+        showMessage('❌ Login failed. Please try again: ' + error.message, 'error');
+        
+    } finally {
         submitButton.disabled = false;
         submitButton.textContent = originalText;
     }
 });
 
-// Enhanced message display function
+// Enhanced message display
 function showMessage(message, type) {
     const errorDiv = document.getElementById('errorMessage');
     errorDiv.textContent = message;
     errorDiv.className = 'error-message ' + type;
     errorDiv.style.display = 'block';
+    
+    console.log('📢 Message:', type.toUpperCase(), message);
     
     // Auto-hide only success messages
     if (type === 'success') {
@@ -1934,6 +1951,7 @@ function showMessage(message, type) {
         }, 3000);
     }
 }
+
     </script>
 
     <!-- Cookie Banner -->
@@ -2304,126 +2322,122 @@ app.get('/signup', apiLimiter, (req, res) => {
         }
     })();
 
-    document.getElementById('signupForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
+    
+document.getElementById('signupForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const password = formData.get('password');
+    const confirmPassword = formData.get('confirmPassword');
+    
+    if (password !== confirmPassword) {
+        showError('Passwords do not match');
+        return;
+    }
+    
+    if (!isValidPassword(password)) {
+        showError('Password must be at least 8 characters with uppercase, lowercase, and number');
+        return;
+    }
+    
+    const signupData = {
+        firstName: formData.get('firstName'),
+        lastName: formData.get('lastName'),
+        email: formData.get('email'),
+        phoneNumber: formData.get('phoneNumber') || null,
+        password: password,
+        provider: 'email'
+    };
+    
+    const submitButton = document.querySelector('#signupForm button[type="submit"]');
+    const originalButtonText = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = 'Creating account...';
+    
+    try {
+        console.log('📝 Attempting signup for:', signupData.email);
         
-        const formData = new FormData(e.target);
-        const password = formData.get('password');
-        const confirmPassword = formData.get('confirmPassword');
+        const response = await fetch('/api/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', // ✅ CRITICAL: Include cookies
+            body: JSON.stringify(signupData)
+        });
         
-        if (password !== confirmPassword) {
-            showError('Passwords do not match');
-            return;
-        }
+        const result = await response.json();
+        console.log('✅ Signup response:', result.success);
         
-        if (!isValidPassword(password)) {
-            showError('Password must be at least 8 characters with uppercase, lowercase, and number');
-            return;
-        }
-        
-        const signupData = {
-            firstName: formData.get('firstName'),
-            lastName: formData.get('lastName'),
-            email: formData.get('email'),
-            phoneNumber: formData.get('phoneNumber') || null,
-            password: password,
-            provider: 'email'
-        };
-        
-        const submitButton = document.querySelector('#signupForm button[type="submit"]');
-        const originalButtonText = submitButton.textContent;
-        submitButton.disabled = true;
-        submitButton.textContent = 'Creating account...';
-        
-        try {
-            console.log('📝 Attempting signup for:', signupData.email);
+        if (result.success) {
+            console.log('✅ Signup successful');
             
-            const response = await fetch('/api/signup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(signupData)
-            });
+            // ✅ Save token and user data
+            localStorage.setItem('userEmail', signupData.email);
+            localStorage.setItem('userName', signupData.firstName);
+            localStorage.setItem('userToken', result.token);
+            localStorage.setItem('userId', result.user.id);
+            localStorage.setItem('subscriptionStatus', result.user.subscriptionStatus || 'free');
             
-            const result = await response.json();
-            console.log('Response:', result);
-            
-            if (result.success) {
-                console.log('✅ Signup successful');
-                
-                localStorage.setItem('userEmail', signupData.email);
-                localStorage.setItem('userName', signupData.firstName);
-                localStorage.setItem('userToken', result.token);
-                localStorage.setItem('userId', result.user.id);
-                
-                if (result.emailVerificationSent) {
-                    showSuccess('Account created! Check your email (' + signupData.email + ') to verify your account. Redirecting...');
-                } else {
-                    showSuccess('Account created successfully! Redirecting...');
-                }
-                
-                setTimeout(() => {
-                    window.location.href = result.redirect || '/dashboard';
-                }, 3000);
-                
+            if (result.emailVerificationSent) {
+                showSuccess('✅ Account created! Check your email to verify. Redirecting...');
             } else {
-                console.error('❌ Signup failed:', result.message);
-                
-                if (result.message.includes('already exists')) {
-                    showError('An account with this email already exists. Please login instead.');
-                } else if (result.message.includes('domain does not exist')) {
-                    showError('Please use a valid email address. The email domain does not exist.');
-                } else if (result.message.includes('Disposable email')) {
-                    showError('Disposable email addresses are not allowed. Please use your regular email.');
-                } else {
-                    showError(result.message);
-                }
-                
-                submitButton.disabled = false;
-                submitButton.textContent = originalButtonText;
+                showSuccess('✅ Account created successfully! Redirecting...');
             }
             
-        } catch (error) {
-            console.error('❌ Signup error:', error);
-            showError('Signup failed. Please check your connection and try again.');
+            setTimeout(() => {
+                console.log('🔄 Signup complete, redirecting...');
+                window.history.replaceState({}, document.title, '/signup');
+                window.location.href = result.redirect || '/dashboard';
+            }, 3000);
+            
+        } else {
+            console.error('❌ Signup failed:', result.message);
+            
+            if (result.message.includes('already exists')) {
+                showError('An account with this email already exists. Please login instead.');
+            } else if (result.message.includes('domain does not exist')) {
+                showError('Please use a valid email address. The email domain does not exist.');
+            } else if (result.message.includes('Disposable email')) {
+                showError('Disposable email addresses are not allowed.');
+            } else {
+                showError(result.message);
+            }
+            
             submitButton.disabled = false;
             submitButton.textContent = originalButtonText;
         }
-    });
-
-    const loginLink = document.getElementById('login-link');
-    if (loginLink) {
-        loginLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            const params = new URLSearchParams(window.location.search);
-            const r = params.get('redirect');
-            window.location.href = r ? '/login?redirect=' + encodeURIComponent(r) : '/login';
-        });
+        
+    } catch (error) {
+        console.error('❌ Signup error:', error);
+        showError('Signup failed: ' + error.message);
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
     }
+});
 
-    function isValidPassword(password) {
-        return password.length >= 8 && 
-               /[A-Z]/.test(password) && 
-               /[a-z]/.test(password) && 
-               /[0-9]/.test(password);
-    }
+function isValidPassword(password) {
+    return password.length >= 8 && 
+           /[A-Z]/.test(password) && 
+           /[a-z]/.test(password) && 
+           /[0-9]/.test(password);
+}
 
-    function showError(message) {
-        const errorDiv = document.getElementById('errorMessage');
-        const successDiv = document.getElementById('successMessage');
-        if (successDiv) successDiv.style.display = 'none';
-        errorDiv.textContent = message;
-        errorDiv.style.display = 'block';
-        errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    const successDiv = document.getElementById('successMessage');
+    if (successDiv) successDiv.style.display = 'none';
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    console.error('❌ Error:', message);
+}
 
-    function showSuccess(message) {
-        const errorDiv = document.getElementById('errorMessage');
-        const successDiv = document.getElementById('successMessage');
-        if (errorDiv) errorDiv.style.display = 'none';
-        successDiv.textContent = message;
-        successDiv.style.display = 'block';
-        successDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+function showSuccess(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    const successDiv = document.getElementById('successMessage');
+    if (errorDiv) errorDiv.style.display = 'none';
+    successDiv.textContent = message;
+    successDiv.style.display = 'block';
+    console.log('✅ Success:', message);
+}
     </script>
 </body>
 </html>
@@ -8973,14 +8987,23 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
             });
         }
 
+        // NEW: Check if trial was already used
+        if (user.trialUsed) {
+            return res.status(400).json({
+                success: false,
+                message: 'Trial already used. Please subscribe to continue.'
+            });
+        }
+
         const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 7); // 7-day trial
+        trialEndDate.setDate(trialEndDate.getDate() + 14); // CHANGED: 14-day trial
 
         await db.collection('users').doc(userId).update({
             currentPlan: planType,
             subscriptionStatus: 'trial',
             trialStartDate: new Date(),
             trialEndDate: trialEndDate,
+            trialUsed: true, // NEW: Mark trial as used
             updatedAt: new Date()
         });
 
@@ -9009,6 +9032,43 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
         });
     }
 });
+
+// Check if user is eligible for trial
+app.get('/api/subscription/trial-eligibility', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const userDoc = await db.collection('users').doc(userId).get();
+    const user = userDoc.data();
+    
+    const isEligible = (
+      (!user.trialUsed || user.trialUsed === false) && 
+      (user.currentPlan === 'free' || !user.currentPlan) &&
+      user.subscriptionStatus !== 'active'
+    );
+    
+    res.json({
+      success: true,
+      eligible: isEligible,
+      reason: isEligible ? null : (
+        user.trialUsed ? 'Trial already used' : 
+        user.subscriptionStatus === 'active' ? 'Already subscribed' : 
+        'Unknown'
+      ),
+      currentPlan: user.currentPlan || 'free',
+      subscriptionStatus: user.subscriptionStatus || 'free'
+    });
+    
+  } catch (error) {
+    console.error('Trial eligibility check error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+
 
 app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
     try {

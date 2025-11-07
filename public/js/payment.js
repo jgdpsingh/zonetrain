@@ -77,13 +77,13 @@ const periodText = {
 const cycleSavings = {
     basic: {
         monthly: 0,
-        quarterly: Math.round(199 * 3 - 537),     // ₹60 saved (10% of ₹597)
-        annual: Math.round(199 * 12 - 1912.80)    // ₹478 saved (20% of ₹2388)
+        quarterly: Math.floor(199 * 3 - 537),     // ₹60 saved (10% of ₹597)
+        annual: Math.floor(199 * 12 - 1912.80)    // ₹478 saved (20% of ₹2388)
     },
     race: {
         monthly: 0,
-        quarterly: Math.round(399 * 3 - 1077),    // ₹120 saved (10% of ₹1197)
-        annual: Math.round(399 * 12 - 3830.40)    // ₹958 saved (20% of ₹4788)
+        quarterly: Math.floor(399 * 3 - 1077),    // ₹120 saved (10% of ₹1197)
+        annual: Math.floor(399 * 12 - 3830.40)    // ₹958 saved (20% of ₹4788)
     }
 };
 
@@ -256,13 +256,13 @@ function updatePlanPrices() {
     
     if (promoDiscount > 0) {
         // WITH PROMO - Apply 50% discount
-        basicFinal = Math.round(basicCyclePrice * 0.5)-1; // 50% of cycle price
-        raceFinal = Math.round(raceCyclePrice * 0.5)-1;
+        basicFinal = Math.floor(basicCyclePrice * 0.5); // 50% of cycle price
+        raceFinal = Math.floor(raceCyclePrice * 0.5);
         console.log('✅ With Promo:', { basicFinal, raceFinal });
     } else {
         // NO PROMO - Use full cycle price
-        basicFinal = Math.round(basicCyclePrice);
-        raceFinal = Math.round(raceCyclePrice);
+        basicFinal = Math.floor(basicCyclePrice);
+        raceFinal = Math.floor(raceCyclePrice);
         console.log('📌 No Promo:', { basicFinal, raceFinal });
     }
     
@@ -284,7 +284,7 @@ function updatePlanPrices() {
     
     if (promoDiscount > 0) {
         if (basicOriginalEl) basicOriginalEl.style.display = 'inline';
-        if (basicOriginalEl) basicOriginalEl.textContent = `₹${Math.round(basicCyclePrice)}`;
+        if (basicOriginalEl) basicOriginalEl.textContent = `₹${Math.floor(basicCyclePrice)}`;
         if (basicDiscountEl) basicDiscountEl.style.display = 'inline-block';
     } else {
         if (basicOriginalEl) basicOriginalEl.style.display = 'none';
@@ -309,7 +309,7 @@ function updatePlanPrices() {
     
     if (promoDiscount > 0) {
         if (raceOriginalEl) raceOriginalEl.style.display = 'inline';
-        if (raceOriginalEl) raceOriginalEl.textContent = `₹${Math.round(raceCyclePrice)}`;
+        if (raceOriginalEl) raceOriginalEl.textContent = `₹${Math.floor(raceCyclePrice)}`;
         if (raceDiscountEl) raceDiscountEl.style.display = 'inline-block';
     } else {
         if (raceOriginalEl) raceOriginalEl.style.display = 'none';
@@ -350,7 +350,7 @@ function initiateUpgrade(planType) {
     const cyclePrice = pricingData[planType][selectedBillingCycle];
     
     // Apply promo discount if any
-    const finalAmount = promo ? Math.round(cyclePrice * (1 - promoDiscount / 100)) : Math.round(cyclePrice);
+    const finalAmount = promo ? Math.floor(cyclePrice * (1 - promoDiscount / 100)) : Math.floor(cyclePrice);
     
     console.log('🛒 Upgrade:', { 
         planType, 
@@ -380,7 +380,7 @@ async function purchaseSubscriptionWithPromo(planType, billingCycle = 'monthly',
         showMessage('Creating payment order...', 'info');
 
         const basePriceData = pricingData[planType] || { monthly: 199 };
-        const orderAmount = amount || Math.round(basePriceData[billingCycle]);
+        const orderAmount = amount || Math.floor(basePriceData[billingCycle]);
 
         const orderResponse = await fetch('/api/payment/create-order', {
             method: 'POST',

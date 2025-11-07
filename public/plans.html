@@ -676,12 +676,12 @@
             const racePrice = PRICES.race[currentCycle];
             const period = PERIODS[currentCycle];
             
-            let fitFinal = Math.round(fitPrice);
-            let raceFinal = Math.round(racePrice);
+            let fitFinal = Math.floor(fitPrice);
+            let raceFinal = Math.floor(racePrice);
             
             if (promoActive) {
-                fitFinal = Math.round(fitPrice * 0.5)-1;
-                raceFinal = Math.round(racePrice * 0.5)-1;
+                fitFinal = Math.floor(fitPrice * 0.5);
+                raceFinal = Math.floor(racePrice * 0.5);
             }
             
             document.getElementById('fit-price').textContent = '₹' + fitFinal;
@@ -690,8 +690,8 @@
             document.getElementById('fit-period').textContent = period;
             document.getElementById('race-period').textContent = period;
             
-            document.getElementById('fit-orig').textContent = '₹' + Math.round(fitPrice);
-            document.getElementById('race-orig').textContent = '₹' + Math.round(racePrice);
+            document.getElementById('fit-orig').textContent = '₹' + Math.floor(fitPrice);
+            document.getElementById('race-orig').textContent = '₹' + Math.floor(racePrice);
             
             const fitSave = SAVINGS.fitness[currentCycle];
             const raceSave = SAVINGS.race[currentCycle];
@@ -737,16 +737,20 @@
             btn.textContent = '⏳ Activating...';
             btn.disabled = true;
             
-            try {
-                const token = localStorage.getItem('userToken');
-                const res = await fetch('/api/activate-trial', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ planType: plan })
-                });
+           try {
+        const token = localStorage.getItem('userToken');
+        
+        // Map frontend plan names to backend plan types
+        const planType = plan === 'fitness' ? 'basic' : 'race'; // ✅ FIX
+        
+        const res = await fetch('/api/subscription/start-trial', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ planType: planType }) // ✅ Now sends "basic" or "race"
+        });
                 
                 const data = await res.json();
                 
@@ -777,7 +781,7 @@
         async function purchase(plan) {
             const promo = sessionStorage.getItem('promoCode');
             const price = PRICES[plan][currentCycle];
-            const amount = promoActive ? Math.round(price * 0.5)-1 : Math.round(price);
+            const amount = promoActive ? Math.floor(price * 0.5): Math.floor(price);
             
             if (typeof window.purchaseSubscriptionWithPromo === 'function') {
                 await window.purchaseSubscriptionWithPromo(plan, currentCycle, amount, promo);
