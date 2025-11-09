@@ -309,20 +309,30 @@ app.use(passport.session());
 
 // Updated welcome page route - replace your existing '/' route
 app.get('/', optionalAuth, apiLimiter, (req, res) => {
+  const referer = req.get('referer') || '';
+  const isDashboardReferer = referer.includes('/dashboard');
+  
   if (req.user && req.user.userId) {
     console.log('🔄 Authenticated user accessing homepage, redirecting to dashboard...');
     console.log('   User ID:', req.user.userId);
     console.log('   Current Plan:', req.user.currentPlan || 'free');
+    console.log('   Referer:', referer);
     
-    const plan = req.user.currentPlan || 'free';
-    
-    // Redirect to appropriate dashboard based on plan
-    if (plan === 'race' || plan === 'basic') {
-      console.log('✅ Redirecting to race/basic dashboard');
-      return res.redirect('/dashboard-race.html');
+    // ✅ Prevent redirect loop
+    if (isDashboardReferer) {
+      console.warn('⚠️ Redirect loop detected (came from dashboard), breaking loop');
+      // Don't redirect back - just show homepage
+      // This shouldn't happen, but prevents infinite loops
     } else {
-      console.log('✅ Redirecting to free dashboard');
-      return res.redirect('/dashboard');
+      const plan = req.user.currentPlan || 'free';
+      
+      if (plan === 'race' || plan === 'basic') {
+        console.log('✅ Redirecting to race/basic dashboard');
+        return res.redirect('/dashboard-race.html');
+      } else {
+        console.log('✅ Redirecting to free dashboard');
+        return res.redirect('/dashboard');
+      }
     }
   }
   
@@ -10766,8 +10776,14 @@ app.get('/auth/google/callback', (req, res, next) => {
         path: '/'
       });
       
-      console.log('✅ Token set, redirecting to dashboard');
-      res.redirect('/dashboard?login=google');
+      console.log('✅ Token set, redirecting through intermediate page to save token in localStorage');
+
+const dashboardUrl = user.currentPlan === 'race'
+  ? '/dashboard-race.html'
+  : '/dashboard';
+
+res.redirect(`/auth/success?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(dashboardUrl)}`);
+
       
     } catch (error) {
       console.error('❌ Google callback error:', error);
@@ -10779,17 +10795,18 @@ app.get('/auth/google/callback', (req, res, next) => {
 
 // Success page that transfers data to localStorage
 app.get('/auth/success', (req, res) => {
-  const authData = req.session.authData;
+  // ✅ Get token and redirect from URL query parameters (not session)
+  const token = req.query.token;
+  const redirect = req.query.redirect || '/dashboard';
   
-  if (!authData) {
-    console.error('❌ No auth data in session');
-    return res.redirect('/login?error=session-expired');
+  if (!token) {
+    console.error('❌ No token in URL query');
+    return res.redirect('/login?error=no_token');
   }
   
-  console.log('✅ Auth success page loaded for user:', authData.user.id);
-
-  // Clear session data after use
-  delete req.session.authData;
+  console.log('✅ Auth success page loaded');
+  console.log('   Token length:', token.length);
+  console.log('   Redirect target:', redirect);
 
   const html = `
   <!DOCTYPE html>
@@ -10798,7 +10815,6 @@ app.get('/auth/success', (req, res) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Successful - ZoneTrain</title>
-    <link rel="stylesheet" href="css/cookies.css">
     <style>
       * {
         margin: 0;
@@ -10861,7 +10877,7 @@ app.get('/auth/success', (req, res) => {
       .progress-fill {
         height: 100%;
         background: white;
-        animation: progress 2s ease-in-out;
+        animation: progress 1.5s ease-in-out;
         border-radius: 2px;
       }
       
@@ -10917,58 +10933,90 @@ app.get('/auth/success', (req, res) => {
     <script>
       (function() {
         try {
-          // Validate auth data exists
-          const authData = ${JSON.stringify(authData)};
+          console.log('🎯 OAuth Success page loaded');
           
-          if (!authData || !authData.token || !authData.user) {
-            throw new Error('Invalid auth data');
-          }
+          // ✅ Get token from the page (passed via template literal)
+          const token = "${token.replace(/"/g, '\\"')}"; // Escape quotes
+          const redirect = "${redirect}";
           
-          console.log('✅ Auth data received:', {
-            userId: authData.user.id,
-            email: authData.user.email
+          console.log('📋 Token received:', {
+            length: token.length,
+            preview: token.substring(0, 30) + '...',
+            redirect: redirect
           });
           
-          // Store auth data in localStorage
-          localStorage.setItem('userToken', authData.token);
-          localStorage.setItem('userId', authData.user.id);
-          localStorage.setItem('userEmail', authData.user.email);
-          localStorage.setItem('userType', authData.user.subscriptionStatus || 'free');
-          localStorage.setItem('userInfo', JSON.stringify(authData.user));
+          // ✅ Validate token
+          if (!token || token === 'undefined' || token === 'null') {
+            throw new Error('No token provided');
+          }
           
-          console.log('✅ Auth data stored in localStorage');
+          // ✅ Validate token structure
+          const parts = token.split('.');
+          if (parts.length !== 3) {
+            throw new Error('Invalid token structure (expected 3 parts, got ' + parts.length + ')');
+          }
           
-          // Redirect to dashboard after animation
-          setTimeout(() => {
-            console.log('🚀 Redirecting to dashboard...');
-            window.location.href = '/dashboard.html';
-          }, 2000);
+          console.log('✅ Token validation passed');
+          
+          // ✅ Store token in localStorage
+          localStorage.setItem('userToken', token);
+          console.log('💾 Token saved to localStorage');
+          
+          // ✅ Decode token to extract user info
+          try {
+            const payload = JSON.parse(atob(parts[1]));
+            console.log('📦 Token payload:', payload);
+            
+            // ✅ Store user info in localStorage
+            localStorage.setItem('userId', payload.userId || payload.id || '');
+            localStorage.setItem('userEmail', payload.email || '');
+            localStorage.setItem('currentPlan', payload.plan || 'free');
+            localStorage.setItem('subscriptionStatus', payload.status || 'free');
+            
+            console.log('✅ User data saved to localStorage:', {
+              userId: payload.userId,
+              email: payload.email,
+              plan: payload.plan || 'free'
+            });
+            
+          } catch (decodeError) {
+            console.warn('⚠️ Could not decode token payload:', decodeError.message);
+            // Continue anyway - token is still valid for auth
+          }
+          
+          // ✅ Redirect to dashboard after short delay
+          console.log('🚀 Redirecting to:', redirect);
+          setTimeout(function() {
+            window.location.href = redirect;
+          }, 1500);
           
         } catch (error) {
-          console.error('❌ Auth success page error:', error);
+          console.error('❌ OAuth success page error:', error);
+          console.error('   Error message:', error.message);
           
-          // Show error message
+          // Show error UI
           document.querySelector('.spinner').style.display = 'none';
           document.querySelector('h2').textContent = 'Oops!';
-          document.querySelector('p').textContent = 'Something went wrong.';
+          document.querySelector('p').textContent = error.message || 'Something went wrong.';
           document.getElementById('errorContainer').style.display = 'block';
           
-          // Redirect to login after 5 seconds
-          setTimeout(() => {
+          // Clear any corrupted data
+          localStorage.clear();
+          
+          // Redirect to login after delay
+          setTimeout(function() {
             window.location.href = '/login?error=auth-failed';
           }, 5000);
         }
       })();
     </script>
-    
-    <script src="/components/nav-header.js"></script>
-    <script src="js/cookies.js"></script>
   </body>
   </html>
   `;
   
   res.send(html);
 });
+
 
 
 const FacebookStrategy = require('passport-facebook').Strategy;

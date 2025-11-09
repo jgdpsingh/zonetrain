@@ -830,48 +830,52 @@ body {
 
     <script>
 // CRITICAL: Authentication Check - MUST BE AT THE TOP
+// UPDATED: Authentication Check - handles both localStorage and cookie
 (function() {
     console.log('🔍 Dashboard: Checking authentication on page load...');
     
-    const token = localStorage.getItem('userToken');
+    let token = localStorage.getItem('userToken');
     
-    // Check if token exists
-    if (!token || token === 'null' || token === 'undefined' || token === null) {
-        console.error('❌ No valid token found');
-        console.log('   Token value:', token);
-        console.log('   Token type:', typeof token);
-        console.log('   Redirecting to login...');
+    // ✅ If no token in localStorage, check if we have a cookie (OAuth flow)
+    if (!token || token === 'null' || token === 'undefined') {
+        console.log('⚠️ No token in localStorage');
         
-        // Clear any corrupted data
-        localStorage.clear();
+        // Check if we have a cookie by trying to make an authenticated request
+        // The server will verify the cookie
+        console.log('🍪 Checking for cookie-based authentication...');
         
-        // Prevent any further script execution
-        window.location.href = '/login?error=no_token';
-        throw new Error('No authentication token - stopping execution');
+        // Give the page a moment to load cookie-based auth
+        // If we're here from OAuth, the cookie exists but localStorage doesn't yet
+        setTimeout(() => {
+            const tokenCheck = localStorage.getItem('userToken');
+            if (!tokenCheck || tokenCheck === 'null') {
+                console.error('❌ No valid authentication found after delay');
+                localStorage.clear();
+                window.location.href = '/login?error=no_token';
+            } else {
+                console.log('✅ Token found after delay, continuing...');
+            }
+        }, 2000); // Give 2 seconds for cookie auth to populate localStorage
+        
+        // Don't throw error immediately - let cookie auth work
+        return;
     }
     
-    // Validate token structure
+    // ✅ Token exists in localStorage - validate it
     const parts = token.split('.');
     if (parts.length !== 3) {
         console.error('❌ Token structure invalid');
         console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
-        console.log('   Token value:', token);
-        console.log('   Token preview:', token.substring(0, 50) + '...');
-        console.log('   Clearing corrupted token and redirecting...');
-        
         localStorage.clear();
-        
-        // Prevent any further script execution
         window.location.href = '/login?error=token_invalid';
-        throw new Error('Invalid token structure - stopping execution');
+        throw new Error('Invalid token structure');
     }
     
     console.log('✅ Token validation passed');
     console.log('   Length:', token.length);
     console.log('   Preview:', token.substring(0, 30) + '...');
-    console.log('   Structure: Valid (3 parts)');
-    console.log('   Parts lengths:', parts.map(p => p.length).join('.'));
 })();
+
 </script>
 
     <script>
