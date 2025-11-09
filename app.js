@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require('express');
 // AI SERVICE INTEGRATION - Add after your existing requires
@@ -309,8 +308,28 @@ app.use(passport.session());
 
 
 // Updated welcome page route - replace your existing '/' route
-app.get('/', apiLimiter, (req, res) => {
-  const html = `
+app.get('/', optionalAuth, apiLimiter, (req, res) => {
+  if (req.user && req.user.userId) {
+    console.log('🔄 Authenticated user accessing homepage, redirecting to dashboard...');
+    console.log('   User ID:', req.user.userId);
+    console.log('   Current Plan:', req.user.currentPlan || 'free');
+    
+    const plan = req.user.currentPlan || 'free';
+    
+    // Redirect to appropriate dashboard based on plan
+    if (plan === 'race' || plan === 'basic') {
+      console.log('✅ Redirecting to race/basic dashboard');
+      return res.redirect('/dashboard-race.html');
+    } else {
+      console.log('✅ Redirecting to free dashboard');
+      return res.redirect('/dashboard');
+    }
+  }
+  
+  // ✅ User is NOT authenticated - show homepage
+  console.log('📄 Serving homepage to unauthenticated user');
+  
+    const html = `
   <!DOCTYPE html>
   <html lang="en">
   <head>
@@ -1096,7 +1115,8 @@ app.get('/', apiLimiter, (req, res) => {
   <body>
     <header class="header">
       <nav class="nav">
-        <a href="/" class="logo-container">
+        <!-- ✅ FIXED: Logo navigates home intelligently -->
+        <a href="#" onclick="navigateToHome(event)" class="logo-container">
           <img src="/logo.jpeg" alt="ZoneTrain Logo" class="logo-img">
           <span class="logo-text">ZoneTrain</span>
         </a>
@@ -1265,7 +1285,36 @@ app.get('/', apiLimiter, (req, res) => {
       </div>
     </footer>
 
+
+
     <script>
+
+    // ✅ Smart logo navigation function
+      function navigateToHome(event) {
+        event.preventDefault();
+        
+        console.log('🏠 Logo clicked, checking authentication...');
+        
+        const token = localStorage.getItem('userToken');
+        const currentPlan = localStorage.getItem('currentPlan');
+        
+        if (!token || token === 'null' || token === 'undefined') {
+          console.log('   Not authenticated, staying on homepage');
+          window.location.href = '/';
+          return;
+        }
+        
+        console.log('   Authenticated, redirecting to dashboard...');
+        console.log('   Current plan:', currentPlan);
+        
+        // Navigate to appropriate dashboard
+        if (currentPlan === 'race' || currentPlan === 'basic') {
+          window.location.href = '/dashboard-race.html';
+        } else {
+          window.location.href = '/dashboard';
+        }
+      }
+
       function scrollToStrava() {
         document.getElementById('strava-section').scrollIntoView({
           behavior: 'smooth',
@@ -1275,8 +1324,30 @@ app.get('/', apiLimiter, (req, res) => {
 
       // Add smooth scrolling for all internal links
       document.addEventListener('DOMContentLoaded', function() {
-        // Smooth scroll behavior already added via CSS
-        console.log('ZoneTrain loaded successfully!');
+        console.log('📄 Homepage loaded');
+        
+        const token = localStorage.getItem('userToken');
+        
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log('⚠️ User is authenticated but on homepage');
+          console.log('   Checking if redirect needed...');
+          
+          // Verify token structure
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            console.log('   Token is valid, redirecting to dashboard...');
+            const currentPlan = localStorage.getItem('currentPlan');
+            
+            if (currentPlan === 'race' || currentPlan === 'basic') {
+              window.location.href = '/dashboard-race.html';
+            } else {
+              window.location.href = '/dashboard';
+            }
+          } else {
+            console.warn('   Token structure invalid, clearing...');
+            localStorage.clear();
+          }
+        }
       });
     </script>
             <!-- ZoneTrain Cookie Consent Banner -->
@@ -1808,6 +1879,13 @@ window.addEventListener('DOMContentLoaded', function() {
     const error = urlParams.get('error');
     
     const errorMessages = {
+    'auth_required': 'Authentication required. Please login to continue.',
+        'session_expired': 'Your session has expired. Please login again.',
+        'token_invalid': 'Your login token is invalid. Please login again.',
+        'token_corrupted': '⚠️ Login session corrupted. Please clear your browser cache and login again.',
+        'token_tampered': '🚨 Security alert: Your session may have been tampered with. Please login again.',
+        'token_early': 'Session not yet valid. Please check your system time and login again.',
+        'no_token': 'No authentication found. Please login.',
         'facebook-failed': 'Facebook login failed. Please try again.',
         'facebook-no-email': 'Facebook did not provide your email. Please allow email access or use another login method.',
         'facebook-callback-failed': 'Facebook login callback failed. Please try again.',
@@ -1824,6 +1902,11 @@ window.addEventListener('DOMContentLoaded', function() {
     
     if (error && errorMessages[error]) {
         showMessage(errorMessages[error], 'error');
+
+        if (error === 'token_corrupted' || error === 'token_tampered') {
+            localStorage.clear();
+            console.log('🧹 Cleared localStorage due to token issue');
+        }
     }
 });
 
@@ -1851,26 +1934,82 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             headers: { 
                 'Content-Type': 'application/json' 
             },
-            credentials: 'include', // ✅ CRITICAL: Include cookies in request/response
+            credentials: 'include',
             body: JSON.stringify(loginData)
         });
 
         const result = await response.json();
-        console.log('✅ Login response received:', result.success);
+        console.log('📋 Login response received');
+        console.log('   Success:', result.success);
+        console.log('   Has token:', !!result.token);
+
+        // ✅ FIX 1: Check response.ok first, BEFORE checking result.success
+        if (!response.ok) {
+            console.error('❌ HTTP error:', response.status, response.statusText);
+            
+            if (result.blocked) {
+                showMessage('🚫 Account Blocked: ' + result.message, 'error');
+            } else {
+                showMessage(result.message || 'Login failed. Please check your credentials.', 'error');
+            }
+            
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+            return;
+        }
 
         if (result.success) {
-            // ✅ Save all user data to localStorage
-            if (result.token) {
-                console.log('💾 Saving token to localStorage');
-                localStorage.setItem('userToken', result.token);
-                localStorage.setItem('userId', result.user.id);
-                localStorage.setItem('userEmail', result.user.email);
-                localStorage.setItem('userType', result.userType);
-                localStorage.setItem('subscriptionStatus', result.user.subscriptionStatus || 'free');
-                localStorage.setItem('currentPlan', result.user.currentPlan || 'free');
-                localStorage.setItem('userInfo', JSON.stringify(result.user));
-                console.log('✅ Token saved. Expires in:', result.token.split('.')[0]); // Debug
+            // ✅ FIX 2: Validate token exists and is not empty/null before saving
+            if (!result.token || result.token === 'null' || result.token === 'undefined') {
+                console.error('❌ CRITICAL: No valid token in response!');
+                console.log('   Token value:', result.token);
+                console.log('   Full response:', result);
+                showMessage('Login failed: Server did not provide authentication token', 'error');
+                submitButton.disabled = false;
+                submitButton.textContent = originalText;
+                return;
             }
+
+            // ✅ FIX 3: Validate token structure before saving
+            const tokenParts = result.token.split('.');
+            if (tokenParts.length !== 3) {
+                console.error('❌ Token structure invalid!');
+                console.log('   Expected 3 parts, got:', tokenParts.length);
+                console.log('   Token:', result.token);
+                showMessage('Login failed: Invalid authentication token received', 'error');
+                submitButton.disabled = false;
+                submitButton.textContent = originalText;
+                return;
+            }
+
+            // ✅ Save all user data to localStorage
+            console.log('💾 Saving authentication data...');
+            console.log('   Token length:', result.token.length);
+            console.log('   Token preview:', result.token.substring(0, 30) + '...');
+            console.log('   Token structure: Valid (3 parts)');
+
+            localStorage.setItem('userToken', result.token);
+            localStorage.setItem('userId', result.user.id);
+            localStorage.setItem('userEmail', result.user.email);
+            localStorage.setItem('userName', result.user.firstName || 'User');
+            localStorage.setItem('userType', result.userType || 'free');
+            localStorage.setItem('subscriptionStatus', result.user.subscriptionStatus || 'free');
+            localStorage.setItem('currentPlan', result.user.currentPlan || 'free');
+            localStorage.setItem('userInfo', JSON.stringify(result.user));
+
+            // ✅ Verify token was saved correctly
+            const savedToken = localStorage.getItem('userToken');
+            if (savedToken !== result.token) {
+                console.error('❌ CRITICAL: Token save verification failed!');
+                console.log('   Expected:', result.token.substring(0, 30) + '...');
+                console.log('   Got:', savedToken?.substring(0, 30) + '...');
+                showMessage('Login failed: Could not save authentication', 'error');
+                submitButton.disabled = false;
+                submitButton.textContent = originalText;
+                return;
+            }
+
+            console.log('✅ Token saved and verified successfully');
 
             // Email verification check
             if (result.requiresVerification) {
@@ -1891,7 +2030,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
                 showMessage(warningMessage, 'urgent');
                 
                 setTimeout(function() {
-                    console.log('🔄 Redirecting to verify email...');
+                    console.log('🔄 Redirecting to email verification...');
                     window.location.href = result.redirect || '/dashboard?verify=required';
                 }, 2000);
                 
@@ -1906,30 +2045,44 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
             setTimeout(function() {
                 console.log('🔄 Login complete, redirecting...');
-                // Clear URL params to prevent loops
-                window.history.replaceState({}, document.title, '/login');
+                
+                // Determine dashboard based on plan
+                let dashboardUrl = '/dashboard';
+                const currentPlan = result.user.currentPlan || 'free';
                 
                 if (redirectParam === 'plans') {
-                    window.location.href = '/plans.html';
+                    dashboardUrl = '/plans.html';
+                } else if (result.redirect) {
+                    dashboardUrl = result.redirect;
+                } else if (currentPlan === 'race') {
+                    dashboardUrl = '/dashboard-race.html';
                 } else {
-                    window.location.href = result.redirect || '/dashboard';
+                    dashboardUrl = '/dashboard';
                 }
+                
+                console.log('   Target URL:', dashboardUrl);
+                window.location.href = dashboardUrl;
             }, 1000);
             
-        } else if (result.blocked) {
-            console.error('🚫 Account blocked:', result.message);
-            showMessage('🚫 Account Blocked: ' + result.message, 'error');
-            
         } else {
+            // result.success is false
             console.error('❌ Login failed:', result.message);
-            showMessage(result.message || 'Login failed. Please check your credentials.', 'error');
+            
+            if (result.blocked) {
+                showMessage('🚫 Account Blocked: ' + result.message, 'error');
+            } else {
+                showMessage(result.message || 'Login failed. Please check your credentials.', 'error');
+            }
+            
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
         }
         
     } catch (error) {
         console.error('❌ Login error:', error);
-        showMessage('❌ Login failed. Please try again: ' + error.message, 'error');
-        
-    } finally {
+        console.log('   Error name:', error.name);
+        console.log('   Error message:', error.message);
+        showMessage('❌ Login failed: ' + error.message, 'error');
         submitButton.disabled = false;
         submitButton.textContent = originalText;
     }
@@ -1938,11 +2091,17 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 // Enhanced message display
 function showMessage(message, type) {
     const errorDiv = document.getElementById('errorMessage');
+    if (!errorDiv) {
+        console.error('❌ Error message div not found!');
+        alert(message); // Fallback to alert
+        return;
+    }
+    
     errorDiv.textContent = message;
     errorDiv.className = 'error-message ' + type;
     errorDiv.style.display = 'block';
     
-    console.log('📢 Message:', type.toUpperCase(), message);
+    console.log('📢 Message displayed:', type.toUpperCase(), '-', message);
     
     // Auto-hide only success messages
     if (type === 'success') {
@@ -1951,6 +2110,7 @@ function showMessage(message, type) {
         }, 3000);
     }
 }
+
 
     </script>
 
@@ -8655,6 +8815,56 @@ app.post('/api/auth/login', async (req, res) => {
         if (result && result.user && result.token) {
             console.log('✅ Authentication successful for:', email);
             
+            // ✅ NEW: Validate and sanitize token immediately
+            const rawToken = result.token;
+            const cleanToken = rawToken.trim(); // Remove whitespace
+            
+            // Validate token structure
+            const tokenParts = cleanToken.split('.');
+            if (tokenParts.length !== 3) {
+                console.error('❌ CRITICAL: Token generated with invalid structure!');
+                console.error('   Expected 3 parts, got:', tokenParts.length);
+                console.error('   Raw token length:', rawToken.length);
+                console.error('   Clean token length:', cleanToken.length);
+                console.error('   Token preview:', cleanToken.substring(0, 50) + '...');
+                
+                return res.status(500).json({
+                    success: false,
+                    message: 'Token generation failed. Please try again.',
+                    code: 'TOKEN_GENERATION_ERROR'
+                });
+            }
+            
+            // ✅ NEW: Log token validation details
+            console.log('🔐 Token validation:');
+            console.log('   Raw length:', rawToken.length);
+            console.log('   Clean length:', cleanToken.length);
+            console.log('   Whitespace removed:', rawToken.length - cleanToken.length, 'chars');
+            console.log('   Structure: ✅ Valid (3 parts)');
+            console.log('   Preview:', cleanToken.substring(0, 30) + '...');
+            console.log('   Header part length:', tokenParts[0].length);
+            console.log('   Payload part length:', tokenParts[1].length);
+            console.log('   Signature part length:', tokenParts[2].length);
+            
+            // ✅ NEW: Verify token can be decoded (self-test)
+            try {
+                const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
+                console.log('✅ Token self-test passed');
+                console.log('   User ID in token:', decoded.userId);
+                console.log('   Email in token:', decoded.email);
+                console.log('   Expires:', decoded.exp ? new Date(decoded.exp * 1000).toLocaleString() : 'Never');
+            } catch (verifyError) {
+                console.error('❌ CRITICAL: Generated token failed self-verification!');
+                console.error('   Error:', verifyError.message);
+                console.error('   This indicates JWT_SECRET mismatch or corruption');
+                
+                return res.status(500).json({
+                    success: false,
+                    message: 'Token generation failed verification. Please contact support.',
+                    code: 'TOKEN_VERIFICATION_FAILED'
+                });
+            }
+            
             // **CHECK IF ACCOUNT IS BLOCKED/INACTIVE**
             if (result.user.active === false) {
                 console.log('🚫 Account blocked:', email);
@@ -8673,8 +8883,8 @@ app.post('/api/auth/login', async (req, res) => {
             console.log('📊 Subscription status:', result.user.subscriptionStatus);
             console.log('👤 Account active:', result.user.active !== false);
             
-            // Set token as HTTP-only cookie
-            res.cookie('userToken', result.token, {
+            // ✅ Set token as HTTP-only cookie with CLEAN token
+            res.cookie('userToken', cleanToken, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
                 maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
@@ -8682,7 +8892,7 @@ app.post('/api/auth/login', async (req, res) => {
                 path: '/'
             });
             
-            console.log('🍪 Token set as cookie');
+            console.log('🍪 Token set as cookie (sanitized)');
             
             // Check email verification status
             const isEmailVerified = result.user.emailVerified || false;
@@ -8708,7 +8918,7 @@ app.post('/api/auth/login', async (req, res) => {
                 
                 return res.json({
                     success: true,
-                    token: result.token,
+                    token: cleanToken, // ✅ Return CLEAN token
                     user: {
                         id: result.user.id,
                         email: result.user.email,
@@ -8733,7 +8943,7 @@ app.post('/api/auth/login', async (req, res) => {
             
             const response = {
                 success: true,
-                token: result.token,
+                token: cleanToken, // ✅ Return CLEAN token
                 user: {
                     id: result.user.id,
                     email: result.user.email,
@@ -8768,6 +8978,7 @@ app.post('/api/auth/login', async (req, res) => {
         });
     }
 });
+
 
 
 // User access status endpoint - FIXED

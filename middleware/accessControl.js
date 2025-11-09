@@ -25,25 +25,107 @@ function authenticateToken(req, res, next) {
         
         // Check if it's an API request or page request
         if (req.path.startsWith('/api/')) {
-            // API request - return JSON error
             return res.status(401).json({ 
                 success: false, 
                 message: 'Access token required', 
                 code: 'NO_TOKEN' 
             });
         } else {
-            // Page request - redirect to login
             return res.redirect('/login?error=auth_required');
         }
     }
 
+    // ✅ NEW: Sanitize token (remove potential whitespace/newlines)
+    const cleanToken = token.trim();
+    
+    // ✅ NEW: Validate token format before verification
+    const tokenParts = cleanToken.split('.');
+    if (tokenParts.length !== 3) {
+        console.error('❌ Token structure invalid');
+        console.log('   Expected 3 parts (header.payload.signature), got:', tokenParts.length);
+        console.log('   Token preview:', cleanToken.substring(0, 50) + '...');
+        
+        // Clear invalid cookie
+        if (tokenFromCookie) {
+            res.clearCookie('userToken', {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                path: '/'
+            });
+        }
+        
+        if (req.path.startsWith('/api/')) {
+            return res.status(403).json({
+                success: false,
+                message: 'Token format is invalid',
+                code: 'MALFORMED_TOKEN'
+            });
+        } else {
+            return res.redirect('/login?error=token_invalid');
+        }
+    }
+
+    // ✅ NEW: Log token info for debugging
+    console.log('🔐 Token verification attempt:');
+    console.log('   Source:', tokenFromHeader ? 'Header' : tokenFromCookie ? 'Cookie' : 'Query');
+    console.log('   Length:', cleanToken.length);
+    console.log('   Preview:', cleanToken.substring(0, 30) + '...');
+    console.log('   Structure: ✅ Valid (3 parts)');
+
     // Verify the JWT token
-    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    jwt.verify(cleanToken, process.env.JWT_SECRET, (err, decoded) => {
         if (err) {
-            console.log('❌ Token verification failed:', err.message);
+            console.error('❌ Token verification failed:', err.message);
+            console.log('   Error type:', err.name);
+            
+            // ✅ NEW: Enhanced error handling with specific messages
+            let errorCode = 'INVALID_TOKEN';
+            let errorMessage = 'Invalid or expired token';
+            let redirectParam = 'session_expired';
+            
+            if (err.name === 'JsonWebTokenError') {
+                if (err.message.includes('malformed')) {
+                    console.error('⚠️ Token is malformed:');
+                    console.error('   - Token might be corrupted during transmission');
+                    console.error('   - Possible double-encoding');
+                    console.error('   - Check JWT_SECRET consistency');
+                    errorCode = 'MALFORMED_TOKEN';
+                    errorMessage = 'Token format is corrupted';
+                    redirectParam = 'token_corrupted';
+                } else if (err.message.includes('invalid signature')) {
+                    console.error('⚠️ Token signature invalid:');
+                    console.error('   - JWT_SECRET mismatch');
+                    console.error('   - Token might be tampered with');
+                    errorCode = 'INVALID_SIGNATURE';
+                    errorMessage = 'Token signature verification failed';
+                    redirectParam = 'token_tampered';
+                } else {
+                    console.error('⚠️ General JWT error:', err.message);
+                }
+            } else if (err.name === 'TokenExpiredError') {
+                console.error('⚠️ Token has expired');
+                console.error('   Expired at:', err.expiredAt);
+                errorCode = 'TOKEN_EXPIRED';
+                errorMessage = 'Session expired, please login again';
+                redirectParam = 'session_expired';
+            } else if (err.name === 'NotBeforeError') {
+                console.error('⚠️ Token not yet valid');
+                console.error('   Valid from:', err.date);
+                errorCode = 'TOKEN_NOT_ACTIVE';
+                errorMessage = 'Token not yet active';
+                redirectParam = 'token_early';
+            }
+            
+            // ✅ NEW: Log token details for debugging
+            console.log('   Token source:', tokenFromHeader ? 'Header' : tokenFromCookie ? 'Cookie' : 'Query');
+            console.log('   Token first 50 chars:', cleanToken.substring(0, 50) + '...');
+            console.log('   JWT_SECRET defined:', !!process.env.JWT_SECRET);
+            console.log('   JWT_SECRET length:', process.env.JWT_SECRET?.length || 0);
             
             // Clear invalid cookie if it exists
             if (tokenFromCookie) {
+                console.log('🗑️ Clearing invalid cookie');
                 res.clearCookie('userToken', {
                     httpOnly: true,
                     secure: process.env.NODE_ENV === 'production',
@@ -56,21 +138,28 @@ function authenticateToken(req, res, next) {
             if (req.path.startsWith('/api/')) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Invalid or expired token',
-                    code: 'INVALID_TOKEN'
+                    message: errorMessage,
+                    code: errorCode,
+                    errorType: err.name
                 });
             } else {
-                return res.redirect('/login?error=session_expired');
+                return res.redirect(`/login?error=${redirectParam}`);
             }
         }
         
-        // Token is valid - attach user info to request
-        console.log('✅ Token verified successfully for user:', decoded.userId);
-        console.log('📋 Decoded token data:', decoded);
+        // ✅ Token is valid - attach user info to request
+        console.log('✅ Token verified successfully');
+        console.log('   User ID:', decoded.userId);
+        console.log('   Email:', decoded.email);
+        console.log('   Plan:', decoded.currentPlan || 'N/A');
+        console.log('   Issued at:', new Date(decoded.iat * 1000).toLocaleString());
+        console.log('   Expires at:', decoded.exp ? new Date(decoded.exp * 1000).toLocaleString() : 'Never');
+        
         req.user = decoded; // Contains { userId, email, plan, etc. }
         next();
     });
 }
+
 
 /**
  * Middleware to check if user has required subscription plan

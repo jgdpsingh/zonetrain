@@ -625,17 +625,88 @@
         // Build profile dropdown
         buildProfileDropdown(loggedIn);
 
-        // Logo click handler
-        logoLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (currentPage === 'home') {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            } else if (loggedIn) {
-                window.location.href = '/dashboard';
-            } else {
-                window.location.href = '/';
-            }
-        });
+      
+// ✅ FIXED: Logo click handler with comprehensive plan-aware navigation
+logoLink.addEventListener('click', function(e) {
+  e.preventDefault();
+  
+  console.log('🏠 Logo clicked');
+  console.log('   Current page:', currentPage);
+  console.log('   Logged in:', loggedIn);
+  
+  // Check if user is logged in
+  const token = localStorage.getItem('userToken');
+  const currentPlan = localStorage.getItem('currentPlan');
+  const subscriptionStatus = localStorage.getItem('subscriptionStatus');
+  
+  console.log('   Token exists:', !!token);
+  console.log('   Current plan:', currentPlan);
+  console.log('   Subscription status:', subscriptionStatus);
+  
+  // ✅ If on homepage and not logged in, just scroll to top
+  if (currentPage === 'home' && !loggedIn && !token) {
+    console.log('   Action: Scroll to top (homepage, not logged in)');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  
+  // ✅ If logged in (or has token), navigate to dashboard
+  if (loggedIn || token) {
+    // Validate token
+    if (!token || token === 'null' || token === 'undefined') {
+      console.error('❌ Invalid token on logo click, clearing and redirecting to login');
+      localStorage.clear();
+      window.location.href = '/login?error=session_expired';
+      return;
+    }
+    
+    // Validate token structure (should have 3 parts: header.payload.signature)
+    const tokenParts = token.split('.');
+    if (tokenParts.length !== 3) {
+      console.error('❌ Malformed token on logo click (expected 3 parts, got ' + tokenParts.length + ')');
+      console.error('   Token preview:', token.substring(0, 50) + '...');
+      localStorage.clear();
+      window.location.href = '/login?error=token_invalid';
+      return;
+    }
+    
+    // ✅ Token is valid - navigate to appropriate dashboard based on plan
+    console.log('✅ Valid token, navigating to dashboard');
+    console.log('   Plan:', currentPlan || 'free (default)');
+    
+    // Determine which dashboard to navigate to
+    let targetDashboard = '/dashboard'; // Default to free dashboard
+    
+    if (currentPlan === 'race') {
+      targetDashboard = '/dashboard-race.html';
+      console.log('   → Navigating to Race Coach dashboard');
+    } else if (currentPlan === 'basic') {
+      targetDashboard = '/dashboard-basic.html';
+      console.log('   → Navigating to Basic Coach dashboard');
+    } else {
+      targetDashboard = '/dashboard'; // Free plan
+      console.log('   → Navigating to Free dashboard');
+    }
+    
+    // ✅ If already on the target dashboard, just scroll to top
+    if (window.location.pathname === targetDashboard || 
+        window.location.pathname === targetDashboard.replace('.html', '')) {
+      console.log('   Already on target dashboard, scrolling to top');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      console.log('   Redirecting to:', targetDashboard);
+      window.location.href = targetDashboard;
+    }
+    
+    return;
+  }
+  
+  // ✅ Not logged in - go to homepage
+  console.log('   Action: Redirect to homepage (not logged in)');
+  window.location.href = '/';
+});
+
+
 
         // Logo hover
         logoLink.addEventListener('mouseenter', function() {
@@ -725,19 +796,33 @@
                         </a>
                     </div>
                 `;
+                
+                // Logout handler (find this in your code)
+setTimeout(() => {
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      
+      console.log('👋 Logging out...');
+      
+      // ✅ Clear ALL storage
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // ✅ Clear all cookies
+      document.cookie.split(";").forEach(function(c) { 
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+      });
+      
+      console.log('✅ All user data cleared');
+      
+      // ✅ Redirect to homepage
+      window.location.href = '/';
+    });
+  }
+}, 100);
 
-                // Logout handler
-                setTimeout(() => {
-                    const logoutBtn = document.getElementById('logout-btn');
-                    if (logoutBtn) {
-                        logoutBtn.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            localStorage.clear();
-                            alert('✅ Logged out successfully');
-                            window.location.href = '/';
-                        });
-                    }
-                }, 100);
 
             } else {
                 dropdownContent.innerHTML = `

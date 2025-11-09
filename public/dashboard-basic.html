@@ -211,6 +211,52 @@
     <script src="/components/dashboard-widgets.js"></script>
     <script src="/components/training-calendar.js"></script>
 
+    <script>
+        // ✅ CRITICAL: Add at the VERY TOP of your script section
+        (function() {
+            console.log('🔍 [Dashboard] Checking authentication on page load...');
+            
+            const token = localStorage.getItem('userToken');
+            
+            // Check if token exists
+            if (!token || token === 'null' || token === 'undefined' || token === null) {
+                console.error('❌ No valid token found');
+                console.log('   Token value:', token);
+                console.log('   Token type:', typeof token);
+                console.log('   Redirecting to login...');
+                
+                // Clear any corrupted data
+                localStorage.clear();
+                
+                // Prevent any further script execution
+                window.location.href = '/login?error=no_token';
+                throw new Error('No authentication token - stopping execution');
+            }
+            
+            // Validate token structure
+            const parts = token.split('.');
+            if (parts.length !== 3) {
+                console.error('❌ Token structure invalid');
+                console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
+                console.log('   Token value:', token);
+                console.log('   Token preview:', token.substring(0, 50) + '...');
+                console.log('   Clearing corrupted token and redirecting...');
+                
+                localStorage.clear();
+                
+                // Prevent any further script execution
+                window.location.href = '/login?error=token_invalid';
+                throw new Error('Invalid token structure - stopping execution');
+            }
+            
+            console.log('✅ Token validation passed');
+            console.log('   Length:', token.length);
+            console.log('   Preview:', token.substring(0, 30) + '...');
+            console.log('   Structure: Valid (3 parts)');
+            console.log('   Parts lengths:', parts.map(p => p.length).join('.'));
+        })();
+    </script>
+
     <!-- Email Verification Scripts -->
     <script>
         let hoursRemaining = null;
