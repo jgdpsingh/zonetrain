@@ -80,7 +80,7 @@ async function sendOTP(phoneNumber) {
     // Format phone number (must include country code)
     const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
     
-    console.log('📱 Sending OTP to:', formattedPhone);
+    //console.log('📱 Sending OTP to:', formattedPhone);
     
     const confirmationResult = await auth.signInWithPhoneNumber(formattedPhone, appVerifier);
     

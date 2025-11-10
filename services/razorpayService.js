@@ -8,17 +8,20 @@ class RazorpayService {
             key_secret: process.env.RAZORPAY_KEY_SECRET
         });
         
-        console.log('✅ Razorpay initialized in', 
-            process.env.RAZORPAY_KEY_ID.startsWith('rzp_test') ? 'TEST' : 'LIVE', 
-            'mode'
-        );
+        const mode = process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test') ? 'TEST' : 'LIVE';
+        console.log('✅ Razorpay initialized in', mode, 'mode');
+        
+        // ✅ Validate webhook secret exists
+        if (process.env.NODE_ENV === 'production' && !process.env.RAZORPAY_WEBHOOK_SECRET) {
+            console.error('⚠️ WARNING: RAZORPAY_WEBHOOK_SECRET not set - webhooks will be rejected!');
+        }
     }
 
     // Create a subscription plan
     async createPlan(planData) {
         try {
             const plan = await this.razorpay.plans.create({
-                period: planData.period || 'monthly', // monthly, yearly
+                period: planData.period || 'monthly',
                 interval: planData.interval || 1,
                 item: {
                     name: planData.name,
@@ -32,7 +35,7 @@ class RazorpayService {
             console.log('✅ Plan created:', plan.id);
             return plan;
         } catch (error) {
-            console.error('❌ Plan creation failed:', error);
+            console.error('❌ Plan creation failed:', error.message);
             throw error;
         }
     }
@@ -43,7 +46,7 @@ class RazorpayService {
             const subscription = await this.razorpay.subscriptions.create({
                 plan_id: subscriptionData.planId,
                 customer_notify: 1,
-                total_count: subscriptionData.totalCount || 12, // 12 months for yearly
+                total_count: subscriptionData.totalCount || 12,
                 quantity: 1,
                 notes: {
                     userId: subscriptionData.userId,
@@ -59,7 +62,7 @@ class RazorpayService {
             console.log('✅ Subscription created:', subscription.id);
             return subscription;
         } catch (error) {
-            console.error('❌ Subscription creation failed:', error);
+            console.error('❌ Subscription creation failed:', error.message);
             throw error;
         }
     }
@@ -81,12 +84,12 @@ class RazorpayService {
             console.log('✅ Order created:', order.id);
             return order;
         } catch (error) {
-            console.error('❌ Order creation failed:', error);
+            console.error('❌ Order creation failed:', error.message);
             throw error;
         }
     }
 
-    // Verify payment signature
+    // ✅ Verify payment signature (frontend payment completion)
     verifyPaymentSignature(paymentData) {
         const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = paymentData;
         
@@ -99,20 +102,43 @@ class RazorpayService {
         return razorpay_signature === expectedSign;
     }
 
-    // Verify webhook signature
-    verifyWebhookSignature(webhookBody, webhookSignature) {
-    if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
-        console.log('⚠️ Webhook verification skipped (no secret configured)');
-        return true; // Allow in development
+    // ✅ UPDATED: Verify webhook signature (backend webhook)
+    verifyWebhookSignature(rawBody, webhookSignature) {
+        if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+            console.warn('⚠️ Webhook verification skipped (no RAZORPAY_WEBHOOK_SECRET configured)');
+            
+            // ✅ PRODUCTION: Never skip verification
+            if (process.env.NODE_ENV === 'production') {
+                console.error('❌ CRITICAL: Webhook secret must be configured in production');
+                return false;
+            }
+            
+            return true; // Allow in development only
+        }
+        
+        if (!webhookSignature) {
+            console.error('❌ Webhook signature header missing');
+            return false;
+        }
+        
+        // ✅ CORRECT: Use raw body Buffer (not stringified JSON)
+        const expectedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+            .update(rawBody) // rawBody must be a Buffer
+            .digest('hex');
+        
+        const isValid = webhookSignature === expectedSignature;
+        
+        if (!isValid) {
+            console.error('❌ Webhook signature mismatch');
+            console.error('   Expected (first 20):', expectedSignature.substring(0, 20));
+            console.error('   Received (first 20):', webhookSignature.substring(0, 20));
+        } else {
+            console.log('✅ Webhook signature verified');
+        }
+        
+        return isValid;
     }
-    
-    const expectedSignature = crypto
-        .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
-        .update(JSON.stringify(webhookBody))
-        .digest('hex');
-    
-    return webhookSignature === expectedSignature;
-}
 
     // Fetch subscription details
     async getSubscription(subscriptionId) {
@@ -120,7 +146,7 @@ class RazorpayService {
             const subscription = await this.razorpay.subscriptions.fetch(subscriptionId);
             return subscription;
         } catch (error) {
-            console.error('❌ Failed to fetch subscription:', error);
+            console.error('❌ Failed to fetch subscription:', error.message);
             throw error;
         }
     }
@@ -132,7 +158,7 @@ class RazorpayService {
             console.log('✅ Subscription cancelled:', subscriptionId);
             return subscription;
         } catch (error) {
-            console.error('❌ Failed to cancel subscription:', error);
+            console.error('❌ Failed to cancel subscription:', error.message);
             throw error;
         }
     }
@@ -143,7 +169,7 @@ class RazorpayService {
             const payment = await this.razorpay.payments.fetch(paymentId);
             return payment;
         } catch (error) {
-            console.error('❌ Failed to fetch payment:', error);
+            console.error('❌ Failed to fetch payment:', error.message);
             throw error;
         }
     }
@@ -157,7 +183,7 @@ class RazorpayService {
             console.log('✅ Refund created:', refund.id);
             return refund;
         } catch (error) {
-            console.error('❌ Refund creation failed:', error);
+            console.error('❌ Refund creation failed:', error.message);
             throw error;
         }
     }

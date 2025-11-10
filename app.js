@@ -1,4 +1,106 @@
 require('dotenv').config();
+
+console.log('🔍 Validating environment variables...');
+
+const requiredEnvVars = {
+  // Authentication & Security
+  JWT_SECRET: { minLength: 32, description: 'JWT signing secret' },
+  SESSION_SECRET: { minLength: 32, description: 'Session encryption secret' },
+  
+  // Firebase (Database)
+  FIREBASE_PROJECT_ID: { minLength: 1, description: 'Firebase project ID' },
+  FIREBASE_PRIVATE_KEY: { minLength: 100, description: 'Firebase service account private key' },
+  FIREBASE_CLIENT_EMAIL: { minLength: 1, description: 'Firebase service account email' },
+  
+  // Razorpay (Payments)
+  RAZORPAY_KEY_ID: { minLength: 1, description: 'Razorpay API key ID' },
+  RAZORPAY_KEY_SECRET: { minLength: 1, description: 'Razorpay API secret' },
+  RAZORPAY_WEBHOOK_SECRET: { minLength: 20, description: 'Razorpay webhook signature secret', optional: process.env.NODE_ENV !== 'production' },
+  
+  // OAuth (Google/Facebook)
+  GOOGLE_CLIENT_ID: { minLength: 1, description: 'Google OAuth client ID', optional: true },
+  GOOGLE_CLIENT_SECRET: { minLength: 1, description: 'Google OAuth client secret', optional: true },
+  
+  // Email (Zoho/SMTP)
+  ZOHO_EMAIL: { minLength: 1, description: 'Email sender address', optional: true },
+  ZOHO_PASSWORD: { minLength: 1, description: 'Email account password', optional: true },
+
+  WHATSAPP_API_KEY: { minLength: 1, description: 'WhatsApp Business API key', optional: true },
+  WHATSAPP_PHONE_NUMBER: { minLength: 10, description: 'WhatsApp sender phone number', optional: true },
+  WHATSAPP_ACCOUNT_SID: { minLength: 1, description: 'WhatsApp account SID (if using Twilio)', optional: true }
+
+};
+
+let hasErrors = false;
+
+Object.entries(requiredEnvVars).forEach(([varName, config]) => {
+  const value = process.env[varName];
+  
+  // Check if variable exists
+  if (!value || value.trim() === '') {
+    if (config.optional) {
+      console.warn(`⚠️  Optional: ${varName} not set (${config.description})`);
+    } else {
+      console.error(`❌ MISSING: ${varName} (${config.description})`);
+      hasErrors = true;
+    }
+    return;
+  }
+  
+  // Check minimum length
+  if (config.minLength && value.length < config.minLength) {
+    console.error(`❌ INVALID: ${varName} is too short (min ${config.minLength} chars, got ${value.length})`);
+    console.error(`   Description: ${config.description}`);
+    hasErrors = true;
+    return;
+  }
+  
+  // Success
+  console.log(`✅ ${varName}: Valid (${value.length} chars)`);
+});
+
+// Additional security checks
+if (process.env.JWT_SECRET === process.env.SESSION_SECRET) {
+  console.warn('⚠️  WARNING: JWT_SECRET and SESSION_SECRET should be different for security');
+}
+
+if (process.env.JWT_SECRET && (
+  process.env.JWT_SECRET.includes('your-secret') || 
+  process.env.JWT_SECRET.includes('changeme') ||
+  process.env.JWT_SECRET.includes('example')
+)) {
+  console.error('❌ SECURITY RISK: JWT_SECRET contains default/example value - change it!');
+  hasErrors = true;
+}
+
+// Check production-specific requirements
+if (process.env.NODE_ENV === 'production') {
+  console.log('🚀 Production mode detected - enforcing strict validation');
+  
+  if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+    console.error('❌ CRITICAL: RAZORPAY_WEBHOOK_SECRET must be set in production');
+    hasErrors = true;
+  }
+  
+  if (process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test')) {
+    console.error('❌ CRITICAL: Using TEST Razorpay keys in PRODUCTION mode!');
+    console.error('   Switch to LIVE keys (rzp_live_...) before deploying');
+    hasErrors = true;
+  }
+}
+
+// Exit if critical errors found
+if (hasErrors) {
+  console.error('\n❌❌❌ FATAL: Missing or invalid environment variables ❌❌❌');
+  console.error('Please check your .env file and fix the errors above.');
+  console.error('Server startup ABORTED.\n');
+  process.exit(1); // Stop server
+}
+
+console.log('✅ All required environment variables validated successfully\n');
+
+
+
 const express = require('express');
 // AI SERVICE INTEGRATION - Add after your existing requires
 const { AIService } = require('./services/aiService');
@@ -1951,7 +2053,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         const result = await response.json();
         console.log('📋 Login response received');
         console.log('   Success:', result.success);
-        console.log('   Has token:', !!result.token);
+        //console.log('   Has token:', !!result.token);
 
         // ✅ FIX 1: Check response.ok first, BEFORE checking result.success
         if (!response.ok) {
@@ -1972,8 +2074,8 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             // ✅ FIX 2: Validate token exists and is not empty/null before saving
             if (!result.token || result.token === 'null' || result.token === 'undefined') {
                 console.error('❌ CRITICAL: No valid token in response!');
-                console.log('   Token value:', result.token);
-                console.log('   Full response:', result);
+                //console.log('   Token value:', result.token);
+                //console.log('   Full response:', result);
                 showMessage('Login failed: Server did not provide authentication token', 'error');
                 submitButton.disabled = false;
                 submitButton.textContent = originalText;
@@ -1984,8 +2086,8 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             const tokenParts = result.token.split('.');
             if (tokenParts.length !== 3) {
                 console.error('❌ Token structure invalid!');
-                console.log('   Expected 3 parts, got:', tokenParts.length);
-                console.log('   Token:', result.token);
+                // console.log('   Expected 3 parts, got:', tokenParts.length);
+                // console.log('   Token:', result.token);
                 showMessage('Login failed: Invalid authentication token received', 'error');
                 submitButton.disabled = false;
                 submitButton.textContent = originalText;
@@ -1994,9 +2096,9 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
             // ✅ Save all user data to localStorage
             console.log('💾 Saving authentication data...');
-            console.log('   Token length:', result.token.length);
-            console.log('   Token preview:', result.token.substring(0, 30) + '...');
-            console.log('   Token structure: Valid (3 parts)');
+            //console.log('   Token length:', result.token.length);
+            //console.log('   Token preview:', result.token.substring(0, 30) + '...');
+            //console.log('   Token structure: Valid (3 parts)');
 
             localStorage.setItem('userToken', result.token);
             localStorage.setItem('userId', result.user.id);
@@ -2011,8 +2113,8 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
             const savedToken = localStorage.getItem('userToken');
             if (savedToken !== result.token) {
                 console.error('❌ CRITICAL: Token save verification failed!');
-                console.log('   Expected:', result.token.substring(0, 30) + '...');
-                console.log('   Got:', savedToken?.substring(0, 30) + '...');
+                //console.log('   Expected:', result.token.substring(0, 30) + '...');
+                //console.log('   Got:', savedToken?.substring(0, 30) + '...');
                 showMessage('Login failed: Could not save authentication', 'error');
                 submitButton.disabled = false;
                 submitButton.textContent = originalText;
@@ -2648,11 +2750,11 @@ app.get('/test-email-config', async (req, res) => {
     try {
         
         
-        console.log('📧 Testing email configuration...');
-        console.log('Host:', process.env.EMAIL_HOST);
-        console.log('Port:', process.env.EMAIL_PORT);
-        console.log('User:', process.env.ZOHO_EMAIL);
-        console.log('Password set:', !!process.env.ZOHO_PASSWORD);
+        //console.log('📧 Testing email configuration...');
+        //console.log('Host:', process.env.EMAIL_HOST);
+        //console.log('Port:', process.env.EMAIL_PORT);
+        //console.log('User:', process.env.ZOHO_EMAIL);
+        //console.log('Password set:', !!process.env.ZOHO_PASSWORD);
         
         if (!process.env.ZOHO_EMAIL || !process.env.ZOHO_PASSWORD) {
             return res.json({
@@ -2730,11 +2832,11 @@ app.get('/test-email-config', async (req, res) => {
 });
 
 // Add this temporarily to your app.js to verify env variables
-console.log('🔧 Email config check:');
-console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
-console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
-console.log('ZOHO_EMAIL:', process.env.ZOHO_EMAIL ? 'Set ✅' : 'Missing ❌');
-console.log('ZOHO_PASSWORD:', process.env.ZOHO_PASSWORD ? 'Set ✅' : 'Missing ❌');
+//console.log('🔧 Email config check:');
+//console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
+//console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
+//console.log('ZOHO_EMAIL:', process.env.ZOHO_EMAIL ? 'Set ✅' : 'Missing ❌');
+//console.log('ZOHO_PASSWORD:', process.env.ZOHO_PASSWORD ? 'Set ✅' : 'Missing ❌');
 
 
 // Helper function to calculate training zone distribution
@@ -3650,7 +3752,7 @@ app.get('/terms', (req, res) => {
 // Make sure this route exists and works correctly
 app.get('/strava-connect', (req, res) => {
     const userToken = req.query.userToken;
-    console.log('🔗 Strava connect request, userToken:', userToken ? 'Present' : 'Missing');
+    //console.log('🔗 Strava connect request, userToken:', userToken ? 'Present' : 'Missing');
     
     let stateValue;
     
@@ -3719,7 +3821,7 @@ app.get('/callback', async (req, res) => {
         });
         
         const { access_token, refresh_token } = tokenResponse.data;
-        console.log('✅ Got tokens:', !!access_token, !!refresh_token);
+        //console.log('✅ Got tokens:', !!access_token, !!refresh_token);
         
         // Check if this is a guest user or authenticated user
         if (state.startsWith('guest_')) {
@@ -6783,66 +6885,96 @@ app.post('/api/payment/verify', authenticateToken, async (req, res) => {
 
 // Razorpay Webhook Handler
 // Razorpay Webhook Handler
-app.post('/api/payment/webhook', express.json(), async (req, res) => {
+// ✅ CRITICAL: Webhook route MUST come BEFORE app.use(express.json())
+// Or use express.raw() specifically for this route
+app.post('/api/payment/webhook', 
+  express.raw({ type: 'application/json' }), // ✅ Keep raw body for signature verification
+  async (req, res) => {
     try {
-        const webhookSignature = req.headers['x-razorpay-signature'];
-        const webhookBody = req.body;
+      const webhookSignature = req.headers['x-razorpay-signature'];
+      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      
+      //console.log('🔔 Webhook received');
+      //console.log('   Signature header:', webhookSignature ? 'Present' : 'Missing');
+      //console.log('   Secret configured:', !!webhookSecret);
+      
+      // ✅ CRITICAL: Verify signature with RAW body
+      if (webhookSecret && webhookSignature) {
+        const expectedSignature = crypto
+          .createHmac('sha256', webhookSecret)
+          .update(req.body) // req.body is Buffer (raw bytes)
+          .digest('hex');
         
-        console.log('🔔 Webhook received:', webhookBody.event);
-        
-        // Skip signature verification in dev mode if no secret
-        if (process.env.RAZORPAY_WEBHOOK_SECRET) {
-            const isValid = razorpayService.verifyWebhookSignature(webhookBody, webhookSignature);
-            
-            if (!isValid) {
-                console.log('❌ Invalid webhook signature');
-                return res.status(400).json({ success: false, message: 'Invalid signature' });
-            }
-        } else {
-            console.log('⚠️ Webhook signature verification skipped (no secret)');
+        if (webhookSignature !== expectedSignature) {
+          console.error('❌ Invalid webhook signature');
+          console.error('   Expected:', expectedSignature.substring(0, 20) + '...');
+          console.error('   Received:', webhookSignature.substring(0, 20) + '...');
+          return res.status(400).json({ success: false, error: 'Invalid signature' });
         }
         
-        const event = webhookBody.event;
-        const payload = webhookBody.payload;
+        console.log('✅ Webhook signature verified');
+      } else {
+        console.warn('⚠️ Webhook signature verification skipped');
+        if (!webhookSecret) console.warn('   Reason: RAZORPAY_WEBHOOK_SECRET not set');
+        if (!webhookSignature) console.warn('   Reason: x-razorpay-signature header missing');
         
-        // Handle different webhook events
-        switch (event) {
-            case 'payment.captured':
-                console.log('✅ Payment captured:', payload.payment.entity.id);
-                await handlePaymentCaptured(payload.payment.entity);
-                break;
-                
-            case 'payment.authorized':
-                console.log('⏳ Payment authorized:', payload.payment.entity.id);
-                // Payment authorized but not captured yet
-                break;
-                
-            case 'payment.failed':
-                console.log('❌ Payment failed:', payload.payment.entity.id);
-                await handlePaymentFailure(payload.payment.entity);
-                break;
-                
-            case 'order.paid':
-                console.log('💰 Order paid:', payload.order.entity.id);
-                await handleOrderPaid(payload.order.entity);
-                break;
-                
-            case 'refund.created':
-                console.log('💸 Refund created:', payload.refund.entity.id);
-                await handleRefundCreated(payload.refund.entity);
-                break;
-                
-            default:
-                console.log('ℹ️ Unhandled webhook event:', event);
+        // ❌ PRODUCTION: Reject if secret is configured but signature missing
+        if (process.env.NODE_ENV === 'production' && webhookSecret && !webhookSignature) {
+          return res.status(400).json({ success: false, error: 'Signature required' });
         }
-        
-        res.json({ success: true });
-        
+      }
+      
+      // ✅ Parse body AFTER signature verification
+      const webhookBody = JSON.parse(req.body.toString('utf8'));
+      const event = webhookBody.event;
+      const payload = webhookBody.payload;
+      
+      console.log('📦 Event:', event);
+      
+      // Handle different webhook events
+      switch (event) {
+        case 'payment.captured':
+          console.log('✅ Payment captured:', payload.payment.entity.id);
+          await handlePaymentCaptured(payload.payment.entity);
+          break;
+          
+        case 'payment.authorized':
+          console.log('⏳ Payment authorized:', payload.payment.entity.id);
+          // Payment authorized but not captured yet
+          break;
+          
+        case 'payment.failed':
+          console.log('❌ Payment failed:', payload.payment.entity.id);
+          await handlePaymentFailure(payload.payment.entity);
+          break;
+          
+        case 'order.paid':
+          console.log('💰 Order paid:', payload.order.entity.id);
+          await handleOrderPaid(payload.order.entity);
+          break;
+          
+        case 'refund.created':
+          console.log('💸 Refund created:', payload.refund.entity.id);
+          await handleRefundCreated(payload.refund.entity);
+          break;
+          
+        default:
+          console.log('ℹ️ Unhandled webhook event:', event);
+      }
+      
+      // ✅ Always return 200 to prevent retries
+      res.status(200).json({ success: true });
+      
     } catch (error) {
-        console.error('❌ Webhook error:', error);
-        res.status(500).json({ success: false, message: error.message });
+      console.error('❌ Webhook processing error:', error.message);
+      // Don't log full error object (may contain sensitive data)
+      
+      // ✅ Return 500 to trigger Razorpay retry
+      res.status(500).json({ success: false, error: 'Internal error' });
     }
-});
+  }
+);
+
 
 // Helper functions for webhook handlers
 async function handlePaymentCaptured(payment) {
@@ -7872,7 +8004,7 @@ app.get('/api/subscription/renewal-info', async (req, res) => {
     try {
         const { token } = req.query;
 
-        console.log('📋 Getting renewal info for token:', token);
+        //console.log('📋 Getting renewal info for token:', token);
 
         // Validate token
         const validation = await reminderService.validateRenewalToken(token);
@@ -7914,7 +8046,7 @@ app.post('/api/subscription/create-renewal-order', async (req, res) => {
     try {
         const { token, plan, billingCycle } = req.body;
 
-        console.log('💳 Creating renewal order:', { token, plan, billingCycle });
+        //console.log('💳 Creating renewal order:', { token, plan, billingCycle });
 
         const validation = await reminderService.validateRenewalToken(token);
         if (!validation.valid) {
@@ -7966,7 +8098,7 @@ app.post('/api/subscription/verify-renewal', async (req, res) => {
     try {
         const { token, paymentId, orderId, signature } = req.body;
 
-        console.log('🔍 Verifying renewal payment:', { token, paymentId, orderId });
+        //console.log('🔍 Verifying renewal payment:', { token, paymentId, orderId });
 
         // Verify signature
         const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
@@ -8398,8 +8530,109 @@ app.get('/api/auth/email-verification-status', authenticateToken, async (req, re
     }
 });
 
-// Add node-cron for scheduled tasks
-// Add at the top with other requires
+// ============================================
+// ERROR HANDLER - MUST BE LAST MIDDLEWARE
+// ============================================
+
+// 404 Handler (for undefined routes)
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+    path: req.path
+  });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  // Log error details securely (don't log sensitive data)
+  console.error('❌ Error occurred:');
+  console.error('   Message:', err.message);
+  console.error('   Status:', err.status || 500);
+  console.error('   Path:', req.path);
+  console.error('   Method:', req.method);
+  
+  // Only log stack trace in development
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('   Stack:', err.stack);
+  }
+  
+  // Determine error status code
+  const statusCode = err.status || err.statusCode || 500;
+  
+  // Categorize error type
+  let errorType = 'INTERNAL_ERROR';
+  let clientMessage = 'An unexpected error occurred';
+  
+  if (statusCode === 400) {
+    errorType = 'BAD_REQUEST';
+    clientMessage = err.message || 'Invalid request';
+  } else if (statusCode === 401) {
+    errorType = 'UNAUTHORIZED';
+    clientMessage = 'Authentication required';
+  } else if (statusCode === 403) {
+    errorType = 'FORBIDDEN';
+    clientMessage = 'Access denied';
+  } else if (statusCode === 404) {
+    errorType = 'NOT_FOUND';
+    clientMessage = 'Resource not found';
+  } else if (statusCode === 429) {
+    errorType = 'RATE_LIMIT_EXCEEDED';
+    clientMessage = 'Too many requests, please try again later';
+  } else if (statusCode >= 500) {
+    errorType = 'SERVER_ERROR';
+    clientMessage = 'Internal server error';
+  }
+  
+  // Build error response
+  const errorResponse = {
+    success: false,
+    error: process.env.NODE_ENV === 'production' ? clientMessage : err.message,
+    code: errorType,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Include stack trace in development only
+  if (process.env.NODE_ENV !== 'production') {
+    errorResponse.stack = err.stack;
+    errorResponse.details = {
+      path: req.path,
+      method: req.method,
+      query: req.query,
+      body: sanitizeForLogging(req.body)
+    };
+  }
+  
+  // Send error response
+  res.status(statusCode).json(errorResponse);
+});
+
+// Helper function to sanitize sensitive data from logs
+function sanitizeForLogging(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const sensitiveKeys = ['password', 'token', 'secret', 'apiKey', 'authorization'];
+  const sanitized = { ...obj };
+  
+  for (const key of Object.keys(sanitized)) {
+    if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
+      sanitized[key] = '[REDACTED]';
+    }
+  }
+  
+  return sanitized;
+}
+
+// ============================================
+// START SERVER
+// ============================================
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log('✅ ZoneTrain server running on port', PORT);
+  console.log('   Environment:', process.env.NODE_ENV || 'development');
+  console.log('   Base URL:', process.env.BASE_URL || 'http://localhost:3000');
+});
 
 
 app.listen(port, () => {
@@ -8538,7 +8771,7 @@ app.get('/debug/my-plan', authenticateToken, async (req, res) => {
         }
         
         const planData = planSnapshot.docs[0].data();
-        console.log('✅ Training plan found:', planSnapshot.docs[0].id);
+        //console.log('✅ Training plan found:', planSnapshot.docs[0].id);
         
         // Get AI profile
         const profileSnapshot = await db.collection('aiprofiles')
@@ -8832,11 +9065,11 @@ app.post('/api/auth/login', async (req, res) => {
             // Validate token structure
             const tokenParts = cleanToken.split('.');
             if (tokenParts.length !== 3) {
-                console.error('❌ CRITICAL: Token generated with invalid structure!');
-                console.error('   Expected 3 parts, got:', tokenParts.length);
-                console.error('   Raw token length:', rawToken.length);
-                console.error('   Clean token length:', cleanToken.length);
-                console.error('   Token preview:', cleanToken.substring(0, 50) + '...');
+                //console.error('❌ CRITICAL: Token generated with invalid structure!');
+                //console.error('   Expected 3 parts, got:', tokenParts.length);
+                //console.error('   Raw token length:', rawToken.length);
+                //console.error('   Clean token length:', cleanToken.length);
+                //console.error('   Token preview:', cleanToken.substring(0, 50) + '...');
                 
                 return res.status(500).json({
                     success: false,
@@ -8846,23 +9079,23 @@ app.post('/api/auth/login', async (req, res) => {
             }
             
             // ✅ NEW: Log token validation details
-            console.log('🔐 Token validation:');
-            console.log('   Raw length:', rawToken.length);
-            console.log('   Clean length:', cleanToken.length);
-            console.log('   Whitespace removed:', rawToken.length - cleanToken.length, 'chars');
-            console.log('   Structure: ✅ Valid (3 parts)');
-            console.log('   Preview:', cleanToken.substring(0, 30) + '...');
-            console.log('   Header part length:', tokenParts[0].length);
-            console.log('   Payload part length:', tokenParts[1].length);
-            console.log('   Signature part length:', tokenParts[2].length);
+            //console.log('🔐 Token validation:');
+            //console.log('   Raw length:', rawToken.length);
+           // console.log('   Clean length:', cleanToken.length);
+           // console.log('   Whitespace removed:', rawToken.length - cleanToken.length, 'chars');
+            //console.log('   Structure: ✅ Valid (3 parts)');
+            //console.log('   Preview:', cleanToken.substring(0, 30) + '...');
+            //console.log('   Header part length:', tokenParts[0].length);
+            //console.log('   Payload part length:', tokenParts[1].length);
+            //console.log('   Signature part length:', tokenParts[2].length);
             
             // ✅ NEW: Verify token can be decoded (self-test)
             try {
                 const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
-                console.log('✅ Token self-test passed');
-                console.log('   User ID in token:', decoded.userId);
-                console.log('   Email in token:', decoded.email);
-                console.log('   Expires:', decoded.exp ? new Date(decoded.exp * 1000).toLocaleString() : 'Never');
+                //console.log('✅ Token self-test passed');
+                //console.log('   User ID in token:', decoded.userId);
+                //console.log('   Email in token:', decoded.email);
+                //console.log('   Expires:', decoded.exp ? new Date(decoded.exp * 1000).toLocaleString() : 'Never');
             } catch (verifyError) {
                 console.error('❌ CRITICAL: Generated token failed self-verification!');
                 console.error('   Error:', verifyError.message);
@@ -8902,7 +9135,7 @@ app.post('/api/auth/login', async (req, res) => {
                 path: '/'
             });
             
-            console.log('🍪 Token set as cookie (sanitized)');
+            //console.log('🍪 Token set as cookie (sanitized)');
             
             // Check email verification status
             const isEmailVerified = result.user.emailVerified || false;
@@ -9369,7 +9602,7 @@ app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
             }
         });
 
-        console.log('✅ Order created:', order.id);
+        //console.log('✅ Order created:', order.id);
 
         res.json({
             success: true,
@@ -9467,7 +9700,7 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
         const order = await razorpayService.getOrder(orderId);
         const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;
 
-        console.log('Order details:', order.notes);
+        //('Order details:', order.notes);
 
         // Calculate new subscription end date
         const subscriptionEndDate = new Date();
@@ -9902,7 +10135,7 @@ app.post('/api/signup', async (req, res) => {
             path: '/'
         });
 
-        console.log('🍪 Token set as cookie');
+        //console.log('🍪 Token set as cookie');
         console.log('📧 Verification email sent to:', email);
 
         // Return success response
@@ -10627,8 +10860,8 @@ passport.use(new GoogleStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     console.log('🔵 Google OAuth callback received');
-    console.log('Profile ID:', profile.id);
-    console.log('Profile emails:', profile.emails);
+    //console.log('Profile ID:', profile.id);
+   // console.log('Profile emails:', profile.emails);
     
     // Validate email exists
     if (!profile.emails || !profile.emails[0]) {
@@ -10637,7 +10870,7 @@ passport.use(new GoogleStrategy({
     }
     
     const email = profile.emails[0].value;
-    console.log('📧 Email:', email);
+    //console.log('📧 Email:', email);
     
     // Check if user already exists
     let user = await userManager.getUserByEmail(email);
@@ -10755,7 +10988,7 @@ app.get('/auth/google/callback', (req, res, next) => {
         return res.redirect('/login?error=google-failed');
       }
       
-      console.log('✅ Google OAuth successful for user:', user.id);
+     // console.log('✅ Google OAuth successful for user:', user.id);
       
       const token = jwt.sign(
         { 
@@ -10776,7 +11009,7 @@ app.get('/auth/google/callback', (req, res, next) => {
         path: '/'
       });
       
-      console.log('✅ Token set, redirecting through intermediate page to save token in localStorage');
+      //console.log('✅ Token set, redirecting through intermediate page to save token in localStorage');
 
 const dashboardUrl = user.currentPlan === 'race'
   ? '/dashboard-race.html'
@@ -10805,8 +11038,8 @@ app.get('/auth/success', (req, res) => {
   }
   
   console.log('✅ Auth success page loaded');
-  console.log('   Token length:', token.length);
-  console.log('   Redirect target:', redirect);
+  //console.log('   Token length:', token.length);
+  //console.log('   Redirect target:', redirect);
 
   const html = `
   <!DOCTYPE html>
@@ -10939,11 +11172,7 @@ app.get('/auth/success', (req, res) => {
           const token = "${token.replace(/"/g, '\\"')}"; // Escape quotes
           const redirect = "${redirect}";
           
-          console.log('📋 Token received:', {
-            length: token.length,
-            preview: token.substring(0, 30) + '...',
-            redirect: redirect
-          });
+          //console.log('📋 Token received:', {length: token.length,preview: token.substring(0, 30) + '...',redirect: redirect});
           
           // ✅ Validate token
           if (!token || token === 'undefined' || token === 'null') {
@@ -10956,16 +11185,16 @@ app.get('/auth/success', (req, res) => {
             throw new Error('Invalid token structure (expected 3 parts, got ' + parts.length + ')');
           }
           
-          console.log('✅ Token validation passed');
+          //console.log('✅ Token validation passed');
           
           // ✅ Store token in localStorage
           localStorage.setItem('userToken', token);
-          console.log('💾 Token saved to localStorage');
+          //console.log('💾 Token saved to localStorage');
           
           // ✅ Decode token to extract user info
           try {
             const payload = JSON.parse(atob(parts[1]));
-            console.log('📦 Token payload:', payload);
+            //console.log('📦 Token payload:', payload);
             
             // ✅ Store user info in localStorage
             localStorage.setItem('userId', payload.userId || payload.id || '');
@@ -10973,7 +11202,7 @@ app.get('/auth/success', (req, res) => {
             localStorage.setItem('currentPlan', payload.plan || 'free');
             localStorage.setItem('subscriptionStatus', payload.status || 'free');
             
-            console.log('✅ User data saved to localStorage:', {
+            //console.log('✅ User data saved to localStorage:', {
               userId: payload.userId,
               email: payload.email,
               plan: payload.plan || 'free'
@@ -11031,7 +11260,7 @@ passport.use(new FacebookStrategy({
 }, async (accessToken, refreshToken, profile, done) => {
     try {
         console.log('📘 Facebook OAuth callback received');
-        console.log('Profile ID:', profile.id);
+        //console.log('Profile ID:', profile.id);
         
         if (!profile.emails || profile.emails.length === 0) {
             console.error('❌ No email provided by Facebook');
@@ -11039,7 +11268,7 @@ passport.use(new FacebookStrategy({
         }
         
         const email = profile.emails[0].value;
-        console.log('📧 Email:', email);
+        //console.log('📧 Email:', email);
         
         let user = await userManager.getUserByEmail(email);
         
@@ -11089,7 +11318,7 @@ passport.use(new FacebookStrategy({
 
 // Initiate Facebook login
 app.get('/auth/facebook', (req, res, next) => {
-  console.log('🚀 Initiating Facebook OAuth flow');
+  //console.log('🚀 Initiating Facebook OAuth flow');
   passport.authenticate('facebook', { 
     scope: ['email', 'public_profile'],
     session: false
@@ -11118,7 +11347,7 @@ app.get('/auth/facebook/callback', (req, res, next) => {
                 return res.redirect('/login?error=facebook-failed');
             }
             
-            console.log('✅ Facebook OAuth successful for user:', user.id);
+            //console.log('✅ Facebook OAuth successful for user:', user.id);
             
             const token = jwt.sign(
                 { 
@@ -11212,7 +11441,7 @@ app.get('/auth/strava/callback', async (req, res) => {
             return res.redirect('/ai-onboarding?plan=race&strava=error&msg=timeout');
         }
         
-        console.log('🔄 Exchanging Strava code for token...');
+        //console.log('🔄 Exchanging Strava code for token...');
         
         // Exchange code for access token
         const tokenResponse = await axios.post('https://www.strava.com/oauth/token', {
@@ -11224,7 +11453,7 @@ app.get('/auth/strava/callback', async (req, res) => {
         
         const { access_token, refresh_token, athlete } = tokenResponse.data;
         
-        console.log('✅ Strava token received for athlete:', athlete.id);
+        //console.log('✅ Strava token received for athlete:', athlete.id);
         
         // Get userId from the frontend's localStorage via a cookie/session
         // For now, we'll store the Strava data temporarily and let frontend claim it
@@ -11506,16 +11735,10 @@ async function checkUserFeature(user, feature) {
 app.get('/debug/user-tokens', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        console.log('Debug: Looking up user:', userId);
+        //console.log('Debug: Looking up user:', userId);
         
         const user = await userManager.getUserById(userId);
-        console.log('Debug: User data:', {
-            id: user?.id,
-            email: user?.email,
-            hasStravaAccessToken: !!user?.stravaAccessToken,
-            hasStravaRefreshToken: !!user?.stravaRefreshToken,
-            stravaConnectedAt: user?.stravaConnectedAt
-        });
+        //console.log('Debug: User data:', {            id: user?.id,email: user?.email,hasStravaAccessToken: !!user?.stravaAccessToken,hasStravaRefreshToken: !!user?.stravaRefreshToken,stravaConnectedAt: user?.stravaConnectedAt});
         
         res.json({
             userId: userId,
@@ -11543,26 +11766,26 @@ app.get('/run-analysis', async (req, res) => {
         // Get token from URL parameter
         const token = req.query.token;
         if (!token) {
-            console.log('❌ No token in URL');
+            //console.log('❌ No token in URL');
             return res.redirect('/dashboard.html?error=no_token');
         }
         
         // Verify the user token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.userId;
-        console.log('✅ Token verified for user:', userId);
+        //console.log('✅ Token verified for user:', userId);
         
         // Get VALID Strava tokens (with auto-refresh)
-        console.log('🔍 Getting valid Strava tokens...');
+        //console.log('🔍 Getting valid Strava tokens...');
         const tokens = await userManager.getValidStravaTokens(userId);
         
         if (!tokens) {
-            console.log('❌ No valid Strava tokens - need to reconnect');
+            //console.log('❌ No valid Strava tokens - need to reconnect');
             return res.redirect('/dashboard.html?action=reconnect_strava&message=Please reconnect your Strava account');
         }
         
         const stravaAccessToken = tokens.accessToken;
-        console.log('✅ Valid Strava token obtained');
+        //console.log('✅ Valid Strava token obtained');
         
         // Fetch activities from Strava
         console.log('📡 Fetching activities from Strava...');
@@ -11646,7 +11869,7 @@ app.get('/run-analysis', async (req, res) => {
         }
         
         if (error.name === 'JsonWebTokenError') {
-            console.log('🔄 User token invalid - redirecting to login');
+            //console.log('🔄 User token invalid - redirecting to login');
             return res.redirect('/?error=session_expired');
         }
         
@@ -11956,7 +12179,7 @@ app.post('/api/strava/sync', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         
-        console.log('🔄 Syncing Strava for user:', userId);
+        //console.log('🔄 Syncing Strava for user:', userId);
         
         const result = await stravaService.syncActivities(userId);
         
@@ -12359,12 +12582,3 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
 });
 
 console.log('✅ Strava analytics and notification routes initialized');
-
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error'
-      : err.message
-  });
-});
