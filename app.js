@@ -264,6 +264,29 @@ app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     }
 }));
 
+app.get('/dashboard-basic', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-basic.html'));
+});
+
+app.get('/dashboard-free', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-free.html'));
+});
+
+app.get('/dashboard-race', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-race.html'));
+});
+
+// Catch-all for other static pages (e.g., /plans, /subscription)
+app.get('/:page', (req, res) => {
+  const filePath = path.join(__dirname, 'public', `${req.params.page}.html`);
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error(`❌ File not found: ${filePath}`);
+      res.status(404).json({ success: false, error: 'Page not found' });
+    }
+  });
+});
+
 // Add this helper function
 function validatePassword(password) {
   const minLength = 8;
