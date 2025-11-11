@@ -1,4 +1,68 @@
 require('dotenv').config();
+const express = require('express');
+const app = express();
+
+// AI SERVICE INTEGRATION - Add after your existing requires
+const { AIService } = require('./services/aiService');
+const aiService = new AIService();
+
+
+const admin = require('firebase-admin');
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+  }),
+});
+
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const session = require('express-session');
+const db = admin.firestore();
+const FileStore = require('session-file-store')(session);
+const axios = require('axios');
+const path = require('path');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+
+
+// Add these imports after your existing requires
+const { authenticateToken, requirePlan, requireAdmin, optionalAuth } = require('./middleware/accessControl');
+const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
+// Optional security middleware
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV !== 'production', // Disable in dev
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress, // Fallback for rate limiting
+});
+
+// Stricter limiter for auth endpoints (prevent brute force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Only 5 login/signup attempts
+  message: 'Too many login/signup attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV !== 'production',
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress,
+});
+
+
+const port = process.env.PORT || 3000;
+
+const cron = require('node-cron');
 
 console.log('🔍 Validating environment variables...');
 
@@ -99,50 +163,6 @@ if (hasErrors) {
 
 console.log('✅ All required environment variables validated successfully\n');
 
-
-
-const express = require('express');
-// AI SERVICE INTEGRATION - Add after your existing requires
-const { AIService } = require('./services/aiService');
-const aiService = new AIService();
-
-
-const admin = require('firebase-admin');
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  }),
-});
-
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const session = require('express-session');
-const db = admin.firestore();
-const FileStore = require('session-file-store')(session);
-const axios = require('axios');
-const path = require('path');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-
-
-// Add these imports after your existing requires
-const { authenticateToken, requirePlan, requireAdmin, optionalAuth } = require('./middleware/accessControl');
-const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
-// Optional security middleware
-const helmet = require('helmet');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-
-const app = express();
-const port = process.env.PORT || 3000;
-
-const cron = require('node-cron');
-
 // Add after your app initialization and before routes
 // Schedule cleanup job - runs every hour at minute 0
 cron.schedule('0 * * * *', async () => {
@@ -221,7 +241,7 @@ cron.schedule('0 * * * *', async () => {
 console.log('✅ Scheduled job initialized: Unverified user cleanup runs every hour');
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
 app.use('/components', express.static(path.join(__dirname, 'public/components')));
 
 const compression = require('compression');
@@ -351,9 +371,6 @@ app.use(cors({
     : '*',
   credentials: true
 }));
-
-
-
 // Body parsing middleware
 
 
@@ -376,28 +393,6 @@ app.use(session({
   }
 }));
 
-
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per 15 minutes
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production', // Disable in dev
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress, // Fallback for rate limiting
-});
-
-// Stricter limiter for auth endpoints (prevent brute force)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Only 5 login/signup attempts
-  message: 'Too many login/signup attempts, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production',
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress,
-});
-
 // Apply limiters
 app.use('/api/', apiLimiter); // ← Your rate limiter (general API)
 app.use('/auth/', authLimiter); // Stricter for auth
@@ -409,1168 +404,195 @@ app.use(passport.session());
 // Add this helper function near the top of app.js
 
 
-// Updated welcome page route - replace your existing '/' route
-app.get('/', optionalAuth, apiLimiter, (req, res) => {
-  const referer = req.get('referer') || '';
-  const isDashboardReferer = referer.includes('/dashboard');
-  
-  if (req.user && req.user.userId) {
-    console.log('🔄 Authenticated user accessing homepage, redirecting to dashboard...');
-    console.log('   User ID:', req.user.userId);
-    console.log('   Current Plan:', req.user.currentPlan || 'free');
-    console.log('   Referer:', referer);
-    
-    // ✅ Prevent redirect loop
-    if (isDashboardReferer) {
-      console.warn('⚠️ Redirect loop detected (came from dashboard), breaking loop');
-      // Don't redirect back - just show homepage
-      // This shouldn't happen, but prevents infinite loops
-    } else {
-      const plan = req.user.currentPlan || 'free';
-      
-      if (plan === 'race' || plan === 'basic') {
-        console.log('✅ Redirecting to race/basic dashboard');
-        return res.redirect('/dashboard-race.html');
-      } else {
-        console.log('✅ Redirecting to free dashboard');
-        return res.redirect('/dashboard');
-      }
-    }
-  }
-  
-  // ✅ User is NOT authenticated - show homepage
-  console.log('📄 Serving homepage to unauthenticated user');
-  
-    const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZoneTrain - AI-Powered Running Coaching & Personalized Training Plans</title>
-    <meta name="description" content="Get AI-powered running coaching with personalized training plans based on HRV data.">
-    <style>
-    html { background: linear-gradient(135deg, #6B46C1, #8B5CF6); }
-    body { 
-        background: linear-gradient(135deg, #6B46C1, #8B5CF6);
-        margin: 0;
-        font-family: 'Segoe UI', sans-serif;
-    }
-      /* ... existing CSS variables and base styles ... */
-      :root {
-        --deep-purple: #6B46C1;
-        --light-purple: #A78BFA;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --warning-orange: #F59E0B;
-        --strava-orange: #FC4C02;
-      }
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: var(--white);
-        color: var(--dark-gray);
-        line-height: 1.6;
-        scroll-behavior: smooth;
-      }
 
-      /* ... existing header styles ... */
-      .header {
-        background: var(--deep-purple);
-        padding: 15px 0;
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        box-shadow: 0 2px 10px rgba(107, 70, 193, 0.2);
-      }
 
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo-container {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        text-decoration: none;
-        transition: transform 0.3s ease;
-      }
-
-      .logo-container:hover {
-        transform: scale(1.05);
-      }
-
-      .logo-img {
-        width: 45px;
-        height: 45px;
-        object-fit: contain;
-        filter: brightness(1.3) contrast(1.2);
-        transition: all 0.3s ease;
-      }
-
-      .logo-text {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: var(--white);
-      }
-
-      .nav-links {
-        display: flex;
-        gap: 30px;
-        list-style: none;
-        align-items: center;
-      }
-
-      .nav-links a {
-        color: var(--white);
-        text-decoration: none;
-        font-weight: 500;
-        transition: color 0.3s ease;
-        opacity: 0.9;
-      }
-
-      .nav-links a:hover {
-        opacity: 1;
-        color: var(--light-purple);
-      }
-
-      /* UPDATED AUTH BUTTONS - Removed extra Strava button */
-      .auth-buttons {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-
-      .btn-auth {
-        padding: 8px 16px;
-        border-radius: 20px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 0.9rem;
-        transition: all 0.3s ease;
-        border: none;
-        cursor: pointer;
-      }
-
-      .btn-login {
-        background: transparent;
-        color: var(--white);
-        border: 2px solid var(--light-purple);
-      }
-
-      .btn-login:hover {
-        background: var(--light-purple);
-        color: var(--white);
-      }
-
-      .btn-signup {
-        background: var(--success-green);
-        color: var(--white);
-      }
-
-      .btn-signup:hover {
-        background: #059669;
-        transform: translateY(-1px);
-      }
-
-      /* ... existing hero and other styles ... */
-      .hero-section {
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        color: var(--white);
-        text-align: center;
-        padding: 80px 20px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .hero-section::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 500px;
-        height: 500px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.25;
-        z-index: 1;
-        filter: brightness(1.8) contrast(1.3);
-      }
-
-      .hero-content {
-        position: relative;
-        z-index: 2;
-        max-width: 1000px;
-        margin: 0 auto;
-      }
-
-      h1 {
-        font-size: 3.5rem;
-        font-weight: 700;
-        margin-bottom: 20px;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .tagline {
-        font-size: 1.4rem;
-        margin-bottom: 15px;
-        font-weight: 500;
-        opacity: 0.95;
-      }
-
-      .description {
-        font-size: 1.1rem;
-        margin-bottom: 40px;
-        line-height: 1.6;
-        opacity: 0.9;
-        max-width: 600px;
-        margin-left: auto;
-        margin-right: auto;
-      }
-
-      /* SCROLL TO STRAVA BUTTON */
-      .scroll-to-strava {
-        cursor: pointer;
-        transition: all 0.3s ease;
-      }
-
-      .scroll-to-strava:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(107, 70, 193, 0.4);
-      }
-
-      .strava-section {
-        background: var(--white);
-        padding: 80px 20px;
-        text-align: center;
-        border-bottom: 2px solid #F3F4F6;
-        position: relative;
-      }
-
-      .strava-section::before {
-        content: '';
-        position: absolute;
-        top: 30px;
-        right: 30px;
-        width: 150px;
-        height: 150px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.3;
-        z-index: 1;
-        filter: brightness(1.4) contrast(1.2) saturate(1.3);
-        animation: float 6s ease-in-out infinite;
-      }
-
-      @keyframes float {
-        0%, 100% { transform: translateY(0px); }
-        50% { transform: translateY(-10px); }
-      }
-
-      .strava-container {
-        max-width: 1000px;
-        margin: 0 auto;
-        position: relative;
-        z-index: 2;
-      }
-
-      .strava-header {
-        margin-bottom: 50px;
-      }
-
-      .strava-title {
-        font-size: 2.8rem;
-        color: var(--deep-purple);
-        margin-bottom: 20px;
-        font-weight: 700;
-      }
-
-      .strava-subtitle {
-        font-size: 1.3rem;
-        color: var(--dark-gray);
-        margin-bottom: 15px;
-        font-weight: 500;
-      }
-
-      .strava-description {
-        font-size: 1.1rem;
-        color: #6B7280;
-        max-width: 700px;
-        margin: 0 auto 40px;
-        line-height: 1.6;
-      }
-
-      .strava-features {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 30px;
-        margin-bottom: 50px;
-      }
-
-      .strava-feature {
-        background: #F9FAFB;
-        padding: 25px;
-        border-radius: 15px;
-        border-left: 4px solid var(--strava-orange);
-        position: relative;
-        transition: transform 0.3s ease;
-      }
-
-      .strava-feature:hover {
-        transform: translateY(-3px);
-      }
-
-      .strava-feature:nth-child(2)::after {
-        content: '';
-        position: absolute;
-        top: 10px;
-        right: 15px;
-        width: 40px;
-        height: 40px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.4;
-        filter: brightness(1.2);
-      }
-
-      .strava-feature-icon {
-        font-size: 2rem;
-        margin-bottom: 15px;
-      }
-
-      .strava-feature h3 {
-        color: var(--deep-purple);
-        margin-bottom: 10px;
-        font-size: 1.2rem;
-      }
-
-      .strava-feature p {
-        color: #6B7280;
-        line-height: 1.5;
-      }
-
-      .strava-cta {
-        background: linear-gradient(135deg, var(--strava-orange) 0%, #E03D00 100%);
-        padding: 40px;
-        border-radius: 20px;
-        color: var(--white);
-        margin-bottom: 30px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .strava-cta::before {
-        content: '';
-        position: absolute;
-        bottom: -20px;
-        right: -20px;
-        width: 120px;
-        height: 120px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.2;
-        z-index: 1;
-        filter: brightness(2) contrast(1.5);
-        transform: rotate(15deg);
-      }
-
-      .strava-cta h3 {
-        font-size: 1.8rem;
-        margin-bottom: 15px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .strava-cta p {
-        font-size: 1rem;
-        opacity: 0.9;
-        margin-bottom: 25px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .btn-strava {
-        background: var(--white);
-        color: var(--strava-orange);
-        padding: 15px 40px;
-        border-radius: 50px;
-        text-decoration: none;
-        font-weight: 700;
-        font-size: 1.1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .btn-strava:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-        background: #FFF8F6;
-      }
-
-      .strava-icon {
-        width: 24px;
-        height: 24px;
-        fill: currentColor;
-      }
-
-      .free-badge {
-        background: var(--success-green);
-        color: var(--white);
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-        margin-bottom: 10px;
-      }
-
-      /* NEW USP SECTION */
-      .usp-section {
-        background: #F8FAFC;
-        padding: 30px 20px;
-        text-align: center;
-        border-top: 2px solid var(--light-purple);
-        border-bottom: 2px solid #F3F4F6;
-      }
-
-      .usp-container {
-        max-width: 800px;
-        margin: 0 auto;
-      }
-
-      .usp-title {
-        font-size: 1.6rem;
-        color: var(--deep-purple);
-        margin-bottom: 20px;
-        font-weight: 600;
-      }
-
-      .usp-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 25px;
-        margin-bottom: 25px;
-      }
-
-      .usp-item {
-        background: var(--white);
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(107, 70, 193, 0.1);
-        border: 1px solid var(--light-purple);
-        transition: transform 0.3s ease;
-      }
-
-      .usp-item:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.2);
-      }
-
-      .usp-icon {
-        font-size: 2rem;
-        margin-bottom: 10px;
-        color: var(--accent-purple);
-      }
-
-      .usp-label {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: var(--deep-purple);
-        margin-bottom: 5px;
-      }
-
-      .usp-value {
-        font-size: 0.9rem;
-        color: #6B7280;
-      }
-
-      .usp-cta {
-        margin-top: 25px;
-      }
-
-      .btn-usp {
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        color: var(--white);
-        padding: 12px 30px;
-        border-radius: 25px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
-      }
-
-      .btn-usp:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.4);
-      }
-
-      .features-section {
-        padding: 80px 20px;
-        max-width: 1200px;
-        margin: 0 auto;
-        position: relative;
-      }
-
-      .features-section::before {
-        content: '';
-        position: absolute;
-        top: 100px;
-        left: 50px;
-        width: 80px;
-        height: 80px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.15;
-        z-index: 1;
-        filter: brightness(1.3) saturate(1.2);
-        animation: float 8s ease-in-out infinite reverse;
-      }
-
-      .features-title {
-        text-align: center;
-        font-size: 2.5rem;
-        color: var(--deep-purple);
-        margin-bottom: 50px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 30px;
-        margin-bottom: 50px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .feature-card {
-        background: var(--light-purple);
-        background: linear-gradient(135deg, var(--light-purple) 0%, rgba(167, 139, 250, 0.8) 100%);
-        padding: 30px;
-        border-radius: 15px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.2);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        color: var(--white);
-      }
-
-      .feature-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(107, 70, 193, 0.3);
-      }
-
-      .feature-icon { font-size: 2.5rem; margin-bottom: 15px; }
-      .feature-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 15px; }
-
-      .action-buttons {
-        display: flex;
-        gap: 20px;
-        justify-content: center;
-        flex-wrap: wrap;
-        margin-top: 40px;
-      }
-
-      .btn {
-        padding: 15px 30px;
-        border-radius: 50px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        cursor: pointer;
-        border: none;
-      }
-
-      .btn-primary {
-        background: var(--deep-purple);
-        color: var(--white);
-      }
-
-      .btn-primary:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-      }
-
-      .btn-secondary {
-        background: var(--white);
-        color: var(--deep-purple);
-        border: 2px solid var(--light-purple);
-      }
-
-      .btn-secondary:hover {
-        background: var(--light-purple);
-        color: var(--white);
-      }
-
-      .cta-section {
-        background: linear-gradient(135deg, var(--accent-purple) 0%, var(--deep-purple) 100%);
-        color: var(--white);
-        padding: 60px 20px;
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .cta-section::before {
-        content: '';
-        position: absolute;
-        bottom: 20px;
-        left: 20px;
-        width: 120px;
-        height: 120px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.3;
-        z-index: 1;
-        filter: brightness(2.2) contrast(1.4) saturate(1.5);
-        transform: rotate(-15deg);
-      }
-
-      .cta-section::after {
-        content: '';
-        position: absolute;
-        top: 20px;
-        right: 50px;
-        width: 100px;
-        height: 100px;
-        background-image: url('/logo.jpeg');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        opacity: 0.25;
-        z-index: 1;
-        filter: brightness(1.8) contrast(1.3);
-        animation: float 10s ease-in-out infinite;
-      }
-
-      .cta-title { 
-        font-size: 2.2rem; 
-        margin-bottom: 20px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .footer {
-        background: var(--dark-gray);
-        color: var(--white);
-        padding: 40px 20px 20px;
-      }
-
-      .footer-content {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 30px;
-      }
-
-      .footer-section h3 { color: var(--light-purple); margin-bottom: 15px; }
-      .footer-section a { color: rgba(255, 255, 255, 0.8); text-decoration: none; }
-      .footer-section a:hover { color: var(--light-purple); }
-
-      @media (max-width: 768px) {
-        .nav-links { display: none; }
-        .auth-buttons { gap: 5px; }
-        .btn-auth { padding: 6px 12px; font-size: 0.8rem; }
-        h1 { font-size: 2.5rem; }
-        .strava-title { font-size: 2.2rem; }
-        .strava-features { grid-template-columns: 1fr; }
-        .usp-grid { grid-template-columns: 1fr; }
-        .hero-section::before { width: 300px; height: 300px; }
-        .strava-section::before { width: 100px; height: 100px; top: 20px; right: 20px; }
-        .features-section::before { display: none; }
-        .cta-section::before { width: 80px; height: 80px; }
-        .cta-section::after { display: none; }
-      }
-    </style>
-  </head>
-
-
-</body>
-
-        <!-- ZoneTrain Cookie Consent Banner -->
-        <div id="ztCookieBanner" class="zt-cookie-banner">
-            <div class="zt-cookie-container">
-                <div class="zt-cookie-content">
-                    <div class="zt-cookie-title">
-                        🍪 We value your privacy
-                    </div>
-                    <div class="zt-cookie-text">
-                        We use cookies to enhance your ZoneTrain experience, analyze performance, and provide personalized training insights. 
-                        Your data helps us improve our AI coaching algorithms.
-                    </div>
-                    <div class="zt-cookie-links">
-                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
-                        <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
-                    </div>
-                </div>
-                <div class="zt-cookie-actions">
-                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
-                        Decline
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                        Settings
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                        Accept All
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Cookie Settings Modal -->
-        <div id="ztCookieModal" class="zt-cookie-modal">
-            <div class="zt-cookie-modal-content">
-                <div class="zt-cookie-modal-header">
-                    <h3 class="zt-cookie-modal-title">Cookie Preferences</h3>
-                    <button class="zt-cookie-close" onclick="ztCookies.hideSettings()">&times;</button>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Essential Cookies</h4>
-                        <div class="zt-cookie-toggle active disabled">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Required for ZoneTrain to function. Enable user authentication, security, and core training analysis features.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Analytics Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztanalyticsToggle" onclick="ztCookies.toggleCategory('analytics')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Help us understand how you use ZoneTrain training analysis. Track feature usage, user journeys, and conversion optimization.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Marketing Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztmarketingToggle" onclick="ztCookies.toggleCategory('marketing')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Enable retargeting for users who tried our free analysis. Help us show relevant training content and measure campaign effectiveness.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Functional Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztfunctionalToggle" onclick="ztCookies.toggleCategory('functional')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Remember your training preferences, analysis history, and dashboard customizations for a personalized ZoneTrain experience.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-modal-actions">
-                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential(); ztCookies.hideSettings();">
-                        Decline All
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.saveSettings()">
-                        Save Preferences
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Load Cookie System -->
-        <link rel="stylesheet" href="css/cookies.css">
-        ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-        <script src="js/cookies.js"></script>
-    </body>
-
-
-  <body>
-    <header class="header">
-      <nav class="nav">
-        <!-- ✅ FIXED: Logo navigates home intelligently -->
-        <a href="#" onclick="navigateToHome(event)" class="logo-container">
-          <img src="/logo.jpeg" alt="ZoneTrain Logo" class="logo-img">
-          <span class="logo-text">ZoneTrain</span>
-        </a>
-        <ul class="nav-links">
-          <li><a href="/">Home</a></li>
-          <li><a href="/about">About</a></li>
-          <li><a href="/contact">Contact</a></li>
-          <li><a href="/plans">Training Plans</a></li>
-        </ul>
-        <div class="auth-buttons">
-          <a href="/login" class="btn-auth btn-login">Login</a>
-          <a href="/signup" class="btn-auth btn-signup">Sign Up</a>
-        </div>
-      </nav>
-    </header>
-
-    <main>
-      <section class="hero-section">
-        <div class="hero-content">
-          <h1>ZoneTrain</h1>
-          <p class="tagline">AI-Powered Running Coaching & Personalized Training Plans (Rs.99 monthly only)</p>
-          <p class="description">
-            Transform your running performance with intelligent coaching that adapts to your daily HRV readings, 
-            analyzes your training zones, and delivers personalized workout recommendations.
-          </p>
-          <div class="action-buttons">
-            <button onclick="scrollToStrava()" class="btn btn-primary scroll-to-strava">🎯 Try Free Analysis</button>
-            <a href="/plans" class="btn btn-secondary">View Training Plans</a>
-          </div>
-          <div style="margin-top: 15px; font-size: 0.9rem; opacity: 0.8;">
-            <p>✅ No signup required for free analysis • Connect Strava in 10 seconds</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="strava-section" class="strava-section">
-        <div class="strava-container">
-          <div class="strava-header">
-            <div class="free-badge">100% FREE</div>
-            <h2 class="strava-title">Get Your Free Training Zone Analysis</h2>
-            <p class="strava-subtitle">Connect your Strava account and get AI-powered insights instantly</p>
-            <p class="strava-description">
-              No signup required! Connect your Strava account to analyze your recent running activities and get personalized zone distribution insights powered by our advanced AI technology.
-            </p>
-          </div>
-
-          <div class="strava-features">
-            <div class="strava-feature">
-              <div class="strava-feature-icon">🎯</div>
-              <h3>Zone Analysis</h3>
-              <p>Get detailed breakdown of your training zones from recent running activities</p>
-            </div>
-            <div class="strava-feature">
-              <div class="strava-feature-icon">🤖</div>
-              <h3>AI Insights</h3>
-              <p>Receive personalized recommendations based on your zone distribution patterns</p>
-            </div>
-            <div class="strava-feature">
-              <div class="strava-feature-icon">📊</div>
-              <h3>Instant Results</h3>
-              <p>Analysis is automatically added to your latest Strava activity description</p>
-            </div>
-          </div>
-
-          <div class="strava-cta">
-            <h3>🏃‍♂️ Ready for Your Free Analysis?</h3>
-            <p>Connect with Strava in seconds and discover how to optimize your training zones</p>
-            <a href="/strava-connect" class="btn-strava">
-              <svg class="strava-icon" viewBox="0 0 24 24">
-                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.599h4.172L10.463 0l-7 13.828h4.172"/>
-              </svg>
-              Connect with Strava - It's Free!
-            </a>
-          </div>
-
-          <div style="text-align: center; margin-top: 20px; color: #6B7280; font-size: 0.9rem;">
-            <p>✅ No account creation required &nbsp;•&nbsp; ✅ Instant analysis &nbsp;•&nbsp; ✅ Privacy protected</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- NEW USP SECTION -->
-      <section class="usp-section">
-        <div class="usp-container">
-          <h2 class="usp-title">💡 Want More? Check Out Our Super-Affordable Premium Plans!</h2>
-          
-          <div class="usp-grid">
-            <div class="usp-item">
-              <div class="usp-icon">💰</div>
-              <div class="usp-label">Ultra Cheap</div>
-              <div class="usp-value">Starting ₹99/month only</div>
-            </div>
-            <div class="usp-item">
-              <div class="usp-icon">🔬</div>
-              <div class="usp-label">Scientific</div>
-              <div class="usp-value">AI + Sports Science</div>
-            </div>
-            <div class="usp-item">
-              <div class="usp-icon">🎯</div>
-              <div class="usp-label">Personalized</div>
-              <div class="usp-value">HRV-based coaching</div>
-            </div>
-            <div class="usp-item">
-              <div class="usp-icon">📱</div>
-              <div class="usp-label">WhatsApp</div>
-              <div class="usp-value">Daily coaching messages</div>
-            </div>
-          </div>
-
-          <div class="usp-cta">
-            <a href="/plans" class="btn-usp">🚀 View Our Crazy Affordable Plans</a>
-            <p style="margin-top: 10px; font-size: 0.85rem; color: #6B7280;">
-              14-day free trial • Cancel anytime • No hidden fees
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section class="features-section">
-        <h2 class="features-title">Why Choose ZoneTrain?</h2>
-        <div class="features-grid">
-          <div class="feature-card">
-            <div class="feature-icon">🎯</div>
-            <h3 class="feature-title">Smart Zone Analysis</h3>
-            <p>AI-powered analysis of your training zones with actionable insights</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">📊</div>
-            <h3 class="feature-title">HRV-Based Coaching</h3>
-            <p>Daily workout adjustments based on your heart rate variability</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🏃‍♂️</div>
-            <h3 class="feature-title">Personalized Plans</h3>
-            <p>Custom training programs designed for your specific goals</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="cta-section">
-        <h2 class="cta-title">Ready to Transform Your Running?</h2>
-        <p>Start with our free analysis, then see why thousands choose our affordable plans</p>
-        <div class="action-buttons">
-          <a href="/plans" class="btn btn-primary">💰 See Affordable Plans</a>
-          <button onclick="scrollToStrava()" class="btn btn-secondary">🎯 Try Free Analysis First</button>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="footer-content">
-        <div class="footer-section">
-          <h3>ZoneTrain</h3>
-          <p>Professional AI-powered fitness coaching services for runners.</p>
-        </div>
-        <div class="footer-section">
-          <h3>Contact</h3>
-          <p>Email: zonetrain@zohomail.in</p>
-          <p>New Delhi, India</p>
-        </div>
-        <div class="footer-section">
-          <h3>Legal</h3>
-          <p><a href="/privacy">Privacy Policy</a></p>
-          <p><a href="/terms">Terms of Service</a></p>
-        </div>
-      </div>
-    </footer>
-
-
-
-    <script>
-
-    // ✅ Smart logo navigation function
-      function navigateToHome(event) {
-        event.preventDefault();
+// Temporary admin endpoint - remove in production
+app.post('/api/admin/block-user', async (req, res) => {
+    try {
+        const { email } = req.body;
         
-        console.log('🏠 Logo clicked, checking authentication...');
-        
-        const token = localStorage.getItem('userToken');
-        const currentPlan = localStorage.getItem('currentPlan');
-        
-        if (!token || token === 'null' || token === 'undefined') {
-          console.log('   Not authenticated, staying on homepage');
-          window.location.href = '/';
-          return;
+        const user = await userManager.getUserByEmail(email);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
         
-        console.log('   Authenticated, redirecting to dashboard...');
-        console.log('   Current plan:', currentPlan);
-        
-        // Navigate to appropriate dashboard
-        if (currentPlan === 'race' || currentPlan === 'basic') {
-          window.location.href = '/dashboard-race.html';
-        } else {
-          window.location.href = '/dashboard';
-        }
-      }
-
-      function scrollToStrava() {
-        document.getElementById('strava-section').scrollIntoView({
-          behavior: 'smooth',
-          block: 'center'
+        await userManager.updateUser(user.id, {
+            active: false,
+            blockedReason: 'Email not verified within 24 hours',
+            blockedAt: new Date()
         });
-      }
-
-      // Add smooth scrolling for all internal links
-      document.addEventListener('DOMContentLoaded', function() {
-        console.log('📄 Homepage loaded');
         
-        const token = localStorage.getItem('userToken');
-        
-        if (token && token !== 'null' && token !== 'undefined') {
-          console.log('⚠️ User is authenticated but on homepage');
-          console.log('   Checking if redirect needed...');
-          
-          // Verify token structure
-          const parts = token.split('.');
-          if (parts.length === 3) {
-            console.log('   Token is valid, redirecting to dashboard...');
-            const currentPlan = localStorage.getItem('currentPlan');
-            
-            if (currentPlan === 'race' || currentPlan === 'basic') {
-              window.location.href = '/dashboard-race.html';
-            } else {
-              window.location.href = '/dashboard';
-            }
-          } else {
-            console.warn('   Token structure invalid, clearing...');
-            localStorage.clear();
-          }
-        }
-      });
-    </script>
-            <!-- ZoneTrain Cookie Consent Banner -->
-        <div id="ztCookieBanner" class="zt-cookie-banner">
-            <div class="zt-cookie-container">
-                <div class="zt-cookie-content">
-                    <div class="zt-cookie-title">
-                        🍪 We value your privacy
-                    </div>
-                    <div class="zt-cookie-text">
-                        We use cookies to enhance your ZoneTrain experience, analyze performance, and provide personalized training insights. 
-                        Your data helps us improve our AI coaching algorithms.
-                    </div>
-                    <div class="zt-cookie-links">
-                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
-                        <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
-                    </div>
-                </div>
-                <div class="zt-cookie-actions">
-                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
-                        Decline
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
-                        Settings
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
-                        Accept All
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Cookie Settings Modal -->
-        <div id="ztCookieModal" class="zt-cookie-modal">
-            <div class="zt-cookie-modal-content">
-                <div class="zt-cookie-modal-header">
-                    <h3 class="zt-cookie-modal-title">Cookie Preferences</h3>
-                    <button class="zt-cookie-close" onclick="ztCookies.hideSettings()">&times;</button>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Essential Cookies</h4>
-                        <div class="zt-cookie-toggle active disabled">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Required for ZoneTrain to function. Enable user authentication, security, and core training analysis features.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Analytics Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztanalyticsToggle" onclick="ztCookies.toggleCategory('analytics')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Help us understand how you use ZoneTrain training analysis. Track feature usage, user journeys, and conversion optimization.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Marketing Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztmarketingToggle" onclick="ztCookies.toggleCategory('marketing')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Enable retargeting for users who tried our free analysis. Help us show relevant training content and measure campaign effectiveness.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-category">
-                    <div class="zt-cookie-category-header">
-                        <h4 class="zt-cookie-category-title">Functional Cookies</h4>
-                        <div class="zt-cookie-toggle" id="ztfunctionalToggle" onclick="ztCookies.toggleCategory('functional')">
-                            <div class="zt-cookie-toggle-slider"></div>
-                        </div>
-                    </div>
-                    <div class="zt-cookie-category-desc">
-                        Remember your training preferences, analysis history, and dashboard customizations for a personalized ZoneTrain experience.
-                    </div>
-                </div>
-                
-                <div class="zt-cookie-modal-actions">
-                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential(); ztCookies.hideSettings();">
-                        Decline All
-                    </button>
-                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.saveSettings()">
-                        Save Preferences
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Load Cookie System -->
-        <link rel="stylesheet" href="css/cookies.css">
-        ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-        <script src="js/cookies.js"></script>
-        
-    </body>
-</html>`;
-  res.send(html);
+        res.json({ 
+            success: true, 
+            message: 'User blocked successfully',
+            email: email 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 
-app.get('/login', apiLimiter, (req, res) => {
+// Test email configuration endpoint
+// Fixed test email configuration endpoint
+app.get('/test-email-config', async (req, res) => {
+    try {
+        
+        
+        //console.log('📧 Testing email configuration...');
+        //console.log('Host:', process.env.EMAIL_HOST);
+        //console.log('Port:', process.env.EMAIL_PORT);
+        //console.log('User:', process.env.ZOHO_EMAIL);
+        //console.log('Password set:', !!process.env.ZOHO_PASSWORD);
+        
+        if (!process.env.ZOHO_EMAIL || !process.env.ZOHO_PASSWORD) {
+            return res.json({
+                success: false,
+                error: 'Email credentials not configured',
+                details: {
+                    ZOHO_EMAIL: process.env.ZOHO_EMAIL ? 'Set' : 'Missing',
+                    ZOHO_PASSWORD: process.env.ZOHO_PASSWORD ? 'Set' : 'Missing',
+                    EMAIL_HOST: process.env.EMAIL_HOST || 'Missing',
+                    EMAIL_PORT: process.env.EMAIL_PORT || 'Missing'
+                }
+            });
+        }
+        
+        // Create transporter
+        const transporter = nodemailer.createTransport({
+            host: process.env.EMAIL_HOST,
+            port: parseInt(process.env.EMAIL_PORT),
+            secure: true,
+            auth: {
+                user: process.env.ZOHO_EMAIL,
+                pass: process.env.ZOHO_PASSWORD
+            },
+            tls: {
+                rejectUnauthorized: true,
+                minVersion: 'TLSv1.2'
+            }
+        });
+
+        // Verify connection
+        console.log('🔍 Verifying SMTP connection...');
+        await transporter.verify();
+        console.log('✅ SMTP connection verified successfully');
+
+        // Send test email
+        console.log('📨 Sending test email...');
+        const info = await transporter.sendMail({
+            from: `"ZoneTrain Test" <${process.env.ZOHO_EMAIL}>`,
+            to: process.env.ZOHO_EMAIL,
+            subject: 'ZoneTrain Email Test - ' + new Date().toLocaleString(),
+            text: 'If you receive this, your Zoho SMTP configuration is working!',
+            html: '<b>✅ Success!</b><p>Your Zoho SMTP is working correctly!</p>'
+        });
+
+        console.log('✅ Test email sent:', info.messageId);
+        
+        res.json({
+            success: true,
+            message: 'Email sent successfully! Check your inbox at ' + process.env.ZOHO_EMAIL,
+            messageId: info.messageId,
+            config: {
+                host: process.env.EMAIL_HOST,
+                port: process.env.EMAIL_PORT,
+                from: process.env.ZOHO_EMAIL
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Email test failed:', error);
+        
+        res.json({
+            success: false,
+            error: error.message,
+            code: error.code,
+            response: error.response,
+            command: error.command,
+            details: {
+                EMAIL_HOST: process.env.EMAIL_HOST,
+                EMAIL_PORT: process.env.EMAIL_PORT,
+                ZOHO_EMAIL: process.env.ZOHO_EMAIL,
+                ZOHO_PASSWORD_SET: !!process.env.ZOHO_PASSWORD
+            }
+        });
+    }
+});
+
+// Add this temporarily to your app.js to verify env variables
+//console.log('🔧 Email config check:');
+//console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
+//console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
+//console.log('ZOHO_EMAIL:', process.env.ZOHO_EMAIL ? 'Set ✅' : 'Missing ❌');
+//console.log('ZOHO_PASSWORD:', process.env.ZOHO_PASSWORD ? 'Set ✅' : 'Missing ❌');
+
+
+// Helper function to calculate training zone distribution
+function analyzeTrainingZones(activities) {
+  // Heart rate zones as % of estimated max HR (customize as needed)
+  const zoneThresholds = [
+    { name: 'Zone 1 (Recovery)', min: 0.50, max: 0.60 },
+    { name: 'Zone 2 (Endurance)', min: 0.60, max: 0.70 },
+    { name: 'Zone 3 (Tempo)', min: 0.70, max: 0.80 },
+    { name: 'Zone 4 (Threshold)', min: 0.80, max: 0.90 },
+    { name: 'Zone 5 (VO2 Max)', min: 0.90, max: 1.00 }
+  ];
+
+  let zoneDistribution = [0, 0, 0, 0, 0]; // Time in each zone
+  let totalTime = 0;
+  let activitiesWithHR = 0;
+
+  activities.forEach(activity => {
+    if (activity.has_heartrate && activity.average_heartrate > 0) {
+      activitiesWithHR++;
+      const estimatedMaxHR = 220 - 30; // Assume age 30, customize later
+      const hrPercent = activity.average_heartrate / estimatedMaxHR;
+      const duration = activity.moving_time;
+      
+      // Find which zone this activity falls into
+      for (let i = 0; i < zoneThresholds.length; i++) {
+        if (hrPercent >= zoneThresholds[i].min && hrPercent < zoneThresholds[i].max) {
+          zoneDistribution[i] += duration;
+          break;
+        }
+      }
+      totalTime += duration;
+    }
+  });
+
+  // Convert to percentages
+  const zonePercentages = zoneDistribution.map(time => 
+    totalTime > 0 ? Math.round((time / totalTime) * 100) : 0
+  );
+
+  return {
+    percentages: zonePercentages,
+    totalActivities: activitiesWithHR,
+    zoneNames: zoneThresholds.map(z => z.name)
+  };
+}
+
+// Generate training insights based on zone distribution
+function generateZoneInsights(zonePercentages) {
+  const [z1, z2, z3, z4, z5] = zonePercentages;
+  let insights = [];
+
+  if (z1 < 10) insights.push("Add more recovery rides (Zone 1)");
+  if (z2 > 70) insights.push("Great endurance base! Consider tempo work");
+  if (z2 < 40) insights.push("Build more aerobic base (Zone 2)");
+  if (z4 + z5 < 10) insights.push("Missing high-intensity training");
+  if (z5 > 20) insights.push("Reduce VO2 max work, focus on threshold");
+  if (z3 > 30) insights.push("Good tempo training balance");
+
+const baseInsight = insights.length > 0 
+    ? insights.slice(0, 2).join('. ') 
+    : "Maintain current training distribution";
+
+  // Add ZoneTrain branding
+  return `🏃 ${baseInsight} | Powered by zonetrain.fit`;}
+
+  app.get('/login', apiLimiter, (req, res) => {
   const redirect = req.query.redirect || '';
   const error = req.query.error || '';
   
@@ -2581,7 +1603,7 @@ app.get('/signup', apiLimiter, (req, res) => {
         </a>
 
         <div class="login-section">
-            <p>Already have an account? <a href="#" id="login-link">Login Here</a></p>
+            <p>Already have an account? <a href="/login" id="login-link">Login Here</a></p>
         </div>
     </div>
 
@@ -2718,1037 +1740,6 @@ function showSuccess(message) {
 });
 
 
-// Temporary admin endpoint - remove in production
-app.post('/api/admin/block-user', async (req, res) => {
-    try {
-        const { email } = req.body;
-        
-        const user = await userManager.getUserByEmail(email);
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-        }
-        
-        await userManager.updateUser(user.id, {
-            active: false,
-            blockedReason: 'Email not verified within 24 hours',
-            blockedAt: new Date()
-        });
-        
-        res.json({ 
-            success: true, 
-            message: 'User blocked successfully',
-            email: email 
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
-// Test email configuration endpoint
-// Fixed test email configuration endpoint
-app.get('/test-email-config', async (req, res) => {
-    try {
-        
-        
-        //console.log('📧 Testing email configuration...');
-        //console.log('Host:', process.env.EMAIL_HOST);
-        //console.log('Port:', process.env.EMAIL_PORT);
-        //console.log('User:', process.env.ZOHO_EMAIL);
-        //console.log('Password set:', !!process.env.ZOHO_PASSWORD);
-        
-        if (!process.env.ZOHO_EMAIL || !process.env.ZOHO_PASSWORD) {
-            return res.json({
-                success: false,
-                error: 'Email credentials not configured',
-                details: {
-                    ZOHO_EMAIL: process.env.ZOHO_EMAIL ? 'Set' : 'Missing',
-                    ZOHO_PASSWORD: process.env.ZOHO_PASSWORD ? 'Set' : 'Missing',
-                    EMAIL_HOST: process.env.EMAIL_HOST || 'Missing',
-                    EMAIL_PORT: process.env.EMAIL_PORT || 'Missing'
-                }
-            });
-        }
-        
-        // Create transporter
-        const transporter = nodemailer.createTransport({
-            host: process.env.EMAIL_HOST,
-            port: parseInt(process.env.EMAIL_PORT),
-            secure: true,
-            auth: {
-                user: process.env.ZOHO_EMAIL,
-                pass: process.env.ZOHO_PASSWORD
-            },
-            tls: {
-                rejectUnauthorized: true,
-                minVersion: 'TLSv1.2'
-            }
-        });
-
-        // Verify connection
-        console.log('🔍 Verifying SMTP connection...');
-        await transporter.verify();
-        console.log('✅ SMTP connection verified successfully');
-
-        // Send test email
-        console.log('📨 Sending test email...');
-        const info = await transporter.sendMail({
-            from: `"ZoneTrain Test" <${process.env.ZOHO_EMAIL}>`,
-            to: process.env.ZOHO_EMAIL,
-            subject: 'ZoneTrain Email Test - ' + new Date().toLocaleString(),
-            text: 'If you receive this, your Zoho SMTP configuration is working!',
-            html: '<b>✅ Success!</b><p>Your Zoho SMTP is working correctly!</p>'
-        });
-
-        console.log('✅ Test email sent:', info.messageId);
-        
-        res.json({
-            success: true,
-            message: 'Email sent successfully! Check your inbox at ' + process.env.ZOHO_EMAIL,
-            messageId: info.messageId,
-            config: {
-                host: process.env.EMAIL_HOST,
-                port: process.env.EMAIL_PORT,
-                from: process.env.ZOHO_EMAIL
-            }
-        });
-
-    } catch (error) {
-        console.error('❌ Email test failed:', error);
-        
-        res.json({
-            success: false,
-            error: error.message,
-            code: error.code,
-            response: error.response,
-            command: error.command,
-            details: {
-                EMAIL_HOST: process.env.EMAIL_HOST,
-                EMAIL_PORT: process.env.EMAIL_PORT,
-                ZOHO_EMAIL: process.env.ZOHO_EMAIL,
-                ZOHO_PASSWORD_SET: !!process.env.ZOHO_PASSWORD
-            }
-        });
-    }
-});
-
-// Add this temporarily to your app.js to verify env variables
-//console.log('🔧 Email config check:');
-//console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
-//console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
-//console.log('ZOHO_EMAIL:', process.env.ZOHO_EMAIL ? 'Set ✅' : 'Missing ❌');
-//console.log('ZOHO_PASSWORD:', process.env.ZOHO_PASSWORD ? 'Set ✅' : 'Missing ❌');
-
-
-// Helper function to calculate training zone distribution
-function analyzeTrainingZones(activities) {
-  // Heart rate zones as % of estimated max HR (customize as needed)
-  const zoneThresholds = [
-    { name: 'Zone 1 (Recovery)', min: 0.50, max: 0.60 },
-    { name: 'Zone 2 (Endurance)', min: 0.60, max: 0.70 },
-    { name: 'Zone 3 (Tempo)', min: 0.70, max: 0.80 },
-    { name: 'Zone 4 (Threshold)', min: 0.80, max: 0.90 },
-    { name: 'Zone 5 (VO2 Max)', min: 0.90, max: 1.00 }
-  ];
-
-  let zoneDistribution = [0, 0, 0, 0, 0]; // Time in each zone
-  let totalTime = 0;
-  let activitiesWithHR = 0;
-
-  activities.forEach(activity => {
-    if (activity.has_heartrate && activity.average_heartrate > 0) {
-      activitiesWithHR++;
-      const estimatedMaxHR = 220 - 30; // Assume age 30, customize later
-      const hrPercent = activity.average_heartrate / estimatedMaxHR;
-      const duration = activity.moving_time;
-      
-      // Find which zone this activity falls into
-      for (let i = 0; i < zoneThresholds.length; i++) {
-        if (hrPercent >= zoneThresholds[i].min && hrPercent < zoneThresholds[i].max) {
-          zoneDistribution[i] += duration;
-          break;
-        }
-      }
-      totalTime += duration;
-    }
-  });
-
-  // Convert to percentages
-  const zonePercentages = zoneDistribution.map(time => 
-    totalTime > 0 ? Math.round((time / totalTime) * 100) : 0
-  );
-
-  return {
-    percentages: zonePercentages,
-    totalActivities: activitiesWithHR,
-    zoneNames: zoneThresholds.map(z => z.name)
-  };
-}
-
-// Generate training insights based on zone distribution
-function generateZoneInsights(zonePercentages) {
-  const [z1, z2, z3, z4, z5] = zonePercentages;
-  let insights = [];
-
-  if (z1 < 10) insights.push("Add more recovery rides (Zone 1)");
-  if (z2 > 70) insights.push("Great endurance base! Consider tempo work");
-  if (z2 < 40) insights.push("Build more aerobic base (Zone 2)");
-  if (z4 + z5 < 10) insights.push("Missing high-intensity training");
-  if (z5 > 20) insights.push("Reduce VO2 max work, focus on threshold");
-  if (z3 > 30) insights.push("Good tempo training balance");
-
-const baseInsight = insights.length > 0 
-    ? insights.slice(0, 2).join('. ') 
-    : "Maintain current training distribution";
-
-  // Add ZoneTrain branding
-  return `🏃 ${baseInsight} | Powered by zonetrain.fit`;}
-
-app.get('/about', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>About ZoneTrain - AI-Powered Running Coaching</title>
-    <meta name="description" content="Learn about ZoneTrain's mission to revolutionize running coaching through AI technology and personalized training plans.">
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        color: white;
-      }
-
-      .container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 40px 20px;
-      }
-
-      h1 {
-        font-size: 2.8rem;
-        text-align: center;
-        margin-bottom: 30px;
-        color: #ffd700;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .content-section {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 40px;
-        margin-bottom: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      h2 {
-        color: #ffd700;
-        margin-bottom: 20px;
-        font-size: 1.8rem;
-      }
-
-      p {
-        line-height: 1.7;
-        margin-bottom: 20px;
-        font-size: 1.1rem;
-        opacity: 0.95;
-      }
-
-      .mission-values {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 30px;
-        margin: 40px 0;
-      }
-
-      .value-card {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 25px;
-        border-radius: 15px;
-        text-align: center;
-      }
-
-      .value-icon {
-        font-size: 2rem;
-        margin-bottom: 15px;
-      }
-
-      .btn-back {
-        display: inline-block;
-        margin-top: 30px;
-        padding: 15px 30px;
-        background: linear-gradient(45deg, #ffd700, #ffb700);
-        color: #333;
-        text-decoration: none;
-        border-radius: 25px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-      }
-
-      .btn-back:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-      }
-
-      @media (max-width: 768px) {
-        .nav-links { display: none; }
-        h1 { font-size: 2.2rem; }
-        .container { padding: 20px 15px; }
-        .content-section { padding: 25px; }
-      }
-    </style>
-  </head>
-  <body>
-   
-    <div class="container">
-      <h1>About ZoneTrain</h1>
-
-      <div class="content-section">
-        <h2>Our Mission</h2>
-        <p>ZoneTrain revolutionizes running coaching by combining cutting-edge artificial intelligence with proven sports science methodologies. We believe every runner deserves personalized, data-driven guidance to achieve their performance goals safely and effectively.</p>
-        
-        <p>Our platform analyzes your daily Heart Rate Variability (HRV) readings, training history, and performance patterns to deliver intelligent workout recommendations that adapt to your body's recovery state and training needs.</p>
-      </div>
-
-      <div class="content-section">
-        <h2>What We Do</h2>
-        <p><strong>AI-Powered Training Zone Analysis:</strong> Our proprietary algorithms analyze your Strava activities to provide detailed insights into your training zone distribution, helping you optimize your training intensity for maximum performance gains.</p>
-        
-        <p><strong>HRV-Based Daily Coaching:</strong> By monitoring your Heart Rate Variability, we provide personalized daily workout recommendations that align with your body's recovery status, preventing overtraining and optimizing adaptation.</p>
-        
-        <p><strong>Personalized Training Plans:</strong> Our three-tier coaching system offers progressively advanced training programs designed for runners at every level, from fitness enthusiasts to competitive athletes.</p>
-      </div>
-
-      <div class="mission-values">
-        <div class="value-card">
-          <div class="value-icon">🎯</div>
-          <h3>Precision</h3>
-          <p>Data-driven coaching decisions based on scientific principles and individual biomarkers</p>
-        </div>
-        <div class="value-card">
-          <div class="value-icon">📈</div>
-          <h3>Progress</h3>
-          <p>Continuous improvement through intelligent training progression and adaptation</p>
-        </div>
-        <div class="value-card">
-          <div class="value-icon">🏃‍♂️</div>
-          <h3>Performance</h3>
-          <p>Maximizing your running potential while maintaining long-term health and motivation</p>
-        </div>
-      </div>
-
-      <div class="content-section">
-        <h2>Why Choose ZoneTrain?</h2>
-        <p>Traditional training plans follow a one-size-fits-all approach that ignores your individual recovery patterns and daily readiness to train. ZoneTrain's AI coaching adapts to your unique physiology, ensuring you train hard when your body is ready and recover properly when needed.</p>
-        
-        <p>Our integration with Strava provides seamless activity analysis, while our WhatsApp-based coaching delivers convenient, personalized guidance directly to your phone. This combination of advanced technology and practical accessibility makes professional-level coaching available to every runner.</p>
-      </div>
-
-      <a href="/" class="btn-back">← Back to Home</a>
-    </div>
-    ${getCookieBannerHTML()}
-
-    ${getCookieModalHTML()}
-
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
-
-app.get('/contact', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contact ZoneTrain - Professional Fitness Coaching Services</title>
-    <meta name="description" content="Get in touch with ZoneTrain for AI-powered running coaching and personalized training plans. Professional fitness coaching services.">
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        color: white;
-      }
-
-      .header {
-        background: rgba(0, 0, 0, 0.1);
-        padding: 15px 0;
-        backdrop-filter: blur(10px);
-      }
-
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #ffd700;
-        text-decoration: none;
-      }
-
-      .nav-links {
-        display: flex;
-        gap: 30px;
-        list-style: none;
-      }
-
-      .nav-links a {
-        color: white;
-        text-decoration: none;
-        font-weight: 500;
-        transition: color 0.3s ease;
-      }
-
-      .nav-links a:hover {
-        color: #ffd700;
-      }
-
-      .container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 40px 20px;
-      }
-
-      h1 {
-        font-size: 2.8rem;
-        text-align: center;
-        margin-bottom: 30px;
-        color: #ffd700;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .contact-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 30px;
-        margin-bottom: 40px;
-      }
-
-      .contact-card {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 30px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      .contact-icon {
-        font-size: 2.5rem;
-        margin-bottom: 20px;
-        color: #ffd700;
-      }
-
-      .contact-title {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-bottom: 15px;
-        color: #ffd700;
-      }
-
-      .contact-info {
-        font-size: 1.1rem;
-        line-height: 1.6;
-        opacity: 0.95;
-      }
-
-      .contact-info a {
-        color: white;
-        text-decoration: none;
-        transition: color 0.3s ease;
-      }
-
-      .contact-info a:hover {
-        color: #ffd700;
-      }
-
-      .business-hours {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 30px;
-        margin-bottom: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      .business-hours h2 {
-        color: #ffd700;
-        margin-bottom: 20px;
-        text-align: center;
-      }
-
-      .hours-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-      }
-
-      .hour-item {
-        display: flex;
-        justify-content: space-between;
-        padding: 10px 15px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-      }
-
-      .btn-back {
-        display: inline-block;
-        margin-top: 30px;
-        padding: 15px 30px;
-        background: linear-gradient(45deg, #ffd700, #ffb700);
-        color: #333;
-        text-decoration: none;
-        border-radius: 25px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-      }
-
-      .btn-back:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-      }
-
-      @media (max-width: 768px) {
-        .nav-links { display: none; }
-        h1 { font-size: 2.2rem; }
-        .container { padding: 20px 15px; }
-        .contact-grid { grid-template-columns: 1fr; }
-      }
-    </style>
-  </head>
-  <body>
-    
-
-    <div class="container">
-      <h1>Contact ZoneTrain</h1>
-
-      <div class="contact-grid">
-        <div class="contact-card">
-          <div class="contact-icon">📧</div>
-          <h3 class="contact-title">Email Support</h3>
-          <div class="contact-info">
-            <a href="mailto:zonetrain@zohomail.in">zonetrain@zohomail.in</a>
-            <p style="margin-top: 10px; font-size: 0.95rem; opacity: 0.8;">
-              For coaching inquiries, technical support, and partnership opportunities
-            </p>
-          </div>
-        </div>
-
-        <div class="contact-card">
-          <div class="contact-icon">📍</div>
-          <h3 class="contact-title">Business Address</h3>
-          <div class="contact-info">
-            ZoneTrain<br>
-            AP Block, Pitampura<br>
-            New Delhi-110034<br>
-            India
-          </div>
-        </div>
-
-        <div class="contact-card">
-          <div class="contact-icon">🏢</div>
-          <h3 class="contact-title">Business Information</h3>
-          <div class="contact-info">
-            <strong>Service:</strong> AI-powered running coaching and personalized training plans<br><br>
-            <strong>Specialization:</strong> Professional fitness coaching services for runners
-          </div>
-        </div>
-      </div>
-
-      <div class="business-hours">
-        <h2>Support Hours</h2>
-        <div class="hours-grid">
-          <div class="hour-item">
-            <span>Monday - Friday</span>
-            <span>9:00 AM - 6:00 PM IST</span>
-          </div>
-          <div class="hour-item">
-            <span>Saturday</span>
-            <span>10:00 AM - 4:00 PM IST</span>
-          </div>
-          <div class="hour-item">
-            <span>Sunday</span>
-            <span>Closed</span>
-          </div>
-        </div>
-        <p style="text-align: center; margin-top: 20px; opacity: 0.8; font-size: 0.95rem;">
-          We typically respond to all inquiries within 24 hours during business days.
-        </p>
-      </div>
-
-      <a href="/" class="btn-back">← Back to Home</a>
-    </div>
-    ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
-
-app.get('/privacy', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - ZoneTrain</title>
-    <meta name="description" content="ZoneTrain Privacy Policy - How we collect, use, and protect your personal information and fitness data.">
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        color: white;
-        line-height: 1.6;
-      }
-
-      .header {
-        background: rgba(0, 0, 0, 0.1);
-        padding: 15px 0;
-        backdrop-filter: blur(10px);
-      }
-
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #ffd700;
-        text-decoration: none;
-      }
-
-      .container {
-        max-width: 900px;
-        margin: 0 auto;
-        padding: 40px 20px;
-      }
-
-      h1 {
-        font-size: 2.5rem;
-        text-align: center;
-        margin-bottom: 30px;
-        color: #ffd700;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .content {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 40px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      h2 {
-        color: #ffd700;
-        margin: 30px 0 15px 0;
-        font-size: 1.5rem;
-      }
-
-      h2:first-of-type {
-        margin-top: 0;
-      }
-
-      p {
-        margin-bottom: 15px;
-        opacity: 0.95;
-      }
-
-      ul {
-        margin: 15px 0 15px 20px;
-      }
-
-      li {
-        margin-bottom: 8px;
-        opacity: 0.95;
-      }
-
-      .effective-date {
-        text-align: center;
-        font-style: italic;
-        opacity: 0.8;
-        margin-bottom: 30px;
-      }
-
-      .btn-back {
-        display: inline-block;
-        margin-top: 30px;
-        padding: 15px 30px;
-        background: linear-gradient(45deg, #ffd700, #ffb700);
-        color: #333;
-        text-decoration: none;
-        border-radius: 25px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-      }
-
-      .btn-back:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-      }
-
-      @media (max-width: 768px) {
-        .container { padding: 20px 15px; }
-        .content { padding: 25px; }
-        h1 { font-size: 2rem; }
-      }
-    </style>
-  </head>
-  <body>
-    <header class="header">
-      <nav class="nav">
-        <a href="/" class="logo">ZoneTrain</a>
-      </nav>
-    </header>
-
-    <div class="container">
-      <h1>Privacy Policy</h1>
-      <p class="effective-date">Effective Date: September 18, 2025</p>
-
-      <div class="content">
-        <h2>1. Introduction</h2>
-        <p>ZoneTrain ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our AI-powered running coaching and personalized training plan services, including our website, mobile applications, and WhatsApp-based coaching communications.</p>
-
-        <h2>2. Information We Collect</h2>
-        <p><strong>Personal Information:</strong></p>
-        <ul>
-          <li>Name, email address, and contact information</li>
-          <li>Account credentials and profile information</li>
-          <li>Payment and billing information (processed securely through third-party processors)</li>
-          <li>Communication preferences and WhatsApp phone number (with your consent)</li>
-        </ul>
-
-        <p><strong>Fitness and Health Data:</strong></p>
-        <ul>
-          <li>Heart Rate Variability (HRV) readings you provide</li>
-          <li>Training activities and performance data from connected fitness platforms (Strava)</li>
-          <li>Workout responses and subjective wellness questionnaire data</li>
-          <li>Training zone analysis and progression metrics</li>
-        </ul>
-
-        <p><strong>Technical Information:</strong></p>
-        <ul>
-          <li>Device information, IP address, and browser details</li>
-          <li>Usage patterns and interaction data with our services</li>
-          <li>Cookies and similar tracking technologies</li>
-        </ul>
-
-        <h2>3. How We Use Your Information</h2>
-        <p>We use your information to:</p>
-        <ul>
-          <li>Provide personalized AI-powered coaching recommendations</li>
-          <li>Analyze your training data and generate customized workout plans</li>
-          <li>Send daily HRV prompts and training suggestions via WhatsApp (with your consent)</li>
-          <li>Process payments and manage your subscription</li>
-          <li>Improve our AI algorithms and service quality</li>
-          <li>Communicate important service updates and support</li>
-          <li>Comply with legal obligations and protect our rights</li>
-        </ul>
-
-        <h2>4. Information Sharing and Disclosure</h2>
-        <p>We do not sell, rent, or trade your personal information. We may share your information only in the following circumstances:</p>
-        <ul>
-          <li><strong>Service Providers:</strong> With trusted third parties who help us operate our services (payment processors, cloud storage, AI processing)</li>
-          <li><strong>Connected Services:</strong> With platforms you choose to connect (like Strava), as authorized by you</li>
-          <li><strong>Legal Requirements:</strong> When required by law, court order, or to protect our rights and safety</li>
-          <li><strong>Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets</li>
-        </ul>
-
-        <h2>5. Data Security</h2>
-        <p>We implement appropriate technical and organizational security measures to protect your information against unauthorized access, alteration, disclosure, or destruction. This includes encryption, secure data transmission, and regular security assessments. However, no method of transmission over the internet is 100% secure.</p>
-
-        <h2>6. WhatsApp Communications</h2>
-        <p>Our WhatsApp-based coaching service operates with your explicit consent. We use WhatsApp Business API to send you daily HRV prompts and personalized training recommendations. You can opt out of WhatsApp communications at any time by replying "STOP" or contacting us directly.</p>
-
-        <h2>7. Data Retention</h2>
-        <p>We retain your information for as long as necessary to provide our services and fulfill the purposes outlined in this policy. You may request deletion of your account and associated data at any time, subject to legal obligations to retain certain information.</p>
-
-        <h2>8. Your Rights</h2>
-        <p>Depending on your location, you may have the right to:</p>
-        <ul>
-          <li>Access, update, or delete your personal information</li>
-          <li>Withdraw consent for data processing</li>
-          <li>Request data portability</li>
-          <li>Object to certain processing activities</li>
-          <li>File complaints with data protection authorities</li>
-        </ul>
-
-        <h2>9. International Data Transfers</h2>
-        <p>Your information may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place to protect your information in accordance with applicable data protection laws.</p>
-
-        <h2>10. Changes to This Policy</h2>
-        <p>We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new policy on our website and, where appropriate, through other communication channels.</p>
-
-        <h2>11. Contact Us</h2>
-        <p>If you have any questions about this Privacy Policy or our data practices, please contact us at:</p>
-        <p>Email: zonetrain@zohomail.in<br>
-        Address: ZoneTrain, AP Block, Pitampura, New Delhi-110034, India</p>
-      </div>
-
-      <a href="/" class="btn-back">← Back to Home</a>
-    </div>
-    ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
-
-app.get('/terms', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terms of Service - ZoneTrain</title>
-    <meta name="description" content="ZoneTrain Terms of Service - Legal terms and conditions for using our AI-powered fitness coaching services.">
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        color: white;
-        line-height: 1.6;
-      }
-
-      .header {
-        background: rgba(0, 0, 0, 0.1);
-        padding: 15px 0;
-        backdrop-filter: blur(10px);
-      }
-
-      .nav {
-        max-width: 1200px;
-        margin: 0 auto;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px;
-      }
-
-      .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #ffd700;
-        text-decoration: none;
-      }
-
-      .container {
-        max-width: 900px;
-        margin: 0 auto;
-        padding: 40px 20px;
-      }
-
-      h1 {
-        font-size: 2.5rem;
-        text-align: center;
-        margin-bottom: 30px;
-        color: #ffd700;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-      }
-
-      .content {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 40px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      h2 {
-        color: #ffd700;
-        margin: 30px 0 15px 0;
-        font-size: 1.5rem;
-      }
-
-      h2:first-of-type {
-        margin-top: 0;
-      }
-
-      p {
-        margin-bottom: 15px;
-        opacity: 0.95;
-      }
-
-      ul {
-        margin: 15px 0 15px 20px;
-      }
-
-      li {
-        margin-bottom: 8px;
-        opacity: 0.95;
-      }
-
-      .effective-date {
-        text-align: center;
-        font-style: italic;
-        opacity: 0.8;
-        margin-bottom: 30px;
-      }
-
-      .btn-back {
-        display: inline-block;
-        margin-top: 30px;
-        padding: 15px 30px;
-        background: linear-gradient(45deg, #ffd700, #ffb700);
-        color: #333;
-        text-decoration: none;
-        border-radius: 25px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-      }
-
-      .btn-back:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-      }
-
-      @media (max-width: 768px) {
-        .container { padding: 20px 15px; }
-        .content { padding: 25px; }
-        h1 { font-size: 2rem; }
-      }
-    </style>
-  </head>
-  <body>
-    <header class="header">
-      <nav class="nav">
-        <a href="/" class="logo">ZoneTrain</a>
-      </nav>
-    </header>
-
-    <div class="container">
-      <h1>Terms of Service</h1>
-      <p class="effective-date">Effective Date: September 18, 2025</p>
-
-      <div class="content">
-        <h2>1. Acceptance of Terms</h2>
-        <p>By accessing and using ZoneTrain's AI-powered running coaching and personalized training plan services ("Services"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, please do not use our Services.</p>
-
-        <h2>2. Description of Services</h2>
-        <p>ZoneTrain provides professional fitness coaching services including:</p>
-        <ul>
-          <li>AI-powered analysis of training zones based on Strava activity data</li>
-          <li>Personalized workout recommendations based on Heart Rate Variability (HRV) readings</li>
-          <li>Daily coaching guidance delivered through WhatsApp Business API</li>
-          <li>Customized training plans for runners at various skill levels</li>
-          <li>Performance tracking and progress analysis</li>
-        </ul>
-
-        <h2>3. User Accounts and Registration</h2>
-        <p>To access our Services, you must create an account and provide accurate, current information. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You must be at least 18 years old to use our Services.</p>
-
-        <h2>4. Subscription Plans and Payment</h2>
-        <p>Our Services are offered through various subscription plans with different features and pricing. By subscribing, you agree to pay all applicable fees. Subscriptions automatically renew unless cancelled. We offer a 14-day free trial for new users with no credit card required.</p>
-
-        <p><strong>Cancellation:</strong> You may cancel your subscription at any time through your account settings or by contacting us. Cancellations take effect at the end of the current billing period.</p>
-
-        <h2>5. Acceptable Use</h2>
-        <p>You agree to use our Services only for lawful purposes and in accordance with these Terms. You must not:</p>
-        <ul>
-          <li>Provide false or misleading health information</li>
-          <li>Share your account with others</li>
-          <li>Attempt to reverse engineer or copy our AI algorithms</li>
-          <li>Use our Services for any commercial purpose without authorization</li>
-          <li>Violate any applicable laws or regulations</li>
-        </ul>
-
-        <h2>6. Health and Fitness Disclaimers</h2>
-        <p><strong>Not Medical Advice:</strong> Our Services provide fitness coaching and training recommendations based on data analysis. This is not medical advice and should not replace consultation with qualified healthcare professionals.</p>
-
-        <p><strong>Assumption of Risk:</strong> Physical exercise carries inherent risks. You participate in recommended activities at your own risk and should consult with a physician before beginning any exercise program.</p>
-
-        <p><strong>Personal Responsibility:</strong> You are solely responsible for monitoring your health and modifying or stopping activities if you experience any adverse symptoms.</p>
-
-        <h2>7. WhatsApp Communications</h2>
-        <p>By providing your WhatsApp number, you consent to receive automated coaching messages and workout recommendations via WhatsApp Business API. You may opt out at any time by replying "STOP" to any message or contacting us directly.</p>
-
-        <h2>8. Data and Privacy</h2>
-        <p>Your privacy is important to us. Our collection and use of your information is governed by our Privacy Policy, which is incorporated into these Terms by reference. By using our Services, you consent to the collection and use of your information as described in our Privacy Policy.</p>
-
-        <h2>9. Intellectual Property</h2>
-        <p>All content, features, and functionality of our Services, including our AI algorithms, training methodologies, and user interface, are owned by ZoneTrain and protected by copyright, trademark, and other intellectual property laws.</p>
-
-        <h2>10. Third-Party Integrations</h2>
-        <p>Our Services integrate with third-party platforms like Strava and WhatsApp. Your use of these integrations is subject to their respective terms of service and privacy policies. We are not responsible for the availability or functionality of third-party services.</p>
-
-        <h2>11. Limitation of Liability</h2>
-        <p>To the maximum extent permitted by law, ZoneTrain shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of our Services, including but not limited to injuries, loss of data, or business interruption.</p>
-
-        <h2>12. Indemnification</h2>
-        <p>You agree to indemnify and hold ZoneTrain harmless from any claims, damages, or expenses arising from your use of our Services, violation of these Terms, or infringement of any third-party rights.</p>
-
-        <h2>13. Service Availability</h2>
-        <p>We strive to maintain high service availability but do not guarantee uninterrupted access. We may temporarily suspend or restrict access for maintenance, updates, or other operational reasons.</p>
-
-        <h2>14. Modifications to Terms</h2>
-        <p>We reserve the right to modify these Terms at any time. We will notify users of material changes through our website or other communication channels. Continued use of our Services after changes constitutes acceptance of the new Terms.</p>
-
-        <h2>15. Termination</h2>
-        <p>Either party may terminate the agreement at any time. We may suspend or terminate your account for violation of these Terms. Upon termination, your right to use the Services ceases immediately.</p>
-
-        <h2>16. Governing Law</h2>
-        <p>These Terms are governed by the laws of India. Any disputes arising from these Terms or the use of our Services shall be subject to the exclusive jurisdiction of the courts in New Delhi, India.</p>
-
-        <h2>17. Contact Information</h2>
-        <p>If you have any questions about these Terms, please contact us at:</p>
-        <p>Email: zonetrain@zohomail.in<br>
-        Address: ZoneTrain, AP Block, Pitampura, New Delhi-110034, India</p>
-
-        <h2>18. Severability</h2>
-        <p>If any provision of these Terms is found to be unenforceable or invalid, the remaining provisions will continue to be valid and enforceable to the fullest extent permitted by law.</p>
-      </div>
-
-      <a href="/" class="btn-back">← Back to Home</a>
-    </div>
-    ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
-
-
-
 // Make sure this route exists and works correctly
 app.get('/strava-connect', (req, res) => {
     const userToken = req.query.userToken;
@@ -3874,348 +1865,7 @@ app.get('/callback', async (req, res) => {
 
 
 // View activities (existing)
-// Updated activities route
-app.get('/activities', async (req, res) => {
-  const access_token = storedTokens.access_token;
-  if (!access_token) {
-    return res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-    <link rel="stylesheet" href="css/cookies.css">
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ZoneTrain - Connect Required</title>
-      <style>
-        :root {
-          --deep-purple: #6B46C1;
-          --light-purple: #A78BFA;
-          --accent-purple: #8B5CF6;
-          --white: #FFFFFF;
-          --dark-gray: #1F2937;
-          --success-green: #10B981;
-        }
-        
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-          min-height: 100vh;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          color: var(--white);
-          text-align: center;
-          padding: 20px;
-        }
-        
-        .connect-prompt {
-          background: rgba(255, 255, 255, 0.1);
-          padding: 40px;
-          border-radius: 20px;
-          backdrop-filter: blur(15px);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          max-width: 500px;
-        }
-        
-        h1 { 
-          color: var(--white);
-          margin-bottom: 20px; 
-          font-size: 2rem;
-          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        
-        .btn {
-          display: inline-block;
-          margin: 10px;
-          padding: 15px 30px;
-          text-decoration: none;
-          border-radius: 25px;
-          font-weight: 600;
-          transition: all 0.3s ease;
-        }
-        
-        .btn-primary {
-          background: var(--success-green);
-          color: var(--white);
-        }
-        
-        .btn-secondary {
-          background: rgba(255, 255, 255, 0.2);
-          color: var(--white);
-          border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .btn:hover { 
-          transform: translateY(-2px);
-          box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
-        }
-      </style>
-    </head>
-    <body>
-      <div class="connect-prompt">
-        <h1>🔗 Connect to Strava First</h1>
-        <p>Please connect your Strava account to view activities</p>
-        <a href="/login" class="btn btn-primary">Connect with Strava</a>
-        <a href="/" class="btn btn-secondary">Back to Home</a>
-      </div>
-      ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-    </body>
-    </html>
-    `);
-  }
 
-  try {
-    const activities = await axios.get('https://www.strava.com/api/v3/athlete/activities?per_page=10', {
-      headers: { Authorization: `Bearer ${access_token}` }
-    });
-
-    const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ZoneTrain - Your Activities</title>
-      <style>
-        :root {
-          --deep-purple: #6B46C1;
-          --light-purple: #A78BFA;
-          --accent-purple: #8B5CF6;
-          --white: #FFFFFF;
-          --dark-gray: #1F2937;
-          --success-green: #10B981;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          background: var(--white);
-          color: var(--dark-gray);
-          min-height: 100vh;
-        }
-
-        .header {
-          background: var(--deep-purple);
-          color: var(--white);
-          padding: 30px 20px;
-          text-align: center;
-        }
-
-        .header h1 {
-          font-size: 2.5rem;
-          margin-bottom: 10px;
-          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .subtitle {
-          font-size: 1.1rem;
-          opacity: 0.9;
-        }
-
-        .container {
-          max-width: 900px;
-          margin: 0 auto;
-          padding: 40px 20px;
-        }
-
-        .activities-grid {
-          display: grid;
-          gap: 20px;
-          margin-bottom: 40px;
-        }
-
-        .activity-card {
-          background: var(--white);
-          border-radius: 15px;
-          padding: 25px;
-          box-shadow: 0 4px 15px rgba(107, 70, 193, 0.1);
-          border-left: 4px solid var(--accent-purple);
-          transition: all 0.3s ease;
-        }
-
-        .activity-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(107, 70, 193, 0.2);
-        }
-
-        .activity-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 15px;
-        }
-
-        .activity-name {
-          font-size: 1.3rem;
-          font-weight: 600;
-          color: var(--deep-purple);
-          margin-bottom: 5px;
-        }
-
-        .activity-type {
-          font-size: 0.9rem;
-          background: var(--light-purple);
-          color: var(--white);
-          padding: 4px 12px;
-          border-radius: 12px;
-        }
-
-        .activity-stats {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-          gap: 15px;
-          margin-top: 15px;
-        }
-
-        .stat-item {
-          text-align: center;
-          background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
-          color: var(--white);
-          padding: 12px;
-          border-radius: 10px;
-        }
-
-        .stat-label {
-          font-size: 0.8rem;
-          opacity: 0.9;
-          margin-bottom: 5px;
-        }
-
-        .stat-value {
-          font-size: 1.1rem;
-          font-weight: 600;
-        }
-
-        .navigation {
-          display: flex;
-          justify-content: center;
-          gap: 15px;
-          flex-wrap: wrap;
-        }
-
-        .btn {
-          padding: 12px 25px;
-          border-radius: 25px;
-          text-decoration: none;
-          font-weight: 600;
-          transition: all 0.3s ease;
-          text-align: center;
-        }
-
-        .btn-primary {
-          background: var(--deep-purple);
-          color: var(--white);
-        }
-
-        .btn-secondary {
-          background: var(--white);
-          color: var(--deep-purple);
-          border: 2px solid var(--light-purple);
-        }
-
-        .btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn-primary:hover {
-          background: var(--accent-purple);
-        }
-
-        .btn-secondary:hover {
-          background: var(--light-purple);
-          color: var(--white);
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 60px 20px;
-          background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
-          color: var(--white);
-          border-radius: 15px;
-        }
-
-        @media (max-width: 768px) {
-          .container { padding: 20px 10px; }
-          .header h1 { font-size: 2rem; }
-          .activity-header { flex-direction: column; gap: 10px; }
-          .navigation { flex-direction: column; align-items: center; }
-          .btn { width: 100%; max-width: 280px; }
-        }
-      </style>
-    </head>
-    
-    <body>
-      <div class="header">
-        <h1>🏃‍♂️ Your Activities</h1>
-        <p class="subtitle">Recent workouts from your Strava account</p>
-      </div>
-
-      <div class="container">
-        <div class="activities-grid">
-          ${activities.data.length > 0 ? activities.data.map(activity => {
-            const distanceKm = (activity.distance / 1000).toFixed(2);
-            const timeMinutes = Math.floor(activity.moving_time / 60);
-            const avgHR = activity.has_heartrate ? activity.average_heartrate : 'N/A';
-            const elevationGain = activity.total_elevation_gain || 0;
-            
-            return `
-            <div class="activity-card">
-              <div class="activity-header">
-                <div>
-                  <div class="activity-name">${activity.name}</div>
-                  <div class="activity-type">${activity.type}</div>
-                </div>
-              </div>
-              
-              <div class="activity-stats">
-                <div class="stat-item">
-                  <div class="stat-label">Distance</div>
-                  <div class="stat-value">${distanceKm} km</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">Time</div>
-                  <div class="stat-value">${timeMinutes} min</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">Avg HR</div>
-                  <div class="stat-value">${avgHR}${avgHR !== 'N/A' ? ' bpm' : ''}</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">Elevation</div>
-                  <div class="stat-value">${elevationGain}m</div>
-                </div>
-              </div>
-            </div>
-            `;
-          }).join('') : `
-          <div class="empty-state">
-            <h2>No Activities Found</h2>
-            <p>Upload some activities to Strava to see them here!</p>
-          </div>
-          `}
-        </div>
-
-        <div class="navigation">
-          <a href="/analyze-zones" class="btn btn-primary">🎯 Analyze Training Zones</a>
-          <a href="/" class="btn btn-secondary">🏠 Back to Home</a>
-        </div>
-      </div>
-      ${getCookieBannerHTML()}
-    ${getCookieModalHTML()}
-    <script src="/components/nav-header.js"></script>
-    </body>
-    </html>
-    `;
-
-    res.send(html);
-  } catch (error) {
-    // Error handling with purple theme...
-  }
-});
 
 
 // Make sure your analyze-zones route looks like this:
@@ -7481,25 +5131,12 @@ FORMAT YOUR RESPONSE AS JSON:
 
 // Call AI (use your existing AI service)
 async function callAIForWorkout(prompt) {
-    // If you have OpenAI
-    if (process.env.OPENAI_API_KEY) {
-        const { OpenAI } = require('openai');
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.7
-        });
-        
-        return response.choices[0].message.content;
-    }
     
     // Or if you have Gemini
-    // const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // const model = gemini.getGenerativeModel({ model: 'gemini-pro' });
-    // const result = await model.generateContent(prompt);
-    // return result.response.text();
+     const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+     const model = gemini.getGenerativeModel({ model: 'gemini-pro' });
+     const result = await model.generateContent(prompt);
+     return result.response.text();
     
     throw new Error('No AI service configured');
 }
@@ -8528,115 +6165,6 @@ app.get('/api/auth/email-verification-status', authenticateToken, async (req, re
             message: 'Failed to check verification status'
         });
     }
-});
-
-// ============================================
-// ERROR HANDLER - MUST BE LAST MIDDLEWARE
-// ============================================
-
-// 404 Handler (for undefined routes)
-app.use((req, res, next) => {
-  res.status(404).json({
-    success: false,
-    error: 'Route not found',
-    path: req.path
-  });
-});
-
-// Global Error Handler
-app.use((err, req, res, next) => {
-  // Log error details securely (don't log sensitive data)
-  console.error('❌ Error occurred:');
-  console.error('   Message:', err.message);
-  console.error('   Status:', err.status || 500);
-  console.error('   Path:', req.path);
-  console.error('   Method:', req.method);
-  
-  // Only log stack trace in development
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('   Stack:', err.stack);
-  }
-  
-  // Determine error status code
-  const statusCode = err.status || err.statusCode || 500;
-  
-  // Categorize error type
-  let errorType = 'INTERNAL_ERROR';
-  let clientMessage = 'An unexpected error occurred';
-  
-  if (statusCode === 400) {
-    errorType = 'BAD_REQUEST';
-    clientMessage = err.message || 'Invalid request';
-  } else if (statusCode === 401) {
-    errorType = 'UNAUTHORIZED';
-    clientMessage = 'Authentication required';
-  } else if (statusCode === 403) {
-    errorType = 'FORBIDDEN';
-    clientMessage = 'Access denied';
-  } else if (statusCode === 404) {
-    errorType = 'NOT_FOUND';
-    clientMessage = 'Resource not found';
-  } else if (statusCode === 429) {
-    errorType = 'RATE_LIMIT_EXCEEDED';
-    clientMessage = 'Too many requests, please try again later';
-  } else if (statusCode >= 500) {
-    errorType = 'SERVER_ERROR';
-    clientMessage = 'Internal server error';
-  }
-  
-  // Build error response
-  const errorResponse = {
-    success: false,
-    error: process.env.NODE_ENV === 'production' ? clientMessage : err.message,
-    code: errorType,
-    timestamp: new Date().toISOString()
-  };
-  
-  // Include stack trace in development only
-  if (process.env.NODE_ENV !== 'production') {
-    errorResponse.stack = err.stack;
-    errorResponse.details = {
-      path: req.path,
-      method: req.method,
-      query: req.query,
-      body: sanitizeForLogging(req.body)
-    };
-  }
-  
-  // Send error response
-  res.status(statusCode).json(errorResponse);
-});
-
-// Helper function to sanitize sensitive data from logs
-function sanitizeForLogging(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-  
-  const sensitiveKeys = ['password', 'token', 'secret', 'apiKey', 'authorization'];
-  const sanitized = { ...obj };
-  
-  for (const key of Object.keys(sanitized)) {
-    if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
-      sanitized[key] = '[REDACTED]';
-    }
-  }
-  
-  return sanitized;
-}
-
-// ============================================
-// START SERVER
-// ============================================
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('✅ ZoneTrain server running on port', PORT);
-  console.log('   Environment:', process.env.NODE_ENV || 'development');
-  console.log('   Base URL:', process.env.BASE_URL || 'http://localhost:3000');
-});
-
-
-app.listen(port, () => {
-  console.log(`ZoneTrain analyzer running at http://localhost:${port}`);
 });
 
 
@@ -10214,242 +7742,7 @@ function generateResetToken() {
 // Store reset tokens temporarily (in production, use Redis or database)
 const passwordResetTokens = new Map();
 
-// Forgot password page route
-app.get('/forgot-password', (req, res) => {
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - ZoneTrain</title>
-    <style>
-      :root {
-        --deep-purple: #6B46C1;
-        --light-purple: #A78BFA;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --error-red: #EF4444;
-      }
 
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-      }
-
-      .forgot-password-container {
-        background: var(--white);
-        border-radius: 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        padding: 40px;
-        width: 100%;
-        max-width: 450px;
-        position: relative;
-        text-align: center;
-      }
-
-      .back-btn {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        color: var(--deep-purple);
-        text-decoration: none;
-        font-size: 1.5rem;
-        transition: transform 0.3s ease;
-      }
-
-      .back-btn:hover { transform: translateX(-5px); }
-
-      .logo {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--deep-purple);
-        margin-bottom: 30px;
-      }
-
-      h2 {
-        color: var(--dark-gray);
-        margin-bottom: 20px;
-        font-size: 1.8rem;
-      }
-
-      .description {
-        color: #6B7280;
-        margin-bottom: 30px;
-        line-height: 1.5;
-      }
-
-      .form-group {
-        margin-bottom: 20px;
-        text-align: left;
-      }
-
-      label {
-        display: block;
-        margin-bottom: 5px;
-        color: var(--dark-gray);
-        font-weight: 500;
-      }
-
-      input[type="email"] {
-        width: 100%;
-        padding: 12px 15px;
-        border: 2px solid #E5E7EB;
-        border-radius: 10px;
-        font-size: 1rem;
-        transition: border-color 0.3s ease;
-      }
-
-      input[type="email"]:focus {
-        outline: none;
-        border-color: var(--accent-purple);
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-      }
-
-      .btn {
-        width: 100%;
-        padding: 15px;
-        border: none;
-        border-radius: 10px;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        margin-bottom: 15px;
-      }
-
-      .btn-primary {
-        background: var(--deep-purple);
-        color: var(--white);
-      }
-
-      .btn-primary:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
-      }
-
-      .login-link {
-        margin-top: 25px;
-        color: var(--dark-gray);
-      }
-
-      .login-link a {
-        color: var(--accent-purple);
-        text-decoration: none;
-        font-weight: 600;
-      }
-
-      .message {
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        font-size: 0.9rem;
-        display: none;
-      }
-
-      .success { background: #D1FAE5; color: var(--success-green); }
-      .error { background: #FEE2E2; color: var(--error-red); }
-    </style>
-  </head>
-  <body>
-    <div class="forgot-password-container">
-      <a href="/login" class="back-btn">←</a>
-      
-      <div class="logo">ZoneTrain</div>
-      <h2>Reset Your Password</h2>
-      <p class="description">
-        Enter your email address and we'll send you a link to reset your password.
-      </p>
-
-      <div id="message" class="message"></div>
-
-      <form id="forgotPasswordForm">
-        <div class="form-group">
-          <label for="email">Email Address</label>
-          <input type="email" id="email" name="email" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary">Send Reset Link</button>
-      </form>
-
-      <div class="login-link">
-        Remember your password? <a href="/login">Sign In</a>
-      </div>
-    </div>
-
-    <script>
-      document.getElementById('forgotPasswordForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const email = document.getElementById('email').value;
-        const messageDiv = document.getElementById('message');
-
-        try {
-          showMessage('Sending reset link...', 'info');
-
-          const response = await fetch('/api/auth/forgot-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            showMessage('Password reset link sent to your email! Check your inbox.', 'success');
-            document.getElementById('forgotPasswordForm').style.display = 'none';
-          } else {
-            showMessage(result.message, 'error');
-          }
-        } catch (error) {
-          showMessage('Error sending reset link. Please try again.', 'error');
-        }
-      });
-
-      function showMessage(message, type) {
-        const messageDiv = document.getElementById('message');
-        messageDiv.textContent = message;
-        messageDiv.className = \`message \${type}\`;
-        messageDiv.style.display = 'block';
-      }
-    </script>
-    <style>
-    body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
-        padding: 20px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
-        padding-top: 110px; /* ← Space for fixed header */
-    }
-    
-    .login-container {
-        max-width: 450px;
-        margin: 30px auto 20px auto;
-        background: white;
-        padding: 40px;
-        border-radius: 16px;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    }
-</style>
-
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  res.send(html);
-});
 
 // Forgot password API route
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -10548,227 +7841,7 @@ const mailOptions = {
 });
 
 // Reset password page route
-// Reset password page route
-app.get('/reset-password', (req, res) => {
-  const token = req.query.token;
-  
-  if (!token) {
-    return res.send(`
-      <div style="text-align: center; padding: 50px; background: #6B46C1; color: white; min-height: 100vh;">
-        <h1>❌ Invalid Reset Link</h1>
-        <p>This password reset link is invalid or has expired.</p>
-        <a href="/forgot-password" style="color: #FFD700;">Request New Reset Link</a>
-      </div>
-    `);
-  }
 
-  const resetData = passwordResetTokens.get(token);
-  
-  if (!resetData || new Date() > resetData.expiry) {
-    return res.send(`
-      <div style="text-align: center; padding: 50px; background: #6B46C1; color: white; min-height: 100vh;">
-        <h1>⏰ Reset Link Expired</h1>
-        <p>This password reset link has expired.</p>
-        <a href="/forgot-password" style="color: #FFD700;">Request New Reset Link</a>
-      </div>
-    `);
-  }
-
-  // Reset password form (fix template literals here too)
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <link rel="stylesheet" href="css/cookies.css">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reset Password - ZoneTrain</title>
-    <style>
-      /* Same styles as login page */
-      :root {
-        --deep-purple: #6B46C1;
-        --accent-purple: #8B5CF6;
-        --white: #FFFFFF;
-        --dark-gray: #1F2937;
-        --success-green: #10B981;
-        --error-red: #EF4444;
-      }
-      
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-      }
-      
-      .reset-container {
-        background: var(--white);
-        border-radius: 20px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        padding: 40px;
-        width: 100%;
-        max-width: 450px;
-        text-align: center;
-      }
-      
-      .logo { font-size: 2rem; font-weight: 700; color: var(--deep-purple); margin-bottom: 30px; }
-      h2 { color: var(--dark-gray); margin-bottom: 20px; font-size: 1.8rem; }
-      .form-group { margin-bottom: 20px; text-align: left; }
-      label { display: block; margin-bottom: 5px; color: var(--dark-gray); font-weight: 500; }
-      
-      input[type="password"] {
-        width: 100%;
-        padding: 12px 15px;
-        border: 2px solid #E5E7EB;
-        border-radius: 10px;
-        font-size: 1rem;
-        transition: border-color 0.3s ease;
-      }
-      
-      input[type="password"]:focus {
-        outline: none;
-        border-color: var(--accent-purple);
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-      }
-      
-      .btn {
-        width: 100%;
-        padding: 15px;
-        border: none;
-        border-radius: 10px;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        background: var(--deep-purple);
-        color: var(--white);
-      }
-      
-      .btn:hover {
-        background: var(--accent-purple);
-        transform: translateY(-2px);
-      }
-      
-      .message {
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        display: none;
-      }
-      
-      .success { background: #D1FAE5; color: var(--success-green); }
-      .error { background: #FEE2E2; color: var(--error-red); }
-    </style>
-  </head>
-  <body>
-    <div class="reset-container">
-      <div class="logo">ZoneTrain</div>
-      <h2>Set New Password</h2>
-      
-      <div id="message" class="message"></div>
-
-      <form id="resetPasswordForm">
-        <input type="hidden" name="token" value="${token}">
-        
-        <div class="form-group">
-          <label for="password">New Password</label>
-          <div style="position: relative;">
-            <input type="password" id="password" name="password" required style="padding-right: 45px;">
-            <button type="button" id="togglePassword" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem;">👁️</button>
-          </div>
-          <div style="font-size: 0.8rem; color: #6B7280; margin-top: 5px;">
-            At least 8 characters with uppercase, lowercase, and number
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="confirmPassword">Confirm New Password</label>
-          <div style="position: relative;">
-            <input type="password" id="confirmPassword" name="confirmPassword" required style="padding-right: 45px;">
-          </div>
-        </div>
-
-        <button type="submit" class="btn">Reset Password</button>
-      </form>
-    </div>
-
-    <script>
-      // Show/hide password functionality
-      document.getElementById('togglePassword').addEventListener('click', function() {
-        const passwordField = document.getElementById('password');
-        const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
-        passwordField.setAttribute('type', type);
-        this.textContent = type === 'password' ? '👁️' : '🙈';
-      });
-
-
-      // Reset password form submission
-      document.getElementById('resetPasswordForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const formData = new FormData(e.target);
-        const password = formData.get('password');
-        const confirmPassword = formData.get('confirmPassword');
-        const token = formData.get('token');
-
-        if (password !== confirmPassword) {
-          showMessage('Passwords do not match', 'error');
-          return;
-        }
-
-        if (!isValidPassword(password)) {
-          showMessage('Password must be at least 8 characters with uppercase, lowercase, and number', 'error');
-          return;
-        }
-
-        try {
-          const response = await fetch('/api/auth/reset-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, password })
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            showMessage('Password reset successful! Redirecting to login...', 'success');
-            setTimeout(() => {
-              window.location.href = '/login?message=Password reset successful';
-            }, 2000);
-          } else {
-            showMessage(result.message, 'error');
-          }
-        } catch (error) {
-          showMessage('Error resetting password. Please try again.', 'error');
-        }
-      });
-
-      function isValidPassword(password) {
-        return password.length >= 8 && 
-               /[A-Z]/.test(password) && 
-               /[a-z]/.test(password) && 
-               /[0-9]/.test(password);
-      }
-
-      function showMessage(message, type) {
-        const messageDiv = document.getElementById('message');
-        messageDiv.textContent = message;
-        messageDiv.className = 'message ' + type;
-        messageDiv.style.display = 'block';
-      }
-    </script>
-    <script src="/components/nav-header.js"></script>
-  </body>
-  </html>
-  `;
-  
-  res.send(html);
-});
 
 // Reset password API route
 app.post('/api/auth/reset-password', async (req, res) => {
@@ -11026,225 +8099,7 @@ res.redirect(`/auth/success?token=${encodeURIComponent(token)}&redirect=${encode
 });
 
 
-// Success page that transfers data to localStorage
-app.get('/auth/success', (req, res) => {
-  // ✅ Get token and redirect from URL query parameters (not session)
-  const token = req.query.token;
-  const redirect = req.query.redirect || '/dashboard';
-  
-  if (!token) {
-    console.error('❌ No token in URL query');
-    return res.redirect('/login?error=no_token');
-  }
-  
-  console.log('✅ Auth success page loaded');
-  //console.log('   Token length:', token.length);
-  //console.log('   Redirect target:', redirect);
 
-  const html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Successful - ZoneTrain</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      
-      body { 
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #6B46C1, #8B5CF6);
-        color: white; 
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-      }
-      
-      .container { 
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        padding: 60px 40px;
-        border-radius: 20px;
-        text-align: center;
-        max-width: 500px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      }
-      
-      .spinner { 
-        font-size: 4rem;
-        animation: bounce 1s ease-in-out infinite;
-        margin-bottom: 20px;
-      }
-      
-      @keyframes bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-20px); }
-      }
-      
-      h2 {
-        font-size: 2rem;
-        margin-bottom: 15px;
-        font-weight: 600;
-      }
-      
-      p {
-        font-size: 1.1rem;
-        opacity: 0.9;
-      }
-      
-      .progress-bar {
-        width: 100%;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 2px;
-        margin-top: 30px;
-        overflow: hidden;
-      }
-      
-      .progress-fill {
-        height: 100%;
-        background: white;
-        animation: progress 1.5s ease-in-out;
-        border-radius: 2px;
-      }
-      
-      @keyframes progress {
-        0% { width: 0%; }
-        100% { width: 100%; }
-      }
-      
-      .error-container {
-        display: none;
-        background: rgba(239, 68, 68, 0.1);
-        border: 2px solid #EF4444;
-        padding: 20px;
-        border-radius: 12px;
-        margin-top: 20px;
-      }
-      
-      .retry-btn {
-        margin-top: 20px;
-        padding: 12px 30px;
-        background: white;
-        color: #6B46C1;
-        border: none;
-        border-radius: 10px;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        text-decoration: none;
-        display: inline-block;
-      }
-      
-      .retry-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="spinner">🏃‍♂️</div>
-      <h2>Login Successful!</h2>
-      <p>Setting up your dashboard...</p>
-      <div class="progress-bar">
-        <div class="progress-fill"></div>
-      </div>
-      
-      <div class="error-container" id="errorContainer">
-        <p>⚠️ Something went wrong. Redirecting to login...</p>
-        <a href="/login" class="retry-btn">Try Again</a>
-      </div>
-    </div>
-
-    <script>
-      (function() {
-        try {
-          console.log('🎯 OAuth Success page loaded');
-          
-          // ✅ Get token from the page (passed via template literal)
-          const token = "${token.replace(/"/g, '\\"')}"; // Escape quotes
-          const redirect = "${redirect}";
-          
-          //console.log('📋 Token received:', {length: token.length,preview: token.substring(0, 30) + '...',redirect: redirect});
-          
-          // ✅ Validate token
-          if (!token || token === 'undefined' || token === 'null') {
-            throw new Error('No token provided');
-          }
-          
-          // ✅ Validate token structure
-          const parts = token.split('.');
-          if (parts.length !== 3) {
-            throw new Error('Invalid token structure (expected 3 parts, got ' + parts.length + ')');
-          }
-          
-          //console.log('✅ Token validation passed');
-          
-          // ✅ Store token in localStorage
-          localStorage.setItem('userToken', token);
-          //console.log('💾 Token saved to localStorage');
-          
-          // ✅ Decode token to extract user info
-          try {
-            const payload = JSON.parse(atob(parts[1]));
-            //console.log('📦 Token payload:', payload);
-            
-            // ✅ Store user info in localStorage
-            localStorage.setItem('userId', payload.userId || payload.id || '');
-            localStorage.setItem('userEmail', payload.email || '');
-            localStorage.setItem('currentPlan', payload.plan || 'free');
-            localStorage.setItem('subscriptionStatus', payload.status || 'free');
-            
-            //console.log('✅ User data saved to localStorage:', {
-              userId: payload.userId,
-              email: payload.email,
-              plan: payload.plan || 'free'
-            });
-            
-          } catch (decodeError) {
-            console.warn('⚠️ Could not decode token payload:', decodeError.message);
-            // Continue anyway - token is still valid for auth
-          }
-          
-          // ✅ Redirect to dashboard after short delay
-          console.log('🚀 Redirecting to:', redirect);
-          setTimeout(function() {
-            window.location.href = redirect;
-          }, 1500);
-          
-        } catch (error) {
-          console.error('❌ OAuth success page error:', error);
-          console.error('   Error message:', error.message);
-          
-          // Show error UI
-          document.querySelector('.spinner').style.display = 'none';
-          document.querySelector('h2').textContent = 'Oops!';
-          document.querySelector('p').textContent = error.message || 'Something went wrong.';
-          document.getElementById('errorContainer').style.display = 'block';
-          
-          // Clear any corrupted data
-          localStorage.clear();
-          
-          // Redirect to login after delay
-          setTimeout(function() {
-            window.location.href = '/login?error=auth-failed';
-          }, 5000);
-        }
-      })();
-    </script>
-  </body>
-  </html>
-  `;
-  
-  res.send(html);
-});
 
 
 
@@ -12582,3 +9437,3138 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
 });
 
 console.log('✅ Strava analytics and notification routes initialized');
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Updated welcome page route - replace your existing '/' route
+app.get('/', optionalAuth, apiLimiter, (req, res) => {
+  const referer = req.get('referer') || '';
+  const isDashboardReferer = referer.includes('/dashboard');
+  
+  if (req.user && req.user.userId) {
+    console.log('🔄 Authenticated user accessing homepage, redirecting to dashboard...');
+    console.log('   User ID:', req.user.userId);
+    console.log('   Current Plan:', req.user.currentPlan || 'free');
+    console.log('   Referer:', referer);
+    
+    // ✅ Prevent redirect loop
+    if (isDashboardReferer) {
+      console.warn('⚠️ Redirect loop detected (came from dashboard), breaking loop');
+      // Don't redirect back - just show homepage
+      // This shouldn't happen, but prevents infinite loops
+    } else {
+      const plan = req.user.currentPlan || 'free';
+      
+      if (plan === 'race' || plan === 'basic') {
+        console.log('✅ Redirecting to race/basic dashboard');
+        return res.redirect('/dashboard-race.html');
+      } else {
+        console.log('✅ Redirecting to free dashboard');
+        return res.redirect('/dashboard');
+      }
+    }
+  }
+  
+  // ✅ User is NOT authenticated - show homepage
+  console.log('📄 Serving homepage to unauthenticated user');
+  
+    const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZoneTrain - AI-Powered Running Coaching & Personalized Training Plans</title>
+    <meta name="description" content="Get AI-powered running coaching with personalized training plans based on HRV data.">
+    <style>
+    html { background: linear-gradient(135deg, #6B46C1, #8B5CF6); }
+    body { 
+        background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+        margin: 0;
+        font-family: 'Segoe UI', sans-serif;
+    }
+      /* ... existing CSS variables and base styles ... */
+      :root {
+        --deep-purple: #6B46C1;
+        --light-purple: #A78BFA;
+        --accent-purple: #8B5CF6;
+        --white: #FFFFFF;
+        --dark-gray: #1F2937;
+        --success-green: #10B981;
+        --warning-orange: #F59E0B;
+        --strava-orange: #FC4C02;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: var(--white);
+        color: var(--dark-gray);
+        line-height: 1.6;
+        scroll-behavior: smooth;
+      }
+
+      /* ... existing header styles ... */
+      .header {
+        background: var(--deep-purple);
+        padding: 15px 0;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        box-shadow: 0 2px 10px rgba(107, 70, 193, 0.2);
+      }
+
+      .nav {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+      }
+
+      .logo-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        transition: transform 0.3s ease;
+      }
+
+      .logo-container:hover {
+        transform: scale(1.05);
+      }
+
+      .logo-img {
+        width: 45px;
+        height: 45px;
+        object-fit: contain;
+        filter: brightness(1.3) contrast(1.2);
+        transition: all 0.3s ease;
+      }
+
+      .logo-text {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--white);
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 30px;
+        list-style: none;
+        align-items: center;
+      }
+
+      .nav-links a {
+        color: var(--white);
+        text-decoration: none;
+        font-weight: 500;
+        transition: color 0.3s ease;
+        opacity: 0.9;
+      }
+
+      .nav-links a:hover {
+        opacity: 1;
+        color: var(--light-purple);
+      }
+
+      /* UPDATED AUTH BUTTONS - Removed extra Strava button */
+      .auth-buttons {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btn-auth {
+        padding: 8px 16px;
+        border-radius: 20px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+      }
+
+      .btn-login {
+        background: transparent;
+        color: var(--white);
+        border: 2px solid var(--light-purple);
+      }
+
+      .btn-login:hover {
+        background: var(--light-purple);
+        color: var(--white);
+      }
+
+      .btn-signup {
+        background: var(--success-green);
+        color: var(--white);
+      }
+
+      .btn-signup:hover {
+        background: #059669;
+        transform: translateY(-1px);
+      }
+
+      /* ... existing hero and other styles ... */
+      .hero-section {
+        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+        color: var(--white);
+        text-align: center;
+        padding: 80px 20px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero-section::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 500px;
+        height: 500px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.25;
+        z-index: 1;
+        filter: brightness(1.8) contrast(1.3);
+      }
+
+      .hero-content {
+        position: relative;
+        z-index: 2;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 3.5rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .tagline {
+        font-size: 1.4rem;
+        margin-bottom: 15px;
+        font-weight: 500;
+        opacity: 0.95;
+      }
+
+      .description {
+        font-size: 1.1rem;
+        margin-bottom: 40px;
+        line-height: 1.6;
+        opacity: 0.9;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      /* SCROLL TO STRAVA BUTTON */
+      .scroll-to-strava {
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .scroll-to-strava:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(107, 70, 193, 0.4);
+      }
+
+      .strava-section {
+        background: var(--white);
+        padding: 80px 20px;
+        text-align: center;
+        border-bottom: 2px solid #F3F4F6;
+        position: relative;
+      }
+
+      .strava-section::before {
+        content: '';
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        width: 150px;
+        height: 150px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.3;
+        z-index: 1;
+        filter: brightness(1.4) contrast(1.2) saturate(1.3);
+        animation: float 6s ease-in-out infinite;
+      }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+      }
+
+      .strava-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        position: relative;
+        z-index: 2;
+      }
+
+      .strava-header {
+        margin-bottom: 50px;
+      }
+
+      .strava-title {
+        font-size: 2.8rem;
+        color: var(--deep-purple);
+        margin-bottom: 20px;
+        font-weight: 700;
+      }
+
+      .strava-subtitle {
+        font-size: 1.3rem;
+        color: var(--dark-gray);
+        margin-bottom: 15px;
+        font-weight: 500;
+      }
+
+      .strava-description {
+        font-size: 1.1rem;
+        color: #6B7280;
+        max-width: 700px;
+        margin: 0 auto 40px;
+        line-height: 1.6;
+      }
+
+      .strava-features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 30px;
+        margin-bottom: 50px;
+      }
+
+      .strava-feature {
+        background: #F9FAFB;
+        padding: 25px;
+        border-radius: 15px;
+        border-left: 4px solid var(--strava-orange);
+        position: relative;
+        transition: transform 0.3s ease;
+      }
+
+      .strava-feature:hover {
+        transform: translateY(-3px);
+      }
+
+      .strava-feature:nth-child(2)::after {
+        content: '';
+        position: absolute;
+        top: 10px;
+        right: 15px;
+        width: 40px;
+        height: 40px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.4;
+        filter: brightness(1.2);
+      }
+
+      .strava-feature-icon {
+        font-size: 2rem;
+        margin-bottom: 15px;
+      }
+
+      .strava-feature h3 {
+        color: var(--deep-purple);
+        margin-bottom: 10px;
+        font-size: 1.2rem;
+      }
+
+      .strava-feature p {
+        color: #6B7280;
+        line-height: 1.5;
+      }
+
+      .strava-cta {
+        background: linear-gradient(135deg, var(--strava-orange) 0%, #E03D00 100%);
+        padding: 40px;
+        border-radius: 20px;
+        color: var(--white);
+        margin-bottom: 30px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .strava-cta::before {
+        content: '';
+        position: absolute;
+        bottom: -20px;
+        right: -20px;
+        width: 120px;
+        height: 120px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.2;
+        z-index: 1;
+        filter: brightness(2) contrast(1.5);
+        transform: rotate(15deg);
+      }
+
+      .strava-cta h3 {
+        font-size: 1.8rem;
+        margin-bottom: 15px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .strava-cta p {
+        font-size: 1rem;
+        opacity: 0.9;
+        margin-bottom: 25px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .btn-strava {
+        background: var(--white);
+        color: var(--strava-orange);
+        padding: 15px 40px;
+        border-radius: 50px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 1.1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .btn-strava:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        background: #FFF8F6;
+      }
+
+      .strava-icon {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+      }
+
+      .free-badge {
+        background: var(--success-green);
+        color: var(--white);
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
+        margin-bottom: 10px;
+      }
+
+      /* NEW USP SECTION */
+      .usp-section {
+        background: #F8FAFC;
+        padding: 30px 20px;
+        text-align: center;
+        border-top: 2px solid var(--light-purple);
+        border-bottom: 2px solid #F3F4F6;
+      }
+
+      .usp-container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      .usp-title {
+        font-size: 1.6rem;
+        color: var(--deep-purple);
+        margin-bottom: 20px;
+        font-weight: 600;
+      }
+
+      .usp-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 25px;
+        margin-bottom: 25px;
+      }
+
+      .usp-item {
+        background: var(--white);
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(107, 70, 193, 0.1);
+        border: 1px solid var(--light-purple);
+        transition: transform 0.3s ease;
+      }
+
+      .usp-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.2);
+      }
+
+      .usp-icon {
+        font-size: 2rem;
+        margin-bottom: 10px;
+        color: var(--accent-purple);
+      }
+
+      .usp-label {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--deep-purple);
+        margin-bottom: 5px;
+      }
+
+      .usp-value {
+        font-size: 0.9rem;
+        color: #6B7280;
+      }
+
+      .usp-cta {
+        margin-top: 25px;
+      }
+
+      .btn-usp {
+        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+        color: var(--white);
+        padding: 12px 30px;
+        border-radius: 25px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.3);
+      }
+
+      .btn-usp:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.4);
+      }
+
+      .features-section {
+        padding: 80px 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+        position: relative;
+      }
+
+      .features-section::before {
+        content: '';
+        position: absolute;
+        top: 100px;
+        left: 50px;
+        width: 80px;
+        height: 80px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.15;
+        z-index: 1;
+        filter: brightness(1.3) saturate(1.2);
+        animation: float 8s ease-in-out infinite reverse;
+      }
+
+      .features-title {
+        text-align: center;
+        font-size: 2.5rem;
+        color: var(--deep-purple);
+        margin-bottom: 50px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 30px;
+        margin-bottom: 50px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .feature-card {
+        background: var(--light-purple);
+        background: linear-gradient(135deg, var(--light-purple) 0%, rgba(167, 139, 250, 0.8) 100%);
+        padding: 30px;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(107, 70, 193, 0.2);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        color: var(--white);
+      }
+
+      .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(107, 70, 193, 0.3);
+      }
+
+      .feature-icon { font-size: 2.5rem; margin-bottom: 15px; }
+      .feature-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 15px; }
+
+      .action-buttons {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 40px;
+      }
+
+      .btn {
+        padding: 15px 30px;
+        border-radius: 50px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        cursor: pointer;
+        border: none;
+      }
+
+      .btn-primary {
+        background: var(--deep-purple);
+        color: var(--white);
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-purple);
+        transform: translateY(-2px);
+      }
+
+      .btn-secondary {
+        background: var(--white);
+        color: var(--deep-purple);
+        border: 2px solid var(--light-purple);
+      }
+
+      .btn-secondary:hover {
+        background: var(--light-purple);
+        color: var(--white);
+      }
+
+      .cta-section {
+        background: linear-gradient(135deg, var(--accent-purple) 0%, var(--deep-purple) 100%);
+        color: var(--white);
+        padding: 60px 20px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .cta-section::before {
+        content: '';
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        width: 120px;
+        height: 120px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.3;
+        z-index: 1;
+        filter: brightness(2.2) contrast(1.4) saturate(1.5);
+        transform: rotate(-15deg);
+      }
+
+      .cta-section::after {
+        content: '';
+        position: absolute;
+        top: 20px;
+        right: 50px;
+        width: 100px;
+        height: 100px;
+        background-image: url('/logo.jpeg');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.25;
+        z-index: 1;
+        filter: brightness(1.8) contrast(1.3);
+        animation: float 10s ease-in-out infinite;
+      }
+
+      .cta-title { 
+        font-size: 2.2rem; 
+        margin-bottom: 20px;
+        position: relative;
+        z-index: 2;
+      }
+
+      .footer {
+        background: var(--dark-gray);
+        color: var(--white);
+        padding: 40px 20px 20px;
+      }
+
+      .footer-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 30px;
+      }
+
+      .footer-section h3 { color: var(--light-purple); margin-bottom: 15px; }
+      .footer-section a { color: rgba(255, 255, 255, 0.8); text-decoration: none; }
+      .footer-section a:hover { color: var(--light-purple); }
+
+      @media (max-width: 768px) {
+        .nav-links { display: none; }
+        .auth-buttons { gap: 5px; }
+        .btn-auth { padding: 6px 12px; font-size: 0.8rem; }
+        h1 { font-size: 2.5rem; }
+        .strava-title { font-size: 2.2rem; }
+        .strava-features { grid-template-columns: 1fr; }
+        .usp-grid { grid-template-columns: 1fr; }
+        .hero-section::before { width: 300px; height: 300px; }
+        .strava-section::before { width: 100px; height: 100px; top: 20px; right: 20px; }
+        .features-section::before { display: none; }
+        .cta-section::before { width: 80px; height: 80px; }
+        .cta-section::after { display: none; }
+      }
+    </style>
+  </head>
+
+
+</body>
+
+        <!-- ZoneTrain Cookie Consent Banner -->
+        <div id="ztCookieBanner" class="zt-cookie-banner">
+            <div class="zt-cookie-container">
+                <div class="zt-cookie-content">
+                    <div class="zt-cookie-title">
+                        🍪 We value your privacy
+                    </div>
+                    <div class="zt-cookie-text">
+                        We use cookies to enhance your ZoneTrain experience, analyze performance, and provide personalized training insights. 
+                        Your data helps us improve our AI coaching algorithms.
+                    </div>
+                    <div class="zt-cookie-links">
+                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
+                        <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
+                    </div>
+                </div>
+                <div class="zt-cookie-actions">
+                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
+                        Decline
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
+                        Settings
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
+                        Accept All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cookie Settings Modal -->
+        <div id="ztCookieModal" class="zt-cookie-modal">
+            <div class="zt-cookie-modal-content">
+                <div class="zt-cookie-modal-header">
+                    <h3 class="zt-cookie-modal-title">Cookie Preferences</h3>
+                    <button class="zt-cookie-close" onclick="ztCookies.hideSettings()">&times;</button>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Essential Cookies</h4>
+                        <div class="zt-cookie-toggle active disabled">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Required for ZoneTrain to function. Enable user authentication, security, and core training analysis features.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Analytics Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztanalyticsToggle" onclick="ztCookies.toggleCategory('analytics')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Help us understand how you use ZoneTrain training analysis. Track feature usage, user journeys, and conversion optimization.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Marketing Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztmarketingToggle" onclick="ztCookies.toggleCategory('marketing')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Enable retargeting for users who tried our free analysis. Help us show relevant training content and measure campaign effectiveness.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Functional Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztfunctionalToggle" onclick="ztCookies.toggleCategory('functional')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Remember your training preferences, analysis history, and dashboard customizations for a personalized ZoneTrain experience.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-modal-actions">
+                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential(); ztCookies.hideSettings();">
+                        Decline All
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.saveSettings()">
+                        Save Preferences
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Load Cookie System -->
+        <link rel="stylesheet" href="css/cookies.css">
+        ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+        <script src="js/cookies.js"></script>
+    </body>
+
+
+  <body>
+    <header class="header">
+      <nav class="nav">
+        <!-- ✅ FIXED: Logo navigates home intelligently -->
+        <a href="#" onclick="navigateToHome(event)" class="logo-container">
+          <img src="/logo.jpeg" alt="ZoneTrain Logo" class="logo-img">
+          <span class="logo-text">ZoneTrain</span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="/">Home</a></li>
+          <li><a href="/about">About</a></li>
+          <li><a href="/contact">Contact</a></li>
+          <li><a href="/plans">Training Plans</a></li>
+        </ul>
+        <div class="auth-buttons">
+          <a href="/login" class="btn-auth btn-login">Login</a>
+          <a href="/signup" class="btn-auth btn-signup">Sign Up</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero-section">
+        <div class="hero-content">
+          <h1>ZoneTrain</h1>
+          <p class="tagline">AI-Powered Running Coaching & Personalized Training Plans (Rs.99 monthly only)</p>
+          <p class="description">
+            Transform your running performance with intelligent coaching that adapts to your daily HRV readings, 
+            analyzes your training zones, and delivers personalized workout recommendations.
+          </p>
+          <div class="action-buttons">
+            <button onclick="scrollToStrava()" class="btn btn-primary scroll-to-strava">🎯 Try Free Analysis</button>
+            <a href="/plans" class="btn btn-secondary">View Training Plans</a>
+          </div>
+          <div style="margin-top: 15px; font-size: 0.9rem; opacity: 0.8;">
+            <p>✅ No signup required for free analysis • Connect Strava in 10 seconds</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="strava-section" class="strava-section">
+        <div class="strava-container">
+          <div class="strava-header">
+            <div class="free-badge">100% FREE</div>
+            <h2 class="strava-title">Get Your Free Training Zone Analysis</h2>
+            <p class="strava-subtitle">Connect your Strava account and get AI-powered insights instantly</p>
+            <p class="strava-description">
+              No signup required! Connect your Strava account to analyze your recent running activities and get personalized zone distribution insights powered by our advanced AI technology.
+            </p>
+          </div>
+
+          <div class="strava-features">
+            <div class="strava-feature">
+              <div class="strava-feature-icon">🎯</div>
+              <h3>Zone Analysis</h3>
+              <p>Get detailed breakdown of your training zones from recent running activities</p>
+            </div>
+            <div class="strava-feature">
+              <div class="strava-feature-icon">🤖</div>
+              <h3>AI Insights</h3>
+              <p>Receive personalized recommendations based on your zone distribution patterns</p>
+            </div>
+            <div class="strava-feature">
+              <div class="strava-feature-icon">📊</div>
+              <h3>Instant Results</h3>
+              <p>Analysis is automatically added to your latest Strava activity description</p>
+            </div>
+          </div>
+
+          <div class="strava-cta">
+            <h3>🏃‍♂️ Ready for Your Free Analysis?</h3>
+            <p>Connect with Strava in seconds and discover how to optimize your training zones</p>
+            <a href="/strava-connect" class="btn-strava">
+              <svg class="strava-icon" viewBox="0 0 24 24">
+                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.599h4.172L10.463 0l-7 13.828h4.172"/>
+              </svg>
+              Connect with Strava - It's Free!
+            </a>
+          </div>
+
+          <div style="text-align: center; margin-top: 20px; color: #6B7280; font-size: 0.9rem;">
+            <p>✅ No account creation required &nbsp;•&nbsp; ✅ Instant analysis &nbsp;•&nbsp; ✅ Privacy protected</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- NEW USP SECTION -->
+      <section class="usp-section">
+        <div class="usp-container">
+          <h2 class="usp-title">💡 Want More? Check Out Our Super-Affordable Premium Plans!</h2>
+          
+          <div class="usp-grid">
+            <div class="usp-item">
+              <div class="usp-icon">💰</div>
+              <div class="usp-label">Ultra Cheap</div>
+              <div class="usp-value">Starting ₹99/month only</div>
+            </div>
+            <div class="usp-item">
+              <div class="usp-icon">🔬</div>
+              <div class="usp-label">Scientific</div>
+              <div class="usp-value">AI + Sports Science</div>
+            </div>
+            <div class="usp-item">
+              <div class="usp-icon">🎯</div>
+              <div class="usp-label">Personalized</div>
+              <div class="usp-value">HRV-based coaching</div>
+            </div>
+            <div class="usp-item">
+              <div class="usp-icon">📱</div>
+              <div class="usp-label">WhatsApp</div>
+              <div class="usp-value">Daily coaching messages</div>
+            </div>
+          </div>
+
+          <div class="usp-cta">
+            <a href="/plans" class="btn-usp">🚀 View Our Crazy Affordable Plans</a>
+            <p style="margin-top: 10px; font-size: 0.85rem; color: #6B7280;">
+              14-day free trial • Cancel anytime • No hidden fees
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="features-section">
+        <h2 class="features-title">Why Choose ZoneTrain?</h2>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h3 class="feature-title">Smart Zone Analysis</h3>
+            <p>AI-powered analysis of your training zones with actionable insights</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">📊</div>
+            <h3 class="feature-title">HRV-Based Coaching</h3>
+            <p>Daily workout adjustments based on your heart rate variability</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🏃‍♂️</div>
+            <h3 class="feature-title">Personalized Plans</h3>
+            <p>Custom training programs designed for your specific goals</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <h2 class="cta-title">Ready to Transform Your Running?</h2>
+        <p>Start with our free analysis, then see why thousands choose our affordable plans</p>
+        <div class="action-buttons">
+          <a href="/plans" class="btn btn-primary">💰 See Affordable Plans</a>
+          <button onclick="scrollToStrava()" class="btn btn-secondary">🎯 Try Free Analysis First</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-content">
+        <div class="footer-section">
+          <h3>ZoneTrain</h3>
+          <p>Professional AI-powered fitness coaching services for runners.</p>
+        </div>
+        <div class="footer-section">
+          <h3>Contact</h3>
+          <p>Email: zonetrain@zohomail.in</p>
+          <p>New Delhi, India</p>
+        </div>
+        <div class="footer-section">
+          <h3>Legal</h3>
+          <p><a href="/privacy">Privacy Policy</a></p>
+          <p><a href="/terms">Terms of Service</a></p>
+        </div>
+      </div>
+    </footer>
+
+
+
+    <script>
+
+    // ✅ Smart logo navigation function
+      function navigateToHome(event) {
+        event.preventDefault();
+        
+        console.log('🏠 Logo clicked, checking authentication...');
+        
+        const token = localStorage.getItem('userToken');
+        const currentPlan = localStorage.getItem('currentPlan');
+        
+        if (!token || token === 'null' || token === 'undefined') {
+          console.log('   Not authenticated, staying on homepage');
+          window.location.href = '/';
+          return;
+        }
+        
+        console.log('   Authenticated, redirecting to dashboard...');
+        console.log('   Current plan:', currentPlan);
+        
+        // Navigate to appropriate dashboard
+        if (currentPlan === 'race' || currentPlan === 'basic') {
+          window.location.href = '/dashboard-race.html';
+        } else {
+          window.location.href = '/dashboard';
+        }
+      }
+
+      function scrollToStrava() {
+        document.getElementById('strava-section').scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }
+
+      // Add smooth scrolling for all internal links
+      document.addEventListener('DOMContentLoaded', function() {
+        console.log('📄 Homepage loaded');
+        
+        const token = localStorage.getItem('userToken');
+        
+        if (token && token !== 'null' && token !== 'undefined') {
+          console.log('⚠️ User is authenticated but on homepage');
+          console.log('   Checking if redirect needed...');
+          
+          // Verify token structure
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            console.log('   Token is valid, redirecting to dashboard...');
+            const currentPlan = localStorage.getItem('currentPlan');
+            
+            if (currentPlan === 'race' || currentPlan === 'basic') {
+              window.location.href = '/dashboard-race.html';
+            } else {
+              window.location.href = '/dashboard';
+            }
+          } else {
+            console.warn('   Token structure invalid, clearing...');
+            localStorage.clear();
+          }
+        }
+      });
+    </script>
+            <!-- ZoneTrain Cookie Consent Banner -->
+        <div id="ztCookieBanner" class="zt-cookie-banner">
+            <div class="zt-cookie-container">
+                <div class="zt-cookie-content">
+                    <div class="zt-cookie-title">
+                        🍪 We value your privacy
+                    </div>
+                    <div class="zt-cookie-text">
+                        We use cookies to enhance your ZoneTrain experience, analyze performance, and provide personalized training insights. 
+                        Your data helps us improve our AI coaching algorithms.
+                    </div>
+                    <div class="zt-cookie-links">
+                        <a href="/privacy" class="zt-cookie-link">Privacy Policy</a>
+                        <a href="/cookie-policy" class="zt-cookie-link">Cookie Policy</a>
+                    </div>
+                </div>
+                <div class="zt-cookie-actions">
+                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential()">
+                        Decline
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-settings" onclick="ztCookies.showSettings()">
+                        Settings
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.acceptAll()">
+                        Accept All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cookie Settings Modal -->
+        <div id="ztCookieModal" class="zt-cookie-modal">
+            <div class="zt-cookie-modal-content">
+                <div class="zt-cookie-modal-header">
+                    <h3 class="zt-cookie-modal-title">Cookie Preferences</h3>
+                    <button class="zt-cookie-close" onclick="ztCookies.hideSettings()">&times;</button>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Essential Cookies</h4>
+                        <div class="zt-cookie-toggle active disabled">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Required for ZoneTrain to function. Enable user authentication, security, and core training analysis features.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Analytics Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztanalyticsToggle" onclick="ztCookies.toggleCategory('analytics')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Help us understand how you use ZoneTrain training analysis. Track feature usage, user journeys, and conversion optimization.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Marketing Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztmarketingToggle" onclick="ztCookies.toggleCategory('marketing')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Enable retargeting for users who tried our free analysis. Help us show relevant training content and measure campaign effectiveness.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-category">
+                    <div class="zt-cookie-category-header">
+                        <h4 class="zt-cookie-category-title">Functional Cookies</h4>
+                        <div class="zt-cookie-toggle" id="ztfunctionalToggle" onclick="ztCookies.toggleCategory('functional')">
+                            <div class="zt-cookie-toggle-slider"></div>
+                        </div>
+                    </div>
+                    <div class="zt-cookie-category-desc">
+                        Remember your training preferences, analysis history, and dashboard customizations for a personalized ZoneTrain experience.
+                    </div>
+                </div>
+                
+                <div class="zt-cookie-modal-actions">
+                    <button class="zt-cookie-btn zt-cookie-decline" onclick="ztCookies.declineNonEssential(); ztCookies.hideSettings();">
+                        Decline All
+                    </button>
+                    <button class="zt-cookie-btn zt-cookie-accept" onclick="ztCookies.saveSettings()">
+                        Save Preferences
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Load Cookie System -->
+        <link rel="stylesheet" href="css/cookies.css">
+        ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+        <script src="js/cookies.js"></script>
+        
+    </body>
+</html>`;
+  res.send(html);
+});
+
+// Success page that transfers data to localStorage
+app.get('/auth/success', (req, res) => {
+  // ✅ Get token and redirect from URL query parameters (not session)
+  const token = req.query.token;
+  const redirect = req.query.redirect || '/dashboard';
+  
+  if (!token) {
+    console.error('❌ No token in URL query');
+    return res.redirect('/login?error=no_token');
+  }
+  
+  console.log('✅ Auth success page loaded');
+  //console.log('   Token length:', token.length);
+  //console.log('   Redirect target:', redirect);
+
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Successful - ZoneTrain</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      body { 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #6B46C1, #8B5CF6);
+        color: white; 
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      
+      .container { 
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        padding: 60px 40px;
+        border-radius: 20px;
+        text-align: center;
+        max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      }
+      
+      .spinner { 
+        font-size: 4rem;
+        animation: bounce 1s ease-in-out infinite;
+        margin-bottom: 20px;
+      }
+      
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-20px); }
+      }
+      
+      h2 {
+        font-size: 2rem;
+        margin-bottom: 15px;
+        font-weight: 600;
+      }
+      
+      p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+      }
+      
+      .progress-bar {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+        margin-top: 30px;
+        overflow: hidden;
+      }
+      
+      .progress-fill {
+        height: 100%;
+        background: white;
+        animation: progress 1.5s ease-in-out;
+        border-radius: 2px;
+      }
+      
+      @keyframes progress {
+        0% { width: 0%; }
+        100% { width: 100%; }
+      }
+      
+      .error-container {
+        display: none;
+        background: rgba(239, 68, 68, 0.1);
+        border: 2px solid #EF4444;
+        padding: 20px;
+        border-radius: 12px;
+        margin-top: 20px;
+      }
+      
+      .retry-btn {
+        margin-top: 20px;
+        padding: 12px 30px;
+        background: white;
+        color: #6B46C1;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+      
+      .retry-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="spinner">🏃‍♂️</div>
+      <h2>Login Successful!</h2>
+      <p>Setting up your dashboard...</p>
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+      
+      <div class="error-container" id="errorContainer">
+        <p>⚠️ Something went wrong. Redirecting to login...</p>
+        <a href="/login" class="retry-btn">Try Again</a>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        try {
+          console.log('🎯 OAuth Success page loaded');
+          
+          // ✅ Get token from the page (passed via template literal)
+          const token = "${token.replace(/"/g, '\\"')}"; // Escape quotes
+          const redirect = "${redirect}";
+          
+          //console.log('📋 Token received:', {length: token.length,preview: token.substring(0, 30) + '...',redirect: redirect});
+          
+          // ✅ Validate token
+          if (!token || token === 'undefined' || token === 'null') {
+            throw new Error('No token provided');
+          }
+          
+          // ✅ Validate token structure
+          const parts = token.split('.');
+          if (parts.length !== 3) {
+            throw new Error('Invalid token structure (expected 3 parts, got ' + parts.length + ')');
+          }
+          
+          //console.log('✅ Token validation passed');
+          
+          // ✅ Store token in localStorage
+          localStorage.setItem('userToken', token);
+          //console.log('💾 Token saved to localStorage');
+          
+          // ✅ Decode token to extract user info
+          try {
+            const payload = JSON.parse(atob(parts[1]));
+            //console.log('📦 Token payload:', payload);
+            
+            // ✅ Store user info in localStorage
+            localStorage.setItem('userId', payload.userId || payload.id || '');
+            localStorage.setItem('userEmail', payload.email || '');
+            localStorage.setItem('currentPlan', payload.plan || 'free');
+            localStorage.setItem('subscriptionStatus', payload.status || 'free');
+            
+            //console.log('✅ User data saved to localStorage:', {
+              userId: payload.userId,
+              email: payload.email,
+              plan: payload.plan || 'free'
+            });
+            
+          } catch (decodeError) {
+            console.warn('⚠️ Could not decode token payload:', decodeError.message);
+            // Continue anyway - token is still valid for auth
+          }
+          
+          // ✅ Redirect to dashboard after short delay
+          console.log('🚀 Redirecting to:', redirect);
+          setTimeout(function() {
+            window.location.href = redirect;
+          }, 1500);
+          
+        } catch (error) {
+          console.error('❌ OAuth success page error:', error);
+          console.error('   Error message:', error.message);
+          
+          // Show error UI
+          document.querySelector('.spinner').style.display = 'none';
+          document.querySelector('h2').textContent = 'Oops!';
+          document.querySelector('p').textContent = error.message || 'Something went wrong.';
+          document.getElementById('errorContainer').style.display = 'block';
+          
+          // Clear any corrupted data
+          localStorage.clear();
+          
+          // Redirect to login after delay
+          setTimeout(function() {
+            window.location.href = '/login?error=auth-failed';
+          }, 5000);
+        }
+      })();
+    </script>
+  </body>
+  </html>
+  `;
+  
+  res.send(html);
+});
+
+// Forgot password page route
+app.get('/forgot-password', (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forgot Password - ZoneTrain</title>
+    <style>
+      :root {
+        --deep-purple: #6B46C1;
+        --light-purple: #A78BFA;
+        --accent-purple: #8B5CF6;
+        --white: #FFFFFF;
+        --dark-gray: #1F2937;
+        --success-green: #10B981;
+        --error-red: #EF4444;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .forgot-password-container {
+        background: var(--white);
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        padding: 40px;
+        width: 100%;
+        max-width: 450px;
+        position: relative;
+        text-align: center;
+      }
+
+      .back-btn {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        color: var(--deep-purple);
+        text-decoration: none;
+        font-size: 1.5rem;
+        transition: transform 0.3s ease;
+      }
+
+      .back-btn:hover { transform: translateX(-5px); }
+
+      .logo {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--deep-purple);
+        margin-bottom: 30px;
+      }
+
+      h2 {
+        color: var(--dark-gray);
+        margin-bottom: 20px;
+        font-size: 1.8rem;
+      }
+
+      .description {
+        color: #6B7280;
+        margin-bottom: 30px;
+        line-height: 1.5;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+        text-align: left;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--dark-gray);
+        font-weight: 500;
+      }
+
+      input[type="email"] {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #E5E7EB;
+        border-radius: 10px;
+        font-size: 1rem;
+        transition: border-color 0.3s ease;
+      }
+
+      input[type="email"]:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+      }
+
+      .btn {
+        width: 100%;
+        padding: 15px;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-bottom: 15px;
+      }
+
+      .btn-primary {
+        background: var(--deep-purple);
+        color: var(--white);
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-purple);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(107, 70, 193, 0.3);
+      }
+
+      .login-link {
+        margin-top: 25px;
+        color: var(--dark-gray);
+      }
+
+      .login-link a {
+        color: var(--accent-purple);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .message {
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+        display: none;
+      }
+
+      .success { background: #D1FAE5; color: var(--success-green); }
+      .error { background: #FEE2E2; color: var(--error-red); }
+    </style>
+  </head>
+  <body>
+    <div class="forgot-password-container">
+      <a href="/login" class="back-btn">←</a>
+      
+      <div class="logo">ZoneTrain</div>
+      <h2>Reset Your Password</h2>
+      <p class="description">
+        Enter your email address and we'll send you a link to reset your password.
+      </p>
+
+      <div id="message" class="message"></div>
+
+      <form id="forgotPasswordForm">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Send Reset Link</button>
+      </form>
+
+      <div class="login-link">
+        Remember your password? <a href="/login">Sign In</a>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById('forgotPasswordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const email = document.getElementById('email').value;
+        const messageDiv = document.getElementById('message');
+
+        try {
+          showMessage('Sending reset link...', 'info');
+
+          const response = await fetch('/api/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showMessage('Password reset link sent to your email! Check your inbox.', 'success');
+            document.getElementById('forgotPasswordForm').style.display = 'none';
+          } else {
+            showMessage(result.message, 'error');
+          }
+        } catch (error) {
+          showMessage('Error sending reset link. Please try again.', 'error');
+        }
+      });
+
+      function showMessage(message, type) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.textContent = message;
+        messageDiv.className = \`message \${type}\`;
+        messageDiv.style.display = 'block';
+      }
+    </script>
+    <style>
+    body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding-top: 110px; /* ← Space for fixed header */
+    }
+    
+    .login-container {
+        max-width: 450px;
+        margin: 30px auto 20px auto;
+        background: white;
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+</style>
+
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+// Reset password page route
+app.get('/reset-password', (req, res) => {
+  const token = req.query.token;
+  
+  if (!token) {
+    return res.send(`
+      <div style="text-align: center; padding: 50px; background: #6B46C1; color: white; min-height: 100vh;">
+        <h1>❌ Invalid Reset Link</h1>
+        <p>This password reset link is invalid or has expired.</p>
+        <a href="/forgot-password" style="color: #FFD700;">Request New Reset Link</a>
+      </div>
+    `);
+  }
+
+  const resetData = passwordResetTokens.get(token);
+  
+  if (!resetData || new Date() > resetData.expiry) {
+    return res.send(`
+      <div style="text-align: center; padding: 50px; background: #6B46C1; color: white; min-height: 100vh;">
+        <h1>⏰ Reset Link Expired</h1>
+        <p>This password reset link has expired.</p>
+        <a href="/forgot-password" style="color: #FFD700;">Request New Reset Link</a>
+      </div>
+    `);
+  }
+
+  // Reset password form (fix template literals here too)
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password - ZoneTrain</title>
+    <style>
+      /* Same styles as login page */
+      :root {
+        --deep-purple: #6B46C1;
+        --accent-purple: #8B5CF6;
+        --white: #FFFFFF;
+        --dark-gray: #1F2937;
+        --success-green: #10B981;
+        --error-red: #EF4444;
+      }
+      
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      
+      .reset-container {
+        background: var(--white);
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        padding: 40px;
+        width: 100%;
+        max-width: 450px;
+        text-align: center;
+      }
+      
+      .logo { font-size: 2rem; font-weight: 700; color: var(--deep-purple); margin-bottom: 30px; }
+      h2 { color: var(--dark-gray); margin-bottom: 20px; font-size: 1.8rem; }
+      .form-group { margin-bottom: 20px; text-align: left; }
+      label { display: block; margin-bottom: 5px; color: var(--dark-gray); font-weight: 500; }
+      
+      input[type="password"] {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #E5E7EB;
+        border-radius: 10px;
+        font-size: 1rem;
+        transition: border-color 0.3s ease;
+      }
+      
+      input[type="password"]:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+      }
+      
+      .btn {
+        width: 100%;
+        padding: 15px;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: var(--deep-purple);
+        color: var(--white);
+      }
+      
+      .btn:hover {
+        background: var(--accent-purple);
+        transform: translateY(-2px);
+      }
+      
+      .message {
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: none;
+      }
+      
+      .success { background: #D1FAE5; color: var(--success-green); }
+      .error { background: #FEE2E2; color: var(--error-red); }
+    </style>
+  </head>
+  <body>
+    <div class="reset-container">
+      <div class="logo">ZoneTrain</div>
+      <h2>Set New Password</h2>
+      
+      <div id="message" class="message"></div>
+
+      <form id="resetPasswordForm">
+        <input type="hidden" name="token" value="${token}">
+        
+        <div class="form-group">
+          <label for="password">New Password</label>
+          <div style="position: relative;">
+            <input type="password" id="password" name="password" required style="padding-right: 45px;">
+            <button type="button" id="togglePassword" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem;">👁️</button>
+          </div>
+          <div style="font-size: 0.8rem; color: #6B7280; margin-top: 5px;">
+            At least 8 characters with uppercase, lowercase, and number
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">Confirm New Password</label>
+          <div style="position: relative;">
+            <input type="password" id="confirmPassword" name="confirmPassword" required style="padding-right: 45px;">
+          </div>
+        </div>
+
+        <button type="submit" class="btn">Reset Password</button>
+      </form>
+    </div>
+
+    <script>
+      // Show/hide password functionality
+      document.getElementById('togglePassword').addEventListener('click', function() {
+        const passwordField = document.getElementById('password');
+        const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+        passwordField.setAttribute('type', type);
+        this.textContent = type === 'password' ? '👁️' : '🙈';
+      });
+
+
+      // Reset password form submission
+      document.getElementById('resetPasswordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(e.target);
+        const password = formData.get('password');
+        const confirmPassword = formData.get('confirmPassword');
+        const token = formData.get('token');
+
+        if (password !== confirmPassword) {
+          showMessage('Passwords do not match', 'error');
+          return;
+        }
+
+        if (!isValidPassword(password)) {
+          showMessage('Password must be at least 8 characters with uppercase, lowercase, and number', 'error');
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showMessage('Password reset successful! Redirecting to login...', 'success');
+            setTimeout(() => {
+              window.location.href = '/login?message=Password reset successful';
+            }, 2000);
+          } else {
+            showMessage(result.message, 'error');
+          }
+        } catch (error) {
+          showMessage('Error resetting password. Please try again.', 'error');
+        }
+      });
+
+      function isValidPassword(password) {
+        return password.length >= 8 && 
+               /[A-Z]/.test(password) && 
+               /[a-z]/.test(password) && 
+               /[0-9]/.test(password);
+      }
+
+      function showMessage(message, type) {
+        const messageDiv = document.getElementById('message');
+        messageDiv.textContent = message;
+        messageDiv.className = 'message ' + type;
+        messageDiv.style.display = 'block';
+      }
+    </script>
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  
+  res.send(html);
+});
+
+// Updated activities route
+app.get('/activities', async (req, res) => {
+  const access_token = storedTokens.access_token;
+  if (!access_token) {
+    return res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <link rel="stylesheet" href="css/cookies.css">
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>ZoneTrain - Connect Required</title>
+      <style>
+        :root {
+          --deep-purple: #6B46C1;
+          --light-purple: #A78BFA;
+          --accent-purple: #8B5CF6;
+          --white: #FFFFFF;
+          --dark-gray: #1F2937;
+          --success-green: #10B981;
+        }
+        
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: linear-gradient(135deg, var(--deep-purple) 0%, var(--accent-purple) 100%);
+          min-height: 100vh;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          color: var(--white);
+          text-align: center;
+          padding: 20px;
+        }
+        
+        .connect-prompt {
+          background: rgba(255, 255, 255, 0.1);
+          padding: 40px;
+          border-radius: 20px;
+          backdrop-filter: blur(15px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          max-width: 500px;
+        }
+        
+        h1 { 
+          color: var(--white);
+          margin-bottom: 20px; 
+          font-size: 2rem;
+          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn {
+          display: inline-block;
+          margin: 10px;
+          padding: 15px 30px;
+          text-decoration: none;
+          border-radius: 25px;
+          font-weight: 600;
+          transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+          background: var(--success-green);
+          color: var(--white);
+        }
+        
+        .btn-secondary {
+          background: rgba(255, 255, 255, 0.2);
+          color: var(--white);
+          border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .btn:hover { 
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
+        }
+      </style>
+    </head>
+    <body>
+      <div class="connect-prompt">
+        <h1>🔗 Connect to Strava First</h1>
+        <p>Please connect your Strava account to view activities</p>
+        <a href="/login" class="btn btn-primary">Connect with Strava</a>
+        <a href="/" class="btn btn-secondary">Back to Home</a>
+      </div>
+      ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+    <script src="/components/nav-header.js"></script>
+    </body>
+    </html>
+    `);
+  }
+
+  try {
+    const activities = await axios.get('https://www.strava.com/api/v3/athlete/activities?per_page=10', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>ZoneTrain - Your Activities</title>
+      <style>
+        :root {
+          --deep-purple: #6B46C1;
+          --light-purple: #A78BFA;
+          --accent-purple: #8B5CF6;
+          --white: #FFFFFF;
+          --dark-gray: #1F2937;
+          --success-green: #10B981;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: var(--white);
+          color: var(--dark-gray);
+          min-height: 100vh;
+        }
+
+        .header {
+          background: var(--deep-purple);
+          color: var(--white);
+          padding: 30px 20px;
+          text-align: center;
+        }
+
+        .header h1 {
+          font-size: 2.5rem;
+          margin-bottom: 10px;
+          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+          font-size: 1.1rem;
+          opacity: 0.9;
+        }
+
+        .container {
+          max-width: 900px;
+          margin: 0 auto;
+          padding: 40px 20px;
+        }
+
+        .activities-grid {
+          display: grid;
+          gap: 20px;
+          margin-bottom: 40px;
+        }
+
+        .activity-card {
+          background: var(--white);
+          border-radius: 15px;
+          padding: 25px;
+          box-shadow: 0 4px 15px rgba(107, 70, 193, 0.1);
+          border-left: 4px solid var(--accent-purple);
+          transition: all 0.3s ease;
+        }
+
+        .activity-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(107, 70, 193, 0.2);
+        }
+
+        .activity-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 15px;
+        }
+
+        .activity-name {
+          font-size: 1.3rem;
+          font-weight: 600;
+          color: var(--deep-purple);
+          margin-bottom: 5px;
+        }
+
+        .activity-type {
+          font-size: 0.9rem;
+          background: var(--light-purple);
+          color: var(--white);
+          padding: 4px 12px;
+          border-radius: 12px;
+        }
+
+        .activity-stats {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 15px;
+          margin-top: 15px;
+        }
+
+        .stat-item {
+          text-align: center;
+          background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
+          color: var(--white);
+          padding: 12px;
+          border-radius: 10px;
+        }
+
+        .stat-label {
+          font-size: 0.8rem;
+          opacity: 0.9;
+          margin-bottom: 5px;
+        }
+
+        .stat-value {
+          font-size: 1.1rem;
+          font-weight: 600;
+        }
+
+        .navigation {
+          display: flex;
+          justify-content: center;
+          gap: 15px;
+          flex-wrap: wrap;
+        }
+
+        .btn {
+          padding: 12px 25px;
+          border-radius: 25px;
+          text-decoration: none;
+          font-weight: 600;
+          transition: all 0.3s ease;
+          text-align: center;
+        }
+
+        .btn-primary {
+          background: var(--deep-purple);
+          color: var(--white);
+        }
+
+        .btn-secondary {
+          background: var(--white);
+          color: var(--deep-purple);
+          border: 2px solid var(--light-purple);
+        }
+
+        .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-primary:hover {
+          background: var(--accent-purple);
+        }
+
+        .btn-secondary:hover {
+          background: var(--light-purple);
+          color: var(--white);
+        }
+
+        .empty-state {
+          text-align: center;
+          padding: 60px 20px;
+          background: linear-gradient(135deg, var(--light-purple), rgba(167, 139, 250, 0.8));
+          color: var(--white);
+          border-radius: 15px;
+        }
+
+        @media (max-width: 768px) {
+          .container { padding: 20px 10px; }
+          .header h1 { font-size: 2rem; }
+          .activity-header { flex-direction: column; gap: 10px; }
+          .navigation { flex-direction: column; align-items: center; }
+          .btn { width: 100%; max-width: 280px; }
+        }
+      </style>
+    </head>
+    
+    <body>
+      <div class="header">
+        <h1>🏃‍♂️ Your Activities</h1>
+        <p class="subtitle">Recent workouts from your Strava account</p>
+      </div>
+
+      <div class="container">
+        <div class="activities-grid">
+          ${activities.data.length > 0 ? activities.data.map(activity => {
+            const distanceKm = (activity.distance / 1000).toFixed(2);
+            const timeMinutes = Math.floor(activity.moving_time / 60);
+            const avgHR = activity.has_heartrate ? activity.average_heartrate : 'N/A';
+            const elevationGain = activity.total_elevation_gain || 0;
+            
+            return `
+            <div class="activity-card">
+              <div class="activity-header">
+                <div>
+                  <div class="activity-name">${activity.name}</div>
+                  <div class="activity-type">${activity.type}</div>
+                </div>
+              </div>
+              
+              <div class="activity-stats">
+                <div class="stat-item">
+                  <div class="stat-label">Distance</div>
+                  <div class="stat-value">${distanceKm} km</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Time</div>
+                  <div class="stat-value">${timeMinutes} min</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Avg HR</div>
+                  <div class="stat-value">${avgHR}${avgHR !== 'N/A' ? ' bpm' : ''}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Elevation</div>
+                  <div class="stat-value">${elevationGain}m</div>
+                </div>
+              </div>
+            </div>
+            `;
+          }).join('') : `
+          <div class="empty-state">
+            <h2>No Activities Found</h2>
+            <p>Upload some activities to Strava to see them here!</p>
+          </div>
+          `}
+        </div>
+
+        <div class="navigation">
+          <a href="/analyze-zones" class="btn btn-primary">🎯 Analyze Training Zones</a>
+          <a href="/" class="btn btn-secondary">🏠 Back to Home</a>
+        </div>
+      </div>
+      ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+    <script src="/components/nav-header.js"></script>
+    </body>
+    </html>
+    `;
+
+    res.send(html);
+  } catch (error) {
+    // Error handling with purple theme...
+  }
+});
+
+app.get('/about', (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About ZoneTrain - AI-Powered Running Coaching</title>
+    <meta name="description" content="Learn about ZoneTrain's mission to revolutionize running coaching through AI technology and personalized training plans.">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: white;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 40px 20px;
+      }
+
+      h1 {
+        font-size: 2.8rem;
+        text-align: center;
+        margin-bottom: 30px;
+        color: #ffd700;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .content-section {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(15px);
+        border-radius: 20px;
+        padding: 40px;
+        margin-bottom: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      h2 {
+        color: #ffd700;
+        margin-bottom: 20px;
+        font-size: 1.8rem;
+      }
+
+      p {
+        line-height: 1.7;
+        margin-bottom: 20px;
+        font-size: 1.1rem;
+        opacity: 0.95;
+      }
+
+      .mission-values {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 30px;
+        margin: 40px 0;
+      }
+
+      .value-card {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 25px;
+        border-radius: 15px;
+        text-align: center;
+      }
+
+      .value-icon {
+        font-size: 2rem;
+        margin-bottom: 15px;
+      }
+
+      .btn-back {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 30px;
+        background: linear-gradient(45deg, #ffd700, #ffb700);
+        color: #333;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-back:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      @media (max-width: 768px) {
+        .nav-links { display: none; }
+        h1 { font-size: 2.2rem; }
+        .container { padding: 20px 15px; }
+        .content-section { padding: 25px; }
+      }
+    </style>
+  </head>
+  <body>
+   
+    <div class="container">
+      <h1>About ZoneTrain</h1>
+
+      <div class="content-section">
+        <h2>Our Mission</h2>
+        <p>ZoneTrain revolutionizes running coaching by combining cutting-edge artificial intelligence with proven sports science methodologies. We believe every runner deserves personalized, data-driven guidance to achieve their performance goals safely and effectively.</p>
+        
+        <p>Our platform analyzes your daily Heart Rate Variability (HRV) readings, training history, and performance patterns to deliver intelligent workout recommendations that adapt to your body's recovery state and training needs.</p>
+      </div>
+
+      <div class="content-section">
+        <h2>What We Do</h2>
+        <p><strong>AI-Powered Training Zone Analysis:</strong> Our proprietary algorithms analyze your Strava activities to provide detailed insights into your training zone distribution, helping you optimize your training intensity for maximum performance gains.</p>
+        
+        <p><strong>HRV-Based Daily Coaching:</strong> By monitoring your Heart Rate Variability, we provide personalized daily workout recommendations that align with your body's recovery status, preventing overtraining and optimizing adaptation.</p>
+        
+        <p><strong>Personalized Training Plans:</strong> Our three-tier coaching system offers progressively advanced training programs designed for runners at every level, from fitness enthusiasts to competitive athletes.</p>
+      </div>
+
+      <div class="mission-values">
+        <div class="value-card">
+          <div class="value-icon">🎯</div>
+          <h3>Precision</h3>
+          <p>Data-driven coaching decisions based on scientific principles and individual biomarkers</p>
+        </div>
+        <div class="value-card">
+          <div class="value-icon">📈</div>
+          <h3>Progress</h3>
+          <p>Continuous improvement through intelligent training progression and adaptation</p>
+        </div>
+        <div class="value-card">
+          <div class="value-icon">🏃‍♂️</div>
+          <h3>Performance</h3>
+          <p>Maximizing your running potential while maintaining long-term health and motivation</p>
+        </div>
+      </div>
+
+      <div class="content-section">
+        <h2>Why Choose ZoneTrain?</h2>
+        <p>Traditional training plans follow a one-size-fits-all approach that ignores your individual recovery patterns and daily readiness to train. ZoneTrain's AI coaching adapts to your unique physiology, ensuring you train hard when your body is ready and recover properly when needed.</p>
+        
+        <p>Our integration with Strava provides seamless activity analysis, while our WhatsApp-based coaching delivers convenient, personalized guidance directly to your phone. This combination of advanced technology and practical accessibility makes professional-level coaching available to every runner.</p>
+      </div>
+
+      <a href="/" class="btn-back">← Back to Home</a>
+    </div>
+    ${getCookieBannerHTML()}
+
+    ${getCookieModalHTML()}
+
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+app.get('/contact', (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact ZoneTrain - Professional Fitness Coaching Services</title>
+    <meta name="description" content="Get in touch with ZoneTrain for AI-powered running coaching and personalized training plans. Professional fitness coaching services.">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: white;
+      }
+
+      .header {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 15px 0;
+        backdrop-filter: blur(10px);
+      }
+
+      .nav {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+      }
+
+      .logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #ffd700;
+        text-decoration: none;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 30px;
+        list-style: none;
+      }
+
+      .nav-links a {
+        color: white;
+        text-decoration: none;
+        font-weight: 500;
+        transition: color 0.3s ease;
+      }
+
+      .nav-links a:hover {
+        color: #ffd700;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 40px 20px;
+      }
+
+      h1 {
+        font-size: 2.8rem;
+        text-align: center;
+        margin-bottom: 30px;
+        color: #ffd700;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .contact-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 30px;
+        margin-bottom: 40px;
+      }
+
+      .contact-card {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(15px);
+        border-radius: 20px;
+        padding: 30px;
+        text-align: center;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .contact-icon {
+        font-size: 2.5rem;
+        margin-bottom: 20px;
+        color: #ffd700;
+      }
+
+      .contact-title {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: #ffd700;
+      }
+
+      .contact-info {
+        font-size: 1.1rem;
+        line-height: 1.6;
+        opacity: 0.95;
+      }
+
+      .contact-info a {
+        color: white;
+        text-decoration: none;
+        transition: color 0.3s ease;
+      }
+
+      .contact-info a:hover {
+        color: #ffd700;
+      }
+
+      .business-hours {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(15px);
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .business-hours h2 {
+        color: #ffd700;
+        margin-bottom: 20px;
+        text-align: center;
+      }
+
+      .hours-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+      }
+
+      .hour-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 15px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+      }
+
+      .btn-back {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 30px;
+        background: linear-gradient(45deg, #ffd700, #ffb700);
+        color: #333;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-back:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      @media (max-width: 768px) {
+        .nav-links { display: none; }
+        h1 { font-size: 2.2rem; }
+        .container { padding: 20px 15px; }
+        .contact-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    
+
+    <div class="container">
+      <h1>Contact ZoneTrain</h1>
+
+      <div class="contact-grid">
+        <div class="contact-card">
+          <div class="contact-icon">📧</div>
+          <h3 class="contact-title">Email Support</h3>
+          <div class="contact-info">
+            <a href="mailto:zonetrain@zohomail.in">zonetrain@zohomail.in</a>
+            <p style="margin-top: 10px; font-size: 0.95rem; opacity: 0.8;">
+              For coaching inquiries, technical support, and partnership opportunities
+            </p>
+          </div>
+        </div>
+
+        <div class="contact-card">
+          <div class="contact-icon">📍</div>
+          <h3 class="contact-title">Business Address</h3>
+          <div class="contact-info">
+            ZoneTrain<br>
+            AP Block, Pitampura<br>
+            New Delhi-110034<br>
+            India
+          </div>
+        </div>
+
+        <div class="contact-card">
+          <div class="contact-icon">🏢</div>
+          <h3 class="contact-title">Business Information</h3>
+          <div class="contact-info">
+            <strong>Service:</strong> AI-powered running coaching and personalized training plans<br><br>
+            <strong>Specialization:</strong> Professional fitness coaching services for runners
+          </div>
+        </div>
+      </div>
+
+      <div class="business-hours">
+        <h2>Support Hours</h2>
+        <div class="hours-grid">
+          <div class="hour-item">
+            <span>Monday - Friday</span>
+            <span>9:00 AM - 6:00 PM IST</span>
+          </div>
+          <div class="hour-item">
+            <span>Saturday</span>
+            <span>10:00 AM - 4:00 PM IST</span>
+          </div>
+          <div class="hour-item">
+            <span>Sunday</span>
+            <span>Closed</span>
+          </div>
+        </div>
+        <p style="text-align: center; margin-top: 20px; opacity: 0.8; font-size: 0.95rem;">
+          We typically respond to all inquiries within 24 hours during business days.
+        </p>
+      </div>
+
+      <a href="/" class="btn-back">← Back to Home</a>
+    </div>
+    ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+app.get('/privacy', (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - ZoneTrain</title>
+    <meta name="description" content="ZoneTrain Privacy Policy - How we collect, use, and protect your personal information and fitness data.">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: white;
+        line-height: 1.6;
+      }
+
+      .header {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 15px 0;
+        backdrop-filter: blur(10px);
+      }
+
+      .nav {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+      }
+
+      .logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #ffd700;
+        text-decoration: none;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 40px 20px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        text-align: center;
+        margin-bottom: 30px;
+        color: #ffd700;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .content {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(15px);
+        border-radius: 20px;
+        padding: 40px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      h2 {
+        color: #ffd700;
+        margin: 30px 0 15px 0;
+        font-size: 1.5rem;
+      }
+
+      h2:first-of-type {
+        margin-top: 0;
+      }
+
+      p {
+        margin-bottom: 15px;
+        opacity: 0.95;
+      }
+
+      ul {
+        margin: 15px 0 15px 20px;
+      }
+
+      li {
+        margin-bottom: 8px;
+        opacity: 0.95;
+      }
+
+      .effective-date {
+        text-align: center;
+        font-style: italic;
+        opacity: 0.8;
+        margin-bottom: 30px;
+      }
+
+      .btn-back {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 30px;
+        background: linear-gradient(45deg, #ffd700, #ffb700);
+        color: #333;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-back:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      @media (max-width: 768px) {
+        .container { padding: 20px 15px; }
+        .content { padding: 25px; }
+        h1 { font-size: 2rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <nav class="nav">
+        <a href="/" class="logo">ZoneTrain</a>
+      </nav>
+    </header>
+
+    <div class="container">
+      <h1>Privacy Policy</h1>
+      <p class="effective-date">Effective Date: September 18, 2025</p>
+
+      <div class="content">
+        <h2>1. Introduction</h2>
+        <p>ZoneTrain ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our AI-powered running coaching and personalized training plan services, including our website, mobile applications, and WhatsApp-based coaching communications.</p>
+
+        <h2>2. Information We Collect</h2>
+        <p><strong>Personal Information:</strong></p>
+        <ul>
+          <li>Name, email address, and contact information</li>
+          <li>Account credentials and profile information</li>
+          <li>Payment and billing information (processed securely through third-party processors)</li>
+          <li>Communication preferences and WhatsApp phone number (with your consent)</li>
+        </ul>
+
+        <p><strong>Fitness and Health Data:</strong></p>
+        <ul>
+          <li>Heart Rate Variability (HRV) readings you provide</li>
+          <li>Training activities and performance data from connected fitness platforms (Strava)</li>
+          <li>Workout responses and subjective wellness questionnaire data</li>
+          <li>Training zone analysis and progression metrics</li>
+        </ul>
+
+        <p><strong>Technical Information:</strong></p>
+        <ul>
+          <li>Device information, IP address, and browser details</li>
+          <li>Usage patterns and interaction data with our services</li>
+          <li>Cookies and similar tracking technologies</li>
+        </ul>
+
+        <h2>3. How We Use Your Information</h2>
+        <p>We use your information to:</p>
+        <ul>
+          <li>Provide personalized AI-powered coaching recommendations</li>
+          <li>Analyze your training data and generate customized workout plans</li>
+          <li>Send daily HRV prompts and training suggestions via WhatsApp (with your consent)</li>
+          <li>Process payments and manage your subscription</li>
+          <li>Improve our AI algorithms and service quality</li>
+          <li>Communicate important service updates and support</li>
+          <li>Comply with legal obligations and protect our rights</li>
+        </ul>
+
+        <h2>4. Information Sharing and Disclosure</h2>
+        <p>We do not sell, rent, or trade your personal information. We may share your information only in the following circumstances:</p>
+        <ul>
+          <li><strong>Service Providers:</strong> With trusted third parties who help us operate our services (payment processors, cloud storage, AI processing)</li>
+          <li><strong>Connected Services:</strong> With platforms you choose to connect (like Strava), as authorized by you</li>
+          <li><strong>Legal Requirements:</strong> When required by law, court order, or to protect our rights and safety</li>
+          <li><strong>Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets</li>
+        </ul>
+
+        <h2>5. Data Security</h2>
+        <p>We implement appropriate technical and organizational security measures to protect your information against unauthorized access, alteration, disclosure, or destruction. This includes encryption, secure data transmission, and regular security assessments. However, no method of transmission over the internet is 100% secure.</p>
+
+        <h2>6. WhatsApp Communications</h2>
+        <p>Our WhatsApp-based coaching service operates with your explicit consent. We use WhatsApp Business API to send you daily HRV prompts and personalized training recommendations. You can opt out of WhatsApp communications at any time by replying "STOP" or contacting us directly.</p>
+
+        <h2>7. Data Retention</h2>
+        <p>We retain your information for as long as necessary to provide our services and fulfill the purposes outlined in this policy. You may request deletion of your account and associated data at any time, subject to legal obligations to retain certain information.</p>
+
+        <h2>8. Your Rights</h2>
+        <p>Depending on your location, you may have the right to:</p>
+        <ul>
+          <li>Access, update, or delete your personal information</li>
+          <li>Withdraw consent for data processing</li>
+          <li>Request data portability</li>
+          <li>Object to certain processing activities</li>
+          <li>File complaints with data protection authorities</li>
+        </ul>
+
+        <h2>9. International Data Transfers</h2>
+        <p>Your information may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place to protect your information in accordance with applicable data protection laws.</p>
+
+        <h2>10. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new policy on our website and, where appropriate, through other communication channels.</p>
+
+        <h2>11. Contact Us</h2>
+        <p>If you have any questions about this Privacy Policy or our data practices, please contact us at:</p>
+        <p>Email: zonetrain@zohomail.in<br>
+        Address: ZoneTrain, AP Block, Pitampura, New Delhi-110034, India</p>
+      </div>
+
+      <a href="/" class="btn-back">← Back to Home</a>
+    </div>
+    ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+app.get('/terms', (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <link rel="stylesheet" href="css/cookies.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - ZoneTrain</title>
+    <meta name="description" content="ZoneTrain Terms of Service - Legal terms and conditions for using our AI-powered fitness coaching services.">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: white;
+        line-height: 1.6;
+      }
+
+      .header {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 15px 0;
+        backdrop-filter: blur(10px);
+      }
+
+      .nav {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+      }
+
+      .logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #ffd700;
+        text-decoration: none;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 40px 20px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        text-align: center;
+        margin-bottom: 30px;
+        color: #ffd700;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .content {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(15px);
+        border-radius: 20px;
+        padding: 40px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      h2 {
+        color: #ffd700;
+        margin: 30px 0 15px 0;
+        font-size: 1.5rem;
+      }
+
+      h2:first-of-type {
+        margin-top: 0;
+      }
+
+      p {
+        margin-bottom: 15px;
+        opacity: 0.95;
+      }
+
+      ul {
+        margin: 15px 0 15px 20px;
+      }
+
+      li {
+        margin-bottom: 8px;
+        opacity: 0.95;
+      }
+
+      .effective-date {
+        text-align: center;
+        font-style: italic;
+        opacity: 0.8;
+        margin-bottom: 30px;
+      }
+
+      .btn-back {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 30px;
+        background: linear-gradient(45deg, #ffd700, #ffb700);
+        color: #333;
+        text-decoration: none;
+        border-radius: 25px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-back:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      }
+
+      @media (max-width: 768px) {
+        .container { padding: 20px 15px; }
+        .content { padding: 25px; }
+        h1 { font-size: 2rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <nav class="nav">
+        <a href="/" class="logo">ZoneTrain</a>
+      </nav>
+    </header>
+
+    <div class="container">
+      <h1>Terms of Service</h1>
+      <p class="effective-date">Effective Date: September 18, 2025</p>
+
+      <div class="content">
+        <h2>1. Acceptance of Terms</h2>
+        <p>By accessing and using ZoneTrain's AI-powered running coaching and personalized training plan services ("Services"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, please do not use our Services.</p>
+
+        <h2>2. Description of Services</h2>
+        <p>ZoneTrain provides professional fitness coaching services including:</p>
+        <ul>
+          <li>AI-powered analysis of training zones based on Strava activity data</li>
+          <li>Personalized workout recommendations based on Heart Rate Variability (HRV) readings</li>
+          <li>Daily coaching guidance delivered through WhatsApp Business API</li>
+          <li>Customized training plans for runners at various skill levels</li>
+          <li>Performance tracking and progress analysis</li>
+        </ul>
+
+        <h2>3. User Accounts and Registration</h2>
+        <p>To access our Services, you must create an account and provide accurate, current information. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You must be at least 18 years old to use our Services.</p>
+
+        <h2>4. Subscription Plans and Payment</h2>
+        <p>Our Services are offered through various subscription plans with different features and pricing. By subscribing, you agree to pay all applicable fees. Subscriptions automatically renew unless cancelled. We offer a 14-day free trial for new users with no credit card required.</p>
+
+        <p><strong>Cancellation:</strong> You may cancel your subscription at any time through your account settings or by contacting us. Cancellations take effect at the end of the current billing period.</p>
+
+        <h2>5. Acceptable Use</h2>
+        <p>You agree to use our Services only for lawful purposes and in accordance with these Terms. You must not:</p>
+        <ul>
+          <li>Provide false or misleading health information</li>
+          <li>Share your account with others</li>
+          <li>Attempt to reverse engineer or copy our AI algorithms</li>
+          <li>Use our Services for any commercial purpose without authorization</li>
+          <li>Violate any applicable laws or regulations</li>
+        </ul>
+
+        <h2>6. Health and Fitness Disclaimers</h2>
+        <p><strong>Not Medical Advice:</strong> Our Services provide fitness coaching and training recommendations based on data analysis. This is not medical advice and should not replace consultation with qualified healthcare professionals.</p>
+
+        <p><strong>Assumption of Risk:</strong> Physical exercise carries inherent risks. You participate in recommended activities at your own risk and should consult with a physician before beginning any exercise program.</p>
+
+        <p><strong>Personal Responsibility:</strong> You are solely responsible for monitoring your health and modifying or stopping activities if you experience any adverse symptoms.</p>
+
+        <h2>7. WhatsApp Communications</h2>
+        <p>By providing your WhatsApp number, you consent to receive automated coaching messages and workout recommendations via WhatsApp Business API. You may opt out at any time by replying "STOP" to any message or contacting us directly.</p>
+
+        <h2>8. Data and Privacy</h2>
+        <p>Your privacy is important to us. Our collection and use of your information is governed by our Privacy Policy, which is incorporated into these Terms by reference. By using our Services, you consent to the collection and use of your information as described in our Privacy Policy.</p>
+
+        <h2>9. Intellectual Property</h2>
+        <p>All content, features, and functionality of our Services, including our AI algorithms, training methodologies, and user interface, are owned by ZoneTrain and protected by copyright, trademark, and other intellectual property laws.</p>
+
+        <h2>10. Third-Party Integrations</h2>
+        <p>Our Services integrate with third-party platforms like Strava and WhatsApp. Your use of these integrations is subject to their respective terms of service and privacy policies. We are not responsible for the availability or functionality of third-party services.</p>
+
+        <h2>11. Limitation of Liability</h2>
+        <p>To the maximum extent permitted by law, ZoneTrain shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of our Services, including but not limited to injuries, loss of data, or business interruption.</p>
+
+        <h2>12. Indemnification</h2>
+        <p>You agree to indemnify and hold ZoneTrain harmless from any claims, damages, or expenses arising from your use of our Services, violation of these Terms, or infringement of any third-party rights.</p>
+
+        <h2>13. Service Availability</h2>
+        <p>We strive to maintain high service availability but do not guarantee uninterrupted access. We may temporarily suspend or restrict access for maintenance, updates, or other operational reasons.</p>
+
+        <h2>14. Modifications to Terms</h2>
+        <p>We reserve the right to modify these Terms at any time. We will notify users of material changes through our website or other communication channels. Continued use of our Services after changes constitutes acceptance of the new Terms.</p>
+
+        <h2>15. Termination</h2>
+        <p>Either party may terminate the agreement at any time. We may suspend or terminate your account for violation of these Terms. Upon termination, your right to use the Services ceases immediately.</p>
+
+        <h2>16. Governing Law</h2>
+        <p>These Terms are governed by the laws of India. Any disputes arising from these Terms or the use of our Services shall be subject to the exclusive jurisdiction of the courts in New Delhi, India.</p>
+
+        <h2>17. Contact Information</h2>
+        <p>If you have any questions about these Terms, please contact us at:</p>
+        <p>Email: zonetrain@zohomail.in<br>
+        Address: ZoneTrain, AP Block, Pitampura, New Delhi-110034, India</p>
+
+        <h2>18. Severability</h2>
+        <p>If any provision of these Terms is found to be unenforceable or invalid, the remaining provisions will continue to be valid and enforceable to the fullest extent permitted by law.</p>
+      </div>
+
+      <a href="/" class="btn-back">← Back to Home</a>
+    </div>
+    ${getCookieBannerHTML()}
+    ${getCookieModalHTML()}
+    <script src="/components/nav-header.js"></script>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+// ============================================
+// ERROR HANDLER - MUST BE LAST MIDDLEWARE
+// ============================================
+
+// 404 Handler (for undefined routes)
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+    path: req.path
+  });
+});
+
+
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  // Log error details securely (don't log sensitive data)
+  console.error('❌ Error occurred:');
+  console.error('   Message:', err.message);
+  console.error('   Status:', err.status || 500);
+  console.error('   Path:', req.path);
+  console.error('   Method:', req.method);
+  
+  // Only log stack trace in development
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('   Stack:', err.stack);
+  }
+  
+  // Determine error status code
+  const statusCode = err.status || err.statusCode || 500;
+  
+  // Categorize error type
+  let errorType = 'INTERNAL_ERROR';
+  let clientMessage = 'An unexpected error occurred';
+  
+  if (statusCode === 400) {
+    errorType = 'BAD_REQUEST';
+    clientMessage = err.message || 'Invalid request';
+  } else if (statusCode === 401) {
+    errorType = 'UNAUTHORIZED';
+    clientMessage = 'Authentication required';
+  } else if (statusCode === 403) {
+    errorType = 'FORBIDDEN';
+    clientMessage = 'Access denied';
+  } else if (statusCode === 404) {
+    errorType = 'NOT_FOUND';
+    clientMessage = 'Resource not found';
+  } else if (statusCode === 429) {
+    errorType = 'RATE_LIMIT_EXCEEDED';
+    clientMessage = 'Too many requests, please try again later';
+  } else if (statusCode >= 500) {
+    errorType = 'SERVER_ERROR';
+    clientMessage = 'Internal server error';
+  }
+  
+  // Build error response
+  const errorResponse = {
+    success: false,
+    error: process.env.NODE_ENV === 'production' ? clientMessage : err.message,
+    code: errorType,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Include stack trace in development only
+  if (process.env.NODE_ENV !== 'production') {
+    errorResponse.stack = err.stack;
+    errorResponse.details = {
+      path: req.path,
+      method: req.method,
+      query: req.query,
+      body: sanitizeForLogging(req.body)
+    };
+  }
+  
+  // Send error response
+  res.status(statusCode).json(errorResponse);
+});
+
+// Helper function to sanitize sensitive data from logs
+function sanitizeForLogging(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const sensitiveKeys = ['password', 'token', 'secret', 'apiKey', 'authorization'];
+  const sanitized = { ...obj };
+  
+  for (const key of Object.keys(sanitized)) {
+    if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
+      sanitized[key] = '[REDACTED]';
+    }
+  }
+  
+  return sanitized;
+}
+
+// ============================================
+// START SERVER
+// ============================================
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log('✅ ZoneTrain server running on port', PORT);
+  console.log('   Environment:', process.env.NODE_ENV || 'development');
+  console.log('   Base URL:', process.env.BASE_URL || 'http://localhost:3000');
+});
