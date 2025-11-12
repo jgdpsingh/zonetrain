@@ -524,6 +524,113 @@
 </head>
 <body>
 
+    <!-- Trial Prompt Banner (Free Users Only) -->
+<div class="trial-prompt-banner">
+  <div class="trial-content">
+    <div class="trial-text">
+      <h3>🎉 Try Basic Coach Free for 14 Days!</h3>
+      <p>Get HRV-adaptive training, personalized workouts, and progress tracking – no credit card required.</p>
+      <div class="trial-features">
+        <div class="trial-feature">✓ Daily HRV analysis</div>
+        <div class="trial-feature">✓ Custom workouts</div>
+        <div class="trial-feature">✓ Progress tracking</div>
+        <div class="trial-feature">✓ Cancel anytime</div>
+      </div>
+    </div>
+    <button class="btn-start-trial" onclick="startTrial('basic')">Start Free Trial</button>
+  </div>
+</div>
+
+<style>
+.trial-prompt-banner {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-radius: 16px;
+  padding: 30px;
+  margin-bottom: 30px;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+  color: white;
+}
+.trial-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+.trial-text h3 {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+.trial-text p {
+  font-size: 16px;
+  opacity: 0.9;
+  margin-bottom: 16px;
+}
+.trial-features {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trial-feature {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn-start-trial {
+  padding: 16px 32px;
+  background: white;
+  color: #059669;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.btn-start-trial:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+@media (max-width: 768px) {
+  .trial-content { flex-direction: column; text-align: center; }
+  .trial-features { justify-content: center; }
+}
+</style>
+
+<script>
+async function startTrial(planType) {
+  const confirmed = confirm('Start 14-Day Free Trial?\n\n✓ Full access to ' + (planType === 'basic' ? 'Basic Coach' : 'Race Coach') + '\n✓ No credit card required\n✓ Cancel anytime\n\nContinue?');
+  if (!confirmed) return;
+  
+  try {
+    const token = localStorage.getItem('userToken');
+    const response = await fetch('/api/subscription/start-trial', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ planType })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      alert('✅ Trial Started! Redirecting to your ' + planType + ' dashboard...');
+      window.location.href = planType === 'basic' ? '/dashboard-basic' : '/dashboard-race';
+    } else {
+      alert('❌ ' + data.message);
+    }
+  } catch (error) {
+    console.error('Trial start error:', error);
+    alert('Failed to start trial. Please try again.');
+  }
+}
+</script>
+
+
     <div id="verification-banner" style="display: none; background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); color: #92400E; padding: 20px; text-align: center; border-bottom: 3px solid #F59E0B; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; right: 0; z-index: 9999;">
         <div style="max-width: 800px; margin: 0 auto;">
             <strong style="font-size: 18px;">⚠️ Email Not Verified</strong>

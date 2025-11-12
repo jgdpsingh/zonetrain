@@ -276,16 +276,7 @@ app.get('/dashboard-race', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard-race.html'));
 });
 
-// Catch-all for other static pages (e.g., /plans, /subscription)
-app.get('/:page', (req, res) => {
-  const filePath = path.join(__dirname, 'public', `${req.params.page}.html`);
-  res.sendFile(filePath, (err) => {
-    if (err) {
-      console.error(`❌ File not found: ${filePath}`);
-      res.status(404).json({ success: false, error: 'Page not found' });
-    }
-  });
-});
+
 
 // Add this helper function
 function validatePassword(password) {
@@ -5613,7 +5604,7 @@ const SubscriptionService = require('./services/subscriptionService');
 const PaymentReminderService = require('./services/paymentReminderService');
 
 const razorpayService = require('./services/razorpayService');
-const subscriptionService = new SubscriptionService(db, razorpayService);
+const subscriptionService = new SubscriptionService(db);
 const reminderService = new PaymentReminderService(db, subscriptionService);
 
 // Start payment reminder scheduler
@@ -7071,6 +7062,115 @@ app.get('/api/subscription/trial-eligibility', authenticateToken, async (req, re
       message: error.message
     });
   }
+});
+
+
+// Make the method accessible
+const calculateProRataUpgrade = subscriptionService.calculateProRataUpgrade.bind(subscriptionService);
+
+// Then use it in the route:
+app.get('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetPlan, billingCycle, promoCode } = req.query;
+
+        console.log('💰 Calculating upgrade for:', { userId, targetPlan, billingCycle, promoCode });
+
+        // ✅ Validate required parameters
+        if (!targetPlan) {
+            return res.status(400).json({
+                success: false,
+                message: 'targetPlan is required'
+            });
+        }
+
+        if (!billingCycle) {
+            return res.status(400).json({
+                success: false,
+                message: 'billingCycle is required'
+            });
+        }
+
+        // ✅ Validate plan exists
+        if (!subscriptionService.pricing[targetPlan]) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid plan: ${targetPlan}. Valid plans: ${Object.keys(subscriptionService.pricing).join(', ')}`
+            });
+        }
+
+        // ✅ Validate billing cycle
+        const validCycles = ['monthly', 'quarterly', 'annual'];
+        if (!validCycles.includes(billingCycle)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid billing cycle. Must be one of: ${validCycles.join(', ')}`
+            });
+        }
+
+        // Get user data
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        // ✅ Check if already on same plan
+        if (user.currentPlan === targetPlan && user.billingCycle === billingCycle) {
+            return res.status(400).json({
+                success: false,
+                message: 'You are already subscribed to this plan',
+                currentPlan: user.currentPlan,
+                currentBillingCycle: user.billingCycle
+            });
+        }
+
+        // ✅ Check if trying to downgrade (should use downgrade endpoint)
+        const planHierarchy = { free: 0, basic: 1, race: 2 };
+        if (planHierarchy[targetPlan] < planHierarchy[user.currentPlan]) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot upgrade to a lower-tier plan. Use the downgrade endpoint instead.',
+                suggestion: 'POST /api/subscription/downgrade'
+            });
+        }
+
+        // Calculate upgrade using service
+        const calculation = subscriptionService.calculateProRataUpgrade(
+            user,
+            targetPlan,
+            billingCycle,
+            promoCode || null
+        );
+
+        console.log('✅ Calculation complete:', {
+            amountToPay: calculation.amountToPay,
+            promoApplied: calculation.promoApplied ? 'Yes' : 'No'
+        });
+
+        // Return detailed breakdown
+        res.json({
+            success: true,
+            ...calculation,
+            targetPlan: targetPlan,
+            billingCycle: billingCycle,
+            currentPlan: user.currentPlan || 'free',
+            currency: 'INR'
+        });
+
+    } catch (error) {
+        console.error('❌ Calculate upgrade error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to calculate upgrade cost',
+            error: error.message
+        });
+    }
 });
 
 
