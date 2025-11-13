@@ -670,6 +670,352 @@ class SubscriptionService {
         const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
         return (monthly * months) - actual;
     }
+
+    // ==================== TRIAL MANAGEMENT METHODS ====================
+
+/**
+ * Check for expired trials and update users
+ * Runs periodically to expire trials that have passed their end date
+ */
+async checkExpiredTrials() {
+    try {
+        const now = new Date();
+        
+        console.log('🔍 Checking for expired trials...');
+        
+        // Find users with expired trials
+        const expiredTrialsSnapshot = await this.db.collection('users')
+            .where('subscriptionStatus', '==', 'trial')
+            .where('trialEndDate', '<', now)
+            .get();
+        
+        if (expiredTrialsSnapshot.empty) {
+            console.log('✅ No expired trials found');
+            return { expiredCount: 0 };
+        }
+        
+        console.log(`⚠️ Found ${expiredTrialsSnapshot.size} expired trials`);
+        
+        const batch = this.db.batch();
+        let updatedCount = 0;
+        
+        for (const doc of expiredTrialsSnapshot.docs) {
+            const userId = doc.id;
+            const user = doc.data();
+            
+            // Update user to expired status
+            batch.update(doc.ref, {
+                subscriptionStatus: 'expired',
+                currentPlan: 'free',
+                trialExpiredAt: now,
+                updatedAt: now
+            });
+            
+            // Create notification
+            const notificationRef = this.db.collection('notifications').doc();
+            batch.set(notificationRef, {
+                userId,
+                type: 'trial_expired',
+                title: '⏰ Trial Expired',
+                message: `Your ${user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach'} trial has ended. Subscribe to continue enjoying premium features!`,
+                actionText: 'Subscribe Now',
+                actionUrl: '/plans',
+                read: false,
+                createdAt: now
+            });
+            
+            // Log transaction
+            const transactionRef = this.db.collection('transactions').doc();
+            batch.set(transactionRef, {
+                userId,
+                type: 'trial_expired',
+                plan: user.currentPlan,
+                trialStartDate: user.trialStartDate,
+                trialEndDate: user.trialEndDate,
+                status: 'expired',
+                createdAt: now
+            });
+            
+            updatedCount++;
+            
+            console.log(`📌 Expiring trial for user: ${userId} (${user.currentPlan})`);
+        }
+        
+        // Commit all updates in batch
+        await batch.commit();
+        
+        console.log(`✅ Expired ${updatedCount} trials successfully`);
+        
+        return { expiredCount: updatedCount };
+        
+    } catch (error) {
+        console.error('❌ Check expired trials error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Send trial expiry reminders 3 days before expiry
+ */
+async sendTrialExpiryReminders() {
+    try {
+        const now = new Date();
+        const threeDaysFromNow = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000));
+        
+        console.log('📧 Checking for trials expiring soon...');
+        
+        // Find trials expiring in next 3 days
+        const expiringTrialsSnapshot = await this.db.collection('users')
+            .where('subscriptionStatus', '==', 'trial')
+            .where('trialEndDate', '>', now)
+            .where('trialEndDate', '<', threeDaysFromNow)
+            .get();
+        
+        if (expiringTrialsSnapshot.empty) {
+            console.log('✅ No trials expiring soon');
+            return { remindersSent: 0 };
+        }
+        
+        console.log(`⏰ Found ${expiringTrialsSnapshot.size} trials expiring soon`);
+        
+        const batch = this.db.batch();
+        let remindersSent = 0;
+        
+        for (const doc of expiringTrialsSnapshot.docs) {
+            const userId = doc.id;
+            const user = doc.data();
+            
+            // Check if reminder already sent (within last 7 days)
+            const existingReminder = await this.db.collection('notifications')
+                .where('userId', '==', userId)
+                .where('type', '==', 'trial_expiring_soon')
+                .where('createdAt', '>', new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000)))
+                .limit(1)
+                .get();
+            
+            if (!existingReminder.empty) {
+                console.log(`⏭️ Reminder already sent for user: ${userId}`);
+                continue;
+            }
+            
+            const daysRemaining = Math.ceil((user.trialEndDate.toDate() - now) / (1000 * 60 * 60 * 24));
+            const planName = user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach';
+            
+            // Create reminder notification
+            const notificationRef = this.db.collection('notifications').doc();
+            batch.set(notificationRef, {
+                userId,
+                type: 'trial_expiring_soon',
+                title: `⏰ Trial Ending in ${daysRemaining} Day${daysRemaining > 1 ? 's' : ''}`,
+                message: `Your ${planName} trial ends soon! Subscribe now to keep your training momentum going.`,
+                actionText: 'Subscribe Now',
+                actionUrl: '/plans',
+                read: false,
+                createdAt: now
+            });
+            
+            remindersSent++;
+            console.log(`📧 Queued reminder for user: ${userId} (${daysRemaining} days left)`);
+        }
+        
+        await batch.commit();
+        
+        console.log(`✅ Sent ${remindersSent} trial expiry reminders`);
+        
+        return { remindersSent };
+        
+    } catch (error) {
+        console.error('❌ Send trial reminders error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Check for expired paid subscriptions
+ */
+async checkExpiredSubscriptions() {
+    try {
+        const now = new Date();
+        
+        console.log('🔍 Checking for expired subscriptions...');
+        
+        // Find active subscriptions that have expired
+        const expiredSubsSnapshot = await this.db.collection('users')
+            .where('subscriptionStatus', '==', 'active')
+            .where('subscriptionEndDate', '<', now)
+            .get();
+        
+        if (expiredSubsSnapshot.empty) {
+            console.log('✅ No expired subscriptions found');
+            return { expiredCount: 0 };
+        }
+        
+        console.log(`⚠️ Found ${expiredSubsSnapshot.size} expired subscriptions`);
+        
+        const batch = this.db.batch();
+        let updatedCount = 0;
+        
+        for (const doc of expiredSubsSnapshot.docs) {
+            const userId = doc.id;
+            const user = doc.data();
+            
+            // Update user to expired status
+            batch.update(doc.ref, {
+                subscriptionStatus: 'expired',
+                currentPlan: 'free',
+                previousPlan: user.currentPlan,
+                expiredAt: now,
+                updatedAt: now
+            });
+            
+            // Create notification
+            const notificationRef = this.db.collection('notifications').doc();
+            batch.set(notificationRef, {
+                userId,
+                type: 'subscription_expired',
+                title: '⚠️ Subscription Expired',
+                message: `Your ${user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach'} subscription has expired. Renew now to continue!`,
+                actionText: 'Renew Now',
+                actionUrl: '/renew',
+                read: false,
+                createdAt: now
+            });
+            
+            // Update subscription record
+            const subSnapshot = await this.db.collection('subscriptions')
+                .where('userId', '==', userId)
+                .where('status', '==', 'active')
+                .get();
+            
+            subSnapshot.docs.forEach(subDoc => {
+                batch.update(subDoc.ref, {
+                    status: 'expired',
+                    expiredAt: now
+                });
+            });
+            
+            updatedCount++;
+            console.log(`📌 Expired subscription for user: ${userId} (${user.currentPlan})`);
+        }
+        
+        await batch.commit();
+        
+        console.log(`✅ Expired ${updatedCount} subscriptions successfully`);
+        
+        return { expiredCount: updatedCount };
+        
+    } catch (error) {
+        console.error('❌ Check expired subscriptions error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Send subscription renewal reminders 7 days before expiry
+ */
+async sendRenewalReminders() {
+    try {
+        const now = new Date();
+        const sevenDaysFromNow = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+        
+        console.log('📧 Checking for subscriptions expiring soon...');
+        
+        // Find subscriptions expiring in next 7 days
+        const expiringSubsSnapshot = await this.db.collection('users')
+            .where('subscriptionStatus', '==', 'active')
+            .where('subscriptionEndDate', '>', now)
+            .where('subscriptionEndDate', '<', sevenDaysFromNow)
+            .get();
+        
+        if (expiringSubsSnapshot.empty) {
+            console.log('✅ No subscriptions expiring soon');
+            return { remindersSent: 0 };
+        }
+        
+        console.log(`⏰ Found ${expiringSubsSnapshot.size} subscriptions expiring soon`);
+        
+        const batch = this.db.batch();
+        let remindersSent = 0;
+        
+        for (const doc of expiringSubsSnapshot.docs) {
+            const userId = doc.id;
+            const user = doc.data();
+            
+            // Check if reminder already sent
+            const existingReminder = await this.db.collection('notifications')
+                .where('userId', '==', userId)
+                .where('type', '==', 'subscription_expiring_soon')
+                .where('createdAt', '>', new Date(now.getTime() - (10 * 24 * 60 * 60 * 1000)))
+                .limit(1)
+                .get();
+            
+            if (!existingReminder.empty) {
+                console.log(`⏭️ Renewal reminder already sent for user: ${userId}`);
+                continue;
+            }
+            
+            const daysRemaining = Math.ceil((user.subscriptionEndDate.toDate() - now) / (1000 * 60 * 60 * 24));
+            const planName = user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach';
+            
+            // Create renewal reminder
+            const notificationRef = this.db.collection('notifications').doc();
+            batch.set(notificationRef, {
+                userId,
+                type: 'subscription_expiring_soon',
+                title: `⏰ Subscription Renewing in ${daysRemaining} Day${daysRemaining > 1 ? 's' : ''}`,
+                message: `Your ${planName} subscription expires soon. Renew now with our 50% renewal discount!`,
+                actionText: 'Renew with 50% Off',
+                actionUrl: '/renew?code=RENEW50',
+                read: false,
+                createdAt: now
+            });
+            
+            remindersSent++;
+            console.log(`📧 Queued renewal reminder for user: ${userId} (${daysRemaining} days left)`);
+        }
+        
+        await batch.commit();
+        
+        console.log(`✅ Sent ${remindersSent} renewal reminders`);
+        
+        return { remindersSent };
+        
+    } catch (error) {
+        console.error('❌ Send renewal reminders error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Initialize all scheduled tasks (call this once when service starts)
+ */
+initializeScheduledTasks() {
+    console.log('🚀 Initializing subscription management tasks...');
+    
+    // Run expired trial check every 6 hours
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    setInterval(() => this.checkExpiredTrials(), SIX_HOURS);
+    
+    // Run trial reminder check daily
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    setInterval(() => this.sendTrialExpiryReminders(), TWENTY_FOUR_HOURS);
+    
+    // Run expired subscription check every 6 hours
+    setInterval(() => this.checkExpiredSubscriptions(), SIX_HOURS);
+    
+    // Run renewal reminder check daily
+    setInterval(() => this.sendRenewalReminders(), TWENTY_FOUR_HOURS);
+    
+    // Run all checks immediately on startup
+    this.checkExpiredTrials();
+    this.sendTrialExpiryReminders();
+    this.checkExpiredSubscriptions();
+    this.sendRenewalReminders();
+    
+    console.log('✅ All subscription tasks scheduled');
+}
+
+
 }
 
 module.exports = SubscriptionService;

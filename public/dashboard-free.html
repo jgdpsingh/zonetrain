@@ -525,7 +525,7 @@
 <body>
 
     <!-- Trial Prompt Banner (Free Users Only) -->
-<div class="trial-prompt-banner">
+<div class="trial-prompt-banner trial-basic" style="display: none;">
   <div class="trial-content">
     <div class="trial-text">
       <h3>🎉 Try Basic Coach Free for 14 Days!</h3>
@@ -602,33 +602,179 @@
 
 <script>
 async function startTrial(planType) {
-  const confirmed = confirm('Start 14-Day Free Trial?\n\n✓ Full access to ' + (planType === 'basic' ? 'Basic Coach' : 'Race Coach') + '\n✓ No credit card required\n✓ Cancel anytime\n\nContinue?');
-  if (!confirmed) return;
-  
-  try {
-    const token = localStorage.getItem('userToken');
-    const response = await fetch('/api/subscription/start-trial', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ planType })
-    });
+    // Plan-specific details
+    const planDetails = {
+        basic: {
+            name: 'Basic Coach',
+            price: '₹199/month',
+            features: [
+                '✓ HRV-adaptive training',
+                '✓ Personalized daily workouts',
+                '✓ Progress tracking',
+                '✓ Training calendar'
+            ],
+            dashboard: '/dashboard-basic'
+        },
+        race: {
+            name: 'Race Coach',
+            price: '₹399/month',
+            features: [
+                '✓ Everything in Basic Coach',
+                '✓ Personalized race training plans',
+                '✓ Advanced performance analytics',
+                '✓ Pace optimization',
+                '✓ Race day strategies'
+            ],
+            dashboard: '/dashboard-race'
+        }
+    };
     
-    const data = await response.json();
-    if (data.success) {
-      alert('✅ Trial Started! Redirecting to your ' + planType + ' dashboard...');
-      window.location.href = planType === 'basic' ? '/dashboard-basic' : '/dashboard-race';
-    } else {
-      alert('❌ ' + data.message);
+    const plan = planDetails[planType];
+    
+    if (!plan) {
+        console.error('Invalid plan type:', planType);
+        showNotification('❌ Invalid plan selected', 'error');
+        return;
     }
-  } catch (error) {
-    console.error('Trial start error:', error);
-    alert('Failed to start trial. Please try again.');
-  }
+    
+    // Enhanced confirmation dialog
+    const confirmed = confirm(
+        `🎉 Start ${plan.name} Free Trial?\n\n` +
+        `${plan.features.join('\n')}\n\n` +
+        `📅 14 days completely FREE\n` +
+        `💳 No credit card required\n` +
+        `🔄 Cancel anytime during trial\n\n` +
+        `After trial: ${plan.price}\n\n` +
+        `Ready to start your free trial?`
+    );
+    
+    if (!confirmed) {
+        console.log('User cancelled trial start');
+        return;
+    }
+    
+    try {
+        // Show loading notification
+        showNotification('🚀 Starting your free trial...', 'info');
+        
+        // Validate user is logged in
+        const token = localStorage.getItem('userToken');
+        if (!token) {
+            showNotification('❌ Please log in first to start a trial', 'error');
+            setTimeout(() => {
+                window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+            }, 2000);
+            return;
+        }
+        
+        // Make API call
+        const response = await fetch('/api/subscription/start-trial', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ planType })
+        });
+        
+        const data = await response.json();
+        
+        // ✅ SUCCESS CASE
+        if (data.success) {
+            console.log('Trial started successfully:', data);
+            
+            // Update localStorage with trial info
+            localStorage.setItem('currentPlan', planType);
+            localStorage.setItem('subscriptionStatus', 'trial');
+            
+            // Store trial end date if provided
+            if (data.trial && data.trial.endDate) {
+                localStorage.setItem('trialEndDate', data.trial.endDate);
+            }
+            
+            // Show success notification
+            showNotification(`✅ Trial started! Welcome to ${plan.name}!`, 'success');
+            
+            // Redirect to appropriate dashboard with tracking
+            setTimeout(() => {
+                window.location.href = `${plan.dashboard}?trial=started&plan=${planType}`;
+            }, 2000);
+        } 
+        // ❌ ERROR CASES
+        else {
+            console.error('Trial start failed:', data);
+            
+            // Handle specific error types
+            if (data.trialAlreadyUsed) {
+                showNotification(`❌ You've already used your ${plan.name} trial`, 'error');
+                
+                // Show subscription options after delay
+                setTimeout(() => {
+                    const plansSection = document.getElementById('plans-section');
+                    if (plansSection) {
+                        plansSection.scrollIntoView({ behavior: 'smooth' });
+                        // Highlight the plan
+                        const planCard = document.querySelector(`.plan-card[data-plan="${planType}"]`);
+                        if (planCard) {
+                            planCard.style.animation = 'pulse 1s ease-in-out 3';
+                        }
+                    } else {
+                        window.location.href = '/plans?plan=' + planType;
+                    }
+                }, 2500);
+            } 
+            else if (data.needsUpgrade) {
+                showNotification(`ℹ️ You're currently on ${planType === 'race' ? 'Basic Coach' : 'Free'}. Please upgrade instead.`, 'info');
+                setTimeout(() => {
+                    window.location.href = '/plans?upgrade=' + planType;
+                }, 2500);
+            }
+            else if (data.alreadyActive) {
+                showNotification(`ℹ️ You already have an active ${plan.name} subscription!`, 'info');
+                setTimeout(() => {
+                    window.location.href = plan.dashboard;
+                }, 2000);
+            }
+            else {
+                // Generic error
+                showNotification(`❌ ${data.message || 'Failed to start trial'}`, 'error');
+            }
+        }
+        
+    } catch (error) {
+        console.error('Trial start error:', error);
+        
+        // Network or unexpected error
+        if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+            showNotification('❌ Network error. Please check your connection and try again.', 'error');
+        } else {
+            showNotification('❌ Something went wrong. Please try again or contact support.', 'error');
+        }
+    }
 }
 </script>
+
+<!-- Race Coach Trial -->
+<div class="trial-prompt-banner trial-race" style="display: none;">
+    <div class="trial-content">
+        <div class="trial-text">
+            <h3>🏆 Try Race Coach Free for 14 Days!</h3>
+            <p>Get everything in Basic Coach PLUS personalized race plans, advanced analytics, and race day strategies — no credit card required.</p>
+        </div>
+        <div class="trial-features">
+            <div class="trial-feature">✓ Everything in Basic</div>
+            <div class="trial-feature">✓ Race training plans</div>
+            <div class="trial-feature">✓ Advanced analytics</div>
+            <div class="trial-feature">✓ Pace optimization</div>
+        </div>
+        <button class="btn-start-trial" onclick="startTrial('race')">
+            Start Race Coach Trial
+        </button>
+    </div>
+</div>
+
+<style> /* Trial Banners Container */ .trial-banners-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; } /* Trial Banner Styles */ .trial-prompt-banner { border-radius: 16px; padding: 30px; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3); color: white; } .trial-basic { background: linear-gradient(135deg, #10b981 0%, #059669 100%); } .trial-race { background: linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%); border: 3px solid #fbbf24; position: relative; } .trial-race::before { content: '⭐ MOST POPULAR'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #fbbf24; color: #78350f; padding: 6px 20px; border-radius: 20px; font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4); } .trial-content { display: flex; flex-direction: column; gap: 20px; } .trial-text h3 { font-size: 22px; margin-bottom: 12px; } .trial-text p { font-size: 15px; opacity: 0.95; line-height: 1.5; } .trial-features { display: flex; flex-wrap: wrap; gap: 10px; } .trial-feature { background: rgba(255, 255, 255, 0.2); padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; } .btn-start-trial { padding: 14px 28px; background: white; border: none; border-radius: 12px; font-weight: 700; font-size: 16px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); align-self: flex-start; } .trial-basic .btn-start-trial { color: #059669; } .trial-race .btn-start-trial { color: #6d28d9; } .btn-start-trial:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); } /* Responsive */ @media (max-width: 768px) { .trial-banners-container { grid-template-columns: 1fr; gap: 20px; } .trial-race { order: -1; /* Show race coach first on mobile */ } .trial-text h3 { font-size: 20px; } .trial-text p { font-size: 14px; } } </style>
+
 
 
     <div id="verification-banner" style="display: none; background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); color: #92400E; padding: 20px; text-align: center; border-bottom: 3px solid #F59E0B; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; right: 0; z-index: 9999;">
@@ -855,115 +1001,34 @@ async function startTrial(planType) {
 
     // ==================== OAUTH LOGIN NOTIFICATION ====================
     
-    function showNotification(message, type = 'info') {
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `notification notification-${type}`;
-        notification.innerHTML = `
-            <span>${message}</span>
-            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
-        `;
-        
-        // Add styles if not already defined
-        if (!document.getElementById('notification-styles')) {
-            const style = document.createElement('style');
-            style.id = 'notification-styles';
-            style.textContent = `
-                .notification {
-                    position: fixed;
-                    top: 100px;
-                    right: 20px;
-                    padding: 15px 20px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    z-index: 10000;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    min-width: 300px;
-                    animation: slideIn 0.3s ease-out;
-                }
-                
-                .notification-success {
-                    background: #10B981;
-                    color: white;
-                }
-                
-                .notification-error {
-                    background: #EF4444;
-                    color: white;
-                }
-                
-                .notification-info {
-                    background: #3B82F6;
-                    color: white;
-                }
-                
-                @keyframes slideIn {
-                    from {
-                        transform: translateX(400px);
-                        opacity: 0;
-                    }
-                    to {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
-                }
-                
-                @keyframes slideOut {
-                    from {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
-                    to {
-                        transform: translateX(400px);
-                        opacity: 0;
-                    }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-        
-        // Add to page
-        document.body.appendChild(notification);
-        
-        // Auto-remove after 4 seconds
-        setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease-out';
-            setTimeout(() => notification.remove(), 300);
-        }, 4000);
-    }
+// Enhanced usage examples
+function showSuccess(message) {
+    return showNotification(message, 'success');
+}
 
-    // ==================== PAGE INITIALIZATION ====================
-    
-    // Single DOMContentLoaded listener that handles everything
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 Dashboard Free - Initializing...');
-        
-        // 1. Check OAuth login status and show notification
-        const urlParams = new URLSearchParams(window.location.search);
-        const loginMethod = urlParams.get('login');
-        
-        if (loginMethod === 'google') {
-            showNotification('✅ Successfully logged in with Google!', 'success');
-        } else if (loginMethod === 'facebook') {
-            showNotification('✅ Successfully logged in with Facebook!', 'success');
-        }
-        
-        // Clean URL (remove ?login=google from address bar)
-        if (loginMethod) {
-            window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        
-        // 2. Check Strava connection status
-        checkStravaConnection();
-        
-        console.log('✅ Dashboard Free - Initialized');
+function showError(message) {
+    return showNotification(message, 'error');
+}
+
+function showInfo(message) {
+    return showNotification(message, 'info');
+}
+
+function showWarning(message) {
+    return showNotification(message, 'warning');
+}
+
+// Dismiss all notifications
+function dismissAllNotifications() {
+    const notifications = document.querySelectorAll('.notification');
+    notifications.forEach(notif => {
+        notif.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => notif.remove(), 300);
     });
+}
+    // ==================== PAGE INITIALIZATION ====================
+   
 </script>
-
-
-
        <!-- PROMO CODE & PLANS SECTION -->
 <!-- PROMO CODE & PLANS SECTION -->
 <section id="plans-section" class="plans-upgrade-section">
@@ -1190,15 +1255,15 @@ async function startTrial(planType) {
     const parts = token.split('.');
     if (parts.length !== 3) {
         console.error('❌ Token structure invalid');
-        console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
+        //console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
         localStorage.clear();
         window.location.href = '/login?error=token_invalid';
         throw new Error('Invalid token structure');
     }
     
     console.log('✅ Token validation passed');
-    console.log('   Length:', token.length);
-    console.log('   Preview:', token.substring(0, 30) + '...');
+    //console.log('   Length:', token.length);
+    //console.log('   Preview:', token.substring(0, 30) + '...');
 })();
 
 </script>
@@ -1299,62 +1364,65 @@ async function startTrial(planType) {
         // ==================== PAGE INITIALIZATION ====================
         
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Dashboard Free - Initializing...');
-            
-            // 1. Check verification status
-            if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
-                checkVerificationStatus();
-            }
-            
-            if (window.location.search.includes('verify=required')) {
-                checkVerificationStatus();
-            }
-            
-            // 2. Check OAuth login status
-            const urlParams = new URLSearchParams(window.location.search);
-            const loginMethod = urlParams.get('login');
-            
-            if (loginMethod === 'google') {
-                showNotification('✅ Successfully logged in with Google!', 'success');
-            } else if (loginMethod === 'facebook') {
-                showNotification('✅ Successfully logged in with Facebook!', 'success');
-            }
-            
-            // Check payment success
-            const paymentStatus = urlParams.get('payment');
-            if (paymentStatus === 'success') {
-                showNotification('✅ Payment successful! Your subscription is now active.', 'success');
-                // Redirect to appropriate dashboard after 2 seconds
-                setTimeout(() => {
-                    window.location.href = '/dashboard';
-                }, 2000);
-            }
-            
-            // Clean URL
-            if (loginMethod || paymentStatus) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-            
-            // 3. Check Strava connection
-            checkStravaConnection();
-            
-            // 4. Show weather widget
-            if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
-                window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
-            }
-            
-            // 5. Highlight recommended plan if any
-            const recommendedPlan = sessionStorage.getItem('recommendedPlan');
-            if (recommendedPlan) {
-                const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
-                if (planCard) {
-                    planCard.style.animation = 'pulse 2s ease-in-out 3';
-                }
-                sessionStorage.removeItem('recommendedPlan');
-            }
-            
-            console.log('✅ Dashboard Free - Initialized');
-        });
+    console.log('🚀 Dashboard Free - Initializing...');
+    
+    // 1. Check verification status
+    if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
+        checkVerificationStatus();
+    }
+    
+    if (window.location.search.includes('verify=required')) {
+        checkVerificationStatus();
+    }
+    
+    // 2. Check OAuth login status and show notification
+    const urlParams = new URLSearchParams(window.location.search);
+    const loginMethod = urlParams.get('login');
+    
+    if (loginMethod === 'google') {
+        showNotification('Successfully logged in with Google!', 'success');
+    } else if (loginMethod === 'facebook') {
+        showNotification('Successfully logged in with Facebook!', 'success');
+    }
+    
+    // 3. Check payment success
+    const paymentStatus = urlParams.get('payment');
+    if (paymentStatus === 'success') {
+        showNotification('Payment successful! Your subscription is now active.', 'success');
+        // Redirect to appropriate dashboard after 2 seconds
+        setTimeout(() => {
+            window.location.href = '/dashboard';
+        }, 2000);
+    }
+    
+    // Clean URL parameters
+    if (loginMethod || paymentStatus) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
+    // 4. Check Strava connection status
+    checkStravaConnection();
+    
+    // 5. Check trial eligibility and show/hide banners (NEW)
+    checkTrialEligibility();
+    
+    // 6. Show weather widget
+    if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
+        window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
+    }
+    
+    // 7. Highlight recommended plan if any
+    const recommendedPlan = sessionStorage.getItem('recommendedPlan');
+    if (recommendedPlan) {
+        const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
+        if (planCard) {
+            planCard.style.animation = 'pulse 2s ease-in-out 3';
+        }
+        sessionStorage.removeItem('recommendedPlan');
+    }
+    
+    console.log('✅ Dashboard Free - Initialized');
+});
         
         // ==================== STRAVA CONNECTION ====================
         
@@ -1395,71 +1463,6 @@ async function startTrial(planType) {
             }
         }
         
-        // ==================== NOTIFICATION SYSTEM ====================
-        
-        function showNotification(message, type = 'info') {
-            const notification = document.createElement('div');
-            notification.className = `notification notification-${type}`;
-            notification.innerHTML = `
-                <span>${message}</span>
-                <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
-            `;
-            
-            if (!document.getElementById('notification-styles')) {
-                const style = document.createElement('style');
-                style.id = 'notification-styles';
-                style.textContent = `
-                    .notification {
-                        position: fixed;
-                        top: 100px;
-                        right: 20px;
-                        padding: 15px 20px;
-                        border-radius: 10px;
-                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                        z-index: 10000;
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        min-width: 300px;
-                        animation: slideIn 0.3s ease-out;
-                    }
-                    
-                    .notification-success {
-                        background: #10B981;
-                        color: white;
-                    }
-                    
-                    .notification-error {
-                        background: #EF4444;
-                        color: white;
-                    }
-                    
-                    .notification-info {
-                        background: #3B82F6;
-                        color: white;
-                    }
-                    
-                    @keyframes slideIn {
-                        from {
-                            transform: translateX(400px);
-                            opacity: 0;
-                        }
-                        to {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
-            
-            document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.style.animation = 'slideOut 0.3s ease-out';
-                setTimeout(() => notification.remove(), 300);
-            }, 4000);
-        }
     </script>
 
     <style>
@@ -1604,61 +1607,333 @@ async function startTrial(planType) {
 
     // ==================== NOTIFICATION SYSTEM ====================
     
-    function showNotification(message, type = 'info') {
-        const notification = document.createElement('div');
-        notification.className = `notification notification-${type}`;
-        notification.innerHTML = `
-            <span>${message}</span>
-            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; margin-left: 10px;">&times;</button>
-        `;
-        
-        if (!document.getElementById('notification-styles')) {
-            const style = document.createElement('style');
-            style.id = 'notification-styles';
-            style.textContent = `
+   function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    
+    // Add icon based on type
+    const icons = {
+        success: '✓',
+        error: '✕',
+        info: 'ℹ',
+        warning: '⚠'
+    };
+    
+    notification.innerHTML = `
+        <div class="notification-icon">${icons[type] || icons.info}</div>
+        <span class="notification-message">${message}</span>
+        <button class="notification-close" onclick="this.parentElement.remove()" title="Dismiss">
+            ×
+        </button>
+    `;
+    
+    // Add styles if not already defined
+    if (!document.getElementById('notification-styles')) {
+        const style = document.createElement('style');
+        style.id = 'notification-styles';
+        style.textContent = `
+            .notification {
+                position: fixed;
+                top: 100px;
+                right: 20px;
+                padding: 16px 20px;
+                border-radius: 12px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                min-width: 320px;
+                max-width: 480px;
+                animation: slideIn 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+                backdrop-filter: blur(10px);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+            
+            .notification-success {
+                background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            
+            .notification-error {
+                background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            
+            .notification-info {
+                background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            
+            .notification-warning {
+                background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            
+            .notification-icon {
+                width: 24px;
+                height: 24px;
+                background: rgba(255, 255, 255, 0.3);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                font-size: 16px;
+                flex-shrink: 0;
+            }
+            
+            .notification-message {
+                flex: 1;
+                font-size: 15px;
+                line-height: 1.4;
+                font-weight: 500;
+            }
+            
+            .notification-close {
+                background: rgba(255, 255, 255, 0.2);
+                border: none;
+                color: white;
+                font-size: 24px;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+                flex-shrink: 0;
+                line-height: 1;
+                padding: 0;
+            }
+            
+            .notification-close:hover {
+                background: rgba(255, 255, 255, 0.4);
+                transform: scale(1.1);
+            }
+            
+            /* Stack multiple notifications */
+            .notification:nth-child(n+2) {
+                top: calc(100px + (80px * (var(--notification-index, 1) - 1)));
+            }
+            
+            /* Animations */
+            @keyframes slideIn {
+                from {
+                    transform: translateX(450px) scale(0.9);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0) scale(1);
+                    opacity: 1;
+                }
+            }
+            
+            @keyframes slideOut {
+                from {
+                    transform: translateX(0) scale(1);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(450px) scale(0.9);
+                    opacity: 0;
+                }
+            }
+            
+            /* Mobile responsive */
+            @media (max-width: 640px) {
                 .notification {
-                    position: fixed;
-                    top: 100px;
+                    left: 20px;
                     right: 20px;
-                    padding: 15px 20px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    z-index: 10000;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    min-width: 300px;
-                    animation: slideIn 0.3s ease-out;
+                    min-width: unset;
+                    max-width: unset;
+                    top: 80px !important;
                 }
                 
-                .notification-success { background: #10B981; color: white; }
-                .notification-error { background: #EF4444; color: white; }
-                .notification-info { background: #3B82F6; color: white; }
+                .notification:nth-child(n+2) {
+                    top: calc(80px + (75px * (var(--notification-index, 1) - 1))) !important;
+                }
                 
                 @keyframes slideIn {
-                    from { transform: translateX(400px); opacity: 0; }
-                    to { transform: translateX(0); opacity: 1; }
+                    from {
+                        transform: translateY(-100px) scale(0.95);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateY(0) scale(1);
+                        opacity: 1;
+                    }
                 }
                 
                 @keyframes slideOut {
-                    from { transform: translateX(0); opacity: 1; }
-                    to { transform: translateX(400px); opacity: 0; }
+                    from {
+                        transform: translateY(0) scale(1);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateY(-100px) scale(0.95);
+                        opacity: 0;
+                    }
                 }
-            `;
-            document.head.appendChild(style);
-        }
-        
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
+            }
+            
+            /* Progress bar for auto-dismiss */
+            .notification::before {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                height: 3px;
+                background: rgba(255, 255, 255, 0.5);
+                animation: progressBar 4s linear;
+                border-radius: 0 0 12px 12px;
+            }
+            
+            @keyframes progressBar {
+                from { width: 100%; }
+                to { width: 0%; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Update stacking position for multiple notifications
+    const notifications = document.querySelectorAll('.notification');
+    notifications.forEach((notif, index) => {
+        notif.style.setProperty('--notification-index', index + 1);
+    });
+    
+    // Add click to dismiss
+    notification.addEventListener('click', (e) => {
+        if (!e.target.closest('.notification-close')) {
             notification.style.animation = 'slideOut 0.3s ease-out';
             setTimeout(() => notification.remove(), 300);
-        }, 4000);
-    }
-
-    // ==================== PAGE INITIALIZATION ====================
+        }
+    });
     
-    document.addEventListener('DOMContentLoaded', function() {
+    // Auto-remove after 4 seconds
+    const autoRemoveTimeout = setTimeout(() => {
+        if (document.body.contains(notification)) {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }
+    }, 4000);
+    
+    // Clear timeout if manually dismissed
+    notification.addEventListener('click', () => {
+        clearTimeout(autoRemoveTimeout);
+    });
+    
+    return notification; // Return reference for manual control if needed
+}
+
+async function checkTrialEligibility() {
+    try {
+        const token = localStorage.getItem('userToken');
+        
+        if (!token) {
+            console.warn('⚠️ No user token - hiding all trial banners');
+            hideElement('.trial-basic');
+            hideElement('.trial-race');
+            return;
+        }
+        
+        const response = await fetch('/api/subscription/trial-eligibility', {
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            console.error('❌ Trial eligibility API error:', response.status);
+            hideElement('.trial-basic');
+            hideElement('.trial-race');
+            return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.error('❌ Trial eligibility failed:', data.message);
+            hideElement('.trial-basic');
+            hideElement('.trial-race');
+            return;
+        }
+        
+        console.log('Trial eligibility data:', data);
+        
+        const basicBanner = document.querySelector('.trial-basic');
+        const raceBanner = document.querySelector('.trial-race');
+        
+        // ✅ HANDLE BASIC COACH TRIAL
+        if (basicBanner) {
+            if (data.eligibility.basic.eligible) {
+                basicBanner.style.display = 'block';  // ✅ SHOW if eligible
+                console.log('✅ Basic trial available');
+            } else {
+                basicBanner.style.display = 'none';   // ❌ HIDE if not eligible
+                console.log('❌ Basic trial not eligible:', data.eligibility.basic.reason);
+            }
+        }
+        
+        // ✅ HANDLE RACE COACH TRIAL
+        if (raceBanner) {
+            if (data.eligibility.race.eligible) {
+                raceBanner.style.display = 'block';   // ✅ SHOW if eligible
+                console.log('✅ Race trial available');
+            } else {
+                raceBanner.style.display = 'none';    // ❌ HIDE if not eligible
+                console.log('❌ Race trial not eligible:', data.eligibility.race.reason);
+            }
+        }
+        
+        // ✅ IF NO TRIALS AVAILABLE, SHOW DIRECT PURCHASE
+        if (!data.canTryAnyPlan) {
+            console.log('ℹ️ No trials available - showing purchase options');
+            scrollToPlans();  // Scroll user to paid plans section
+        }
+        
+    } catch (error) {
+        console.error('❌ Trial eligibility check error:', error);
+        // On error, hide trial banners as safe fallback
+        hideElement('.trial-basic');
+        hideElement('.trial-race');
+    }
+}
+
+function hideElement(selector) {
+    const element = document.querySelector(selector);
+    if (element) {
+        element.style.display = 'none';
+    }
+}
+
+function showElement(selector) {
+    const element = document.querySelector(selector);
+    if (element) {
+        element.style.display = 'block';
+    }
+}
+
+function scrollToPlans() {
+    const plansSection = document.getElementById('plans-section');
+    if (plansSection) {
+        plansSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+// ==================== PAGE INITIALIZATION ====================
+    
+    document.addEventListener('DOMContentLoaded', async function() {
         console.log('🚀 Dashboard Free - Initializing...');
         
         // 1. Check verification status
@@ -1693,6 +1968,9 @@ async function startTrial(planType) {
         if (loginMethod || paymentStatus) {
             window.history.replaceState({}, document.title, window.location.pathname);
         }
+
+        // 3.5 ✅ NEW: Check trial eligibility
+        await checkTrialEligibility();
         
         // 4. Check Strava connection
         checkStravaConnection();
@@ -1722,6 +2000,7 @@ async function startTrial(planType) {
         50% { transform: scale(1.02); }
     }
 </style>
+
 
 </body>
 </html>

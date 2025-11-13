@@ -355,8 +355,97 @@
     <!-- Dashboard Widgets Initialization -->
     <script>
         window.dashboardWidgets = new DashboardWidgets();
+
+        async function checkRaceTrialEligibility() {
+    try {
+        const token = localStorage.getItem('userToken');
+        if (!token) {
+        console.warn('⚠️ No authentication token found');
+        // Hide trial banner, show upgrade by default
+        hideElement('.trial-prompt-banner-race');
+        showElement('.upgrade-prompt-banner');
+        return;
+    }
+        const response = await fetch('/api/subscription/trial-eligibility?planType=race', {
+            headers: { 'Authorization': `Bearer ${token}`,'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+        console.error('❌ Eligibility API error:', response.status, response.statusText);
+        // Default to upgrade banner on error
+        hideElement('.trial-prompt-banner-race');
+        showElement('.upgrade-prompt-banner');
+        return;
+    }
         
-        document.addEventListener('DOMContentLoaded', function() {
+        const data = await response.json();
+        
+        if (!data.success) {
+        console.error('❌ Eligibility check failed:', data.message);
+        hideElement('.trial-prompt-banner-race');
+        showElement('.upgrade-prompt-banner');
+        return;
+    }
+    
+    // Get elements
+    const trialBanner = document.querySelector('.trial-prompt-banner-race');
+    const upgradeBanner = document.querySelector('.upgrade-prompt-banner');
+    
+    // ✅ HANDLE ELIGIBLE CASE (Trial Available)
+    if (data.eligible) {
+        console.log('✅ User is eligible for Race Coach trial!');
+        
+        if (trialBanner) {
+            trialBanner.style.display = 'block';
+            console.log('📢 Showing Race Coach trial banner');
+        }
+        
+        if (upgradeBanner) {
+            upgradeBanner.style.display = 'none';
+        }
+    } 
+    // ❌ HANDLE NOT ELIGIBLE CASE
+    else {
+        console.log('❌ Race trial not eligible:', data.reason);
+        
+        if (trialBanner) {
+            trialBanner.style.display = 'none';
+        }
+        
+        // Show upgrade banner with reason
+        if (upgradeBanner) {
+            upgradeBanner.style.display = 'block';
+            
+            // Update banner message based on reason (optional but nice UX)
+            const bannerMessage = upgradeBanner.querySelector('.upgrade-message');
+            if (bannerMessage && data.reason) {
+                if (data.reason.includes('already used')) {
+                    bannerMessage.textContent = 'You\'ve already tried Race Coach. Upgrade now to continue!';
+                } else if (data.reason.includes('Already subscribed')) {
+                    bannerMessage.textContent = 'You\'re already enjoying Race Coach features!';
+                }
+            }
+        }
+    }
+    
+    // Log full data for debugging
+    console.log('Trial eligibility data:', {
+        eligible: data.eligible,
+        reason: data.reason,
+        currentPlan: data.currentPlan,
+        subscriptionStatus: data.subscriptionStatus
+    });
+    
+} catch (error) {
+    console.error('❌ Race trial eligibility check error:', error);
+    
+    // Safe fallback: hide trial, show upgrade
+    hideElement('.trial-prompt-banner-race');
+    showElement('.upgrade-prompt-banner');
+    }
+}
+        
+        document.addEventListener('DOMContentLoaded', async function() {
             console.log('Loading Basic Coach dashboard widgets...');
             
             const urlParams = new URLSearchParams(window.location.search);
@@ -371,6 +460,9 @@
             if (loginMethod) {
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
+
+            // ✅ CHECK RACE COACH TRIAL ELIGIBILITY (NEW)
+            await checkRaceTrialEligibility();
             
             window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
             window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
@@ -380,26 +472,166 @@
             window.dashboardWidgets.renderPersonalRecords('personal-records-container');
             window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
         });
+
+        async function startRaceCoachTrial() {
+            const confirmed = confirm(
+                '🎉 Start Race Coach Free Trial?\n\n' +
+                '✓ All Basic Coach features\n' +
+                '✓ Personalized race training plans\n' +
+                '✓ Advanced performance analytics\n' +
+                '✓ Pace optimization\n' +
+                '✓ Race day strategies\n\n' +
+                '📅 14 days FREE\n' +
+                '💳 No credit card required\n' +
+                '🔄 Cancel anytime\n\n' +
+                'After trial: ₹399/month\n\n' +
+                'Ready to start your free trial?'
+            );
+            
+            if (!confirmed) return;
+            
+            try {
+                showNotification('🚀 Starting your Race Coach trial...', 'info');
+                
+                const token = localStorage.getItem('userToken');
+                const response = await fetch('/api/subscription/start-trial', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ planType: 'race' })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification('✅ Trial started! Welcome to Race Coach!', 'success');
+                    
+                    localStorage.setItem('currentPlan', 'race');
+                    localStorage.setItem('subscriptionStatus', 'trial');
+                    
+                    setTimeout(() => {
+                        window.location.href = '/dashboard-race?trial=started';
+                    }, 2000);
+                } else {
+                    if (data.trialAlreadyUsed) {
+                        showNotification('❌ You have already used your Race Coach trial.', 'error');
+                        setTimeout(() => {
+                            if (typeof handleUpgrade === 'function') {
+                                handleUpgrade();
+                            } else {
+                                window.location.href = '/plans';
+                            }
+                        }, 2000);
+                    } else if (data.needsUpgrade) {
+                        showNotification('ℹ️ Please upgrade to Race Coach instead of starting a trial.', 'info');
+                        setTimeout(() => {
+                            if (typeof handleUpgrade === 'function') {
+                                handleUpgrade();
+                            } else {
+                                window.location.href = '/plans';
+                            }
+                        }, 2000);
+                    } else {
+                        showNotification('❌ ' + data.message, 'error');
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Trial start error:', error);
+                showNotification('❌ Failed to start trial. Please try again.', 'error');
+            }
+        }
+        
+        // ✅ 4. HELPER FUNCTIONS
+        function hideElement(selector) {
+            const element = document.querySelector(selector);
+            if (element) element.style.display = 'none';
+        }
+        
+        function showElement(selector) {
+            const element = document.querySelector(selector);
+            if (element) element.style.display = 'block';
+        }
         
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 16px 24px;
-                background: ${type === 'success' ? '#10B981' : type === 'error' ? '#EF4444' : '#3B82F6'};
-                color: white;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                z-index: 10001;
-                font-weight: 600;
-            `;
-            notification.textContent = message;
-            document.body.appendChild(notification);
-            
-            setTimeout(() => notification.remove(), 4000);
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 16px 24px;
+    background: ${type === 'success' ? '#10B981' : type === 'error' ? '#EF4444' : type === 'warning' ? '#F59E0B' : '#3B82F6'};
+    color: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 10001;
+    font-weight: 600;
+    font-size: 15px;
+    max-width: 400px;
+    word-wrap: break-word;
+    animation: slideInRight 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all 0.3s ease;
+`;
+
+// Add icon based on type
+const icons = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+};
+
+const icon = icons[type] || icons.info;
+notification.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 18px;">${icon}</span>
+        <span>${message}</span>
+    </div>
+`;
+
+// Add to DOM
+document.body.appendChild(notification);
+
+// Add hover effect (pause auto-dismiss)
+let dismissTimer;
+
+const startDismissTimer = () => {
+    dismissTimer = setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s cubic-bezier(0.55, 0.09, 0.68, 0.53)';
+        notification.style.opacity = '0';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 300);
+    }, 4000);
+};
+
+notification.addEventListener('mouseenter', () => {
+    clearTimeout(dismissTimer);
+    notification.style.transform = 'translateX(-5px)';
+});
+
+notification.addEventListener('mouseleave', () => {
+    notification.style.transform = 'translateX(0)';
+    startDismissTimer();
+});
+
+// Start auto-dismiss
+startDismissTimer();
+
+// Allow manual close on click
+notification.addEventListener('click', () => {
+    clearTimeout(dismissTimer);
+    notification.style.animation = 'slideOutRight 0.2s ease-out';
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
         }
+    }, 200);
+});}
     </script>
 
     <!-- ✅ UPGRADE PAYMENT FUNCTION -->

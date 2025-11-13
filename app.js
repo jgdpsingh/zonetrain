@@ -1878,9 +1878,6 @@ app.get('/callback', async (req, res) => {
 });
 
 
-// View activities (existing)
-
-
 
 // Make sure your analyze-zones route looks like this:
 app.get('/analyze-zones', authenticateToken, async (req, res) => {
@@ -5605,6 +5602,8 @@ const PaymentReminderService = require('./services/paymentReminderService');
 
 const razorpayService = require('./services/razorpayService');
 const subscriptionService = new SubscriptionService(db);
+
+subscriptionService.initializeScheduledTasks();
 const reminderService = new PaymentReminderService(db, subscriptionService);
 
 // Start payment reminder scheduler
@@ -6968,100 +6967,210 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
         if (!validPlans.includes(planType)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid plan type'
+                message: 'Invalid plan type. Must be "basic" or "race".'
             });
         }
 
-        // Check if user already has trial/subscription
+        // Get user data
         const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
         const user = userDoc.data();
 
-        if (user.currentPlan && user.currentPlan !== 'free') {
+        // Check if user has an ACTIVE subscription (paid or trial)
+        if (user.subscriptionStatus === 'active' || user.subscriptionStatus === 'trial') {
+            // If they have an active subscription to the SAME plan
+            if (user.currentPlan === planType) {
+                return res.status(400).json({
+                    success: false,
+                    message: `You already have an active ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'} subscription.`,
+                    alreadyActive: true
+                });
+            }
+            
+            // If they have Basic and want Race, allow upgrade but not trial
+            if (user.currentPlan === 'basic' && planType === 'race') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'You have an active Basic Coach subscription. Please upgrade to Race Coach instead of starting a trial.',
+                    needsUpgrade: true
+                });
+            }
+        }
+
+        // Check if trial was already used for THIS specific plan
+        const trialUsed = user.trialUsed || {};
+        if (trialUsed[planType]) {
             return res.status(400).json({
                 success: false,
-                message: 'User already has an active subscription'
+                message: `You have already used your free trial for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}. Please subscribe to continue.`,
+                trialAlreadyUsed: true
             });
         }
 
-        // NEW: Check if trial was already used
-        if (user.trialUsed) {
-            return res.status(400).json({
-                success: false,
-                message: 'Trial already used. Please subscribe to continue.'
-            });
-        }
-
+        // Calculate trial dates
+        const trialStartDate = new Date();
         const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 14); // CHANGED: 14-day trial
+        trialEndDate.setDate(trialEndDate.getDate() + 14); // 14-day trial
 
+        // Update user with trial status
         await db.collection('users').doc(userId).update({
             currentPlan: planType,
             subscriptionStatus: 'trial',
-            trialStartDate: new Date(),
+            trialStartDate: trialStartDate,
             trialEndDate: trialEndDate,
-            trialUsed: true, // NEW: Mark trial as used
+            [`trialUsed.${planType}`]: true, // ✅ Mark THIS plan's trial as used
             updatedAt: new Date()
         });
 
-        // Track trial start
+        // Track trial start in transactions
         await db.collection('transactions').add({
             userId,
             type: 'trial_start',
             plan: planType,
+            trialStartDate: trialStartDate,
             trialEndDate: trialEndDate,
             status: 'active',
             createdAt: new Date()
         });
 
-        console.log('✅ Trial started:', { userId, planType, endDate: trialEndDate });
+        // Schedule trial expiry reminder (optional but recommended)
+        const reminderDate = new Date(trialEndDate);
+        reminderDate.setDate(reminderDate.getDate() - 3); // Remind 3 days before expiry
+        
+        await db.collection('scheduled_notifications').add({
+            userId,
+            type: 'trial_expiring',
+            plan: planType,
+            scheduledFor: reminderDate,
+            message: `Your ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'} trial expires in 3 days!`,
+            status: 'pending',
+            createdAt: new Date()
+        });
+
+        console.log('✅ Trial started:', { 
+            userId, 
+            planType, 
+            startDate: trialStartDate,
+            endDate: trialEndDate 
+        });
 
         res.json({
             success: true,
             message: 'Trial started successfully',
-            trialEndDate: trialEndDate
+            trial: {
+                plan: planType,
+                startDate: trialStartDate.toISOString(),
+                endDate: trialEndDate.toISOString(),
+                daysRemaining: 14
+            }
         });
+        
     } catch (error) {
         console.error('❌ Trial start error:', error);
         res.status(500).json({
             success: false,
-            message: error.message
+            message: 'Failed to start trial: ' + error.message
         });
     }
 });
 
 // Check if user is eligible for trial
 app.get('/api/subscription/trial-eligibility', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    const userDoc = await db.collection('users').doc(userId).get();
-    const user = userDoc.data();
-    
-    const isEligible = (
-      (!user.trialUsed || user.trialUsed === false) && 
-      (user.currentPlan === 'free' || !user.currentPlan) &&
-      user.subscriptionStatus !== 'active'
-    );
-    
-    res.json({
-      success: true,
-      eligible: isEligible,
-      reason: isEligible ? null : (
-        user.trialUsed ? 'Trial already used' : 
-        user.subscriptionStatus === 'active' ? 'Already subscribed' : 
-        'Unknown'
-      ),
-      currentPlan: user.currentPlan || 'free',
-      subscriptionStatus: user.subscriptionStatus || 'free'
-    });
-    
-  } catch (error) {
-    console.error('Trial eligibility check error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
+    try {
+        const userId = req.user.userId;
+        const { planType } = req.query; // Accept plan type as query parameter
+        
+        // Validate plan type
+        if (planType && !['basic', 'race'].includes(planType)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid plan type. Must be "basic" or "race".'
+            });
+        }
+        
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        const user = userDoc.data();
+        const trialUsed = user.trialUsed || {};
+        const currentPlan = user.currentPlan || 'free';
+        const subscriptionStatus = user.subscriptionStatus || 'free';
+        
+        // If specific plan requested, check that plan
+        if (planType) {
+            const isEligible = (
+                !trialUsed[planType] && // Trial not used for this plan
+                subscriptionStatus !== 'active' && // No active subscription
+                currentPlan !== planType // Not currently on this plan
+            );
+            
+            let reason = null;
+            if (!isEligible) {
+                if (trialUsed[planType]) {
+                    reason = `Trial already used for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
+                } else if (subscriptionStatus === 'active' && currentPlan === planType) {
+                    reason = `Already subscribed to ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
+                } else if (subscriptionStatus === 'trial' && currentPlan === planType) {
+                    reason = `Trial already active for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
+                } else {
+                    reason = 'Unknown reason';
+                }
+            }
+            
+            return res.json({
+                success: true,
+                planType: planType,
+                eligible: isEligible,
+                reason: reason,
+                currentPlan: currentPlan,
+                subscriptionStatus: subscriptionStatus,
+                trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate : null
+            });
+        }
+        
+        // If no plan specified, return eligibility for ALL plans
+        const eligibility = {
+            basic: {
+                eligible: !trialUsed.basic && subscriptionStatus !== 'active',
+                trialUsed: trialUsed.basic || false,
+                reason: trialUsed.basic ? 'Trial already used for Basic Coach' : null
+            },
+            race: {
+                eligible: !trialUsed.race && subscriptionStatus !== 'active',
+                trialUsed: trialUsed.race || false,
+                reason: trialUsed.race ? 'Trial already used for Race Coach' : null
+            }
+        };
+        
+        res.json({
+            success: true,
+            currentPlan: currentPlan,
+            subscriptionStatus: subscriptionStatus,
+            trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate : null,
+            eligibility: eligibility,
+            canTryAnyPlan: eligibility.basic.eligible || eligibility.race.eligible
+        });
+        
+    } catch (error) {
+        console.error('Trial eligibility check error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 });
 
 
@@ -8705,35 +8814,6 @@ async function checkUserFeature(user, feature) {
     return allowedTiers.includes(userTier);
 }
 
-
-// Add this route to your app.js - it's missing!
-
-
-// Add this DEBUG route to your app.js - TEMPORARY for debugging
-app.get('/debug/user-tokens', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        //console.log('Debug: Looking up user:', userId);
-        
-        const user = await userManager.getUserById(userId);
-        //console.log('Debug: User data:', {            id: user?.id,email: user?.email,hasStravaAccessToken: !!user?.stravaAccessToken,hasStravaRefreshToken: !!user?.stravaRefreshToken,stravaConnectedAt: user?.stravaConnectedAt});
-        
-        res.json({
-            userId: userId,
-            userExists: !!user,
-            hasStravaAccessToken: !!user?.stravaAccessToken,
-            hasStravaRefreshToken: !!user?.stravaRefreshToken,
-            stravaConnectedAt: user?.stravaConnectedAt,
-            rawTokens: {
-                accessToken: user?.stravaAccessToken?.substring(0, 10) + '...',
-                refreshToken: user?.stravaRefreshToken?.substring(0, 10) + '...'
-            }
-        });
-    } catch (error) {
-        console.error('Debug error:', error);
-        res.json({ error: error.message });
-    }
-});
 
 // Add this NEW route to your app.js - handles token via URL parameter
 // REPLACE your existing /run-analysis route with this enhanced version
