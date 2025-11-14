@@ -598,7 +598,133 @@
   .trial-content { flex-direction: column; text-align: center; }
   .trial-features { justify-content: center; }
 }
+
+.strava-connection-card {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    
+    .card-header h3 {
+        color: #1f2937;
+        font-size: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .strava-status {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        background: #f9fafb;
+        border-radius: 12px;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+    
+    .strava-info {
+        flex: 1;
+        min-width: 200px;
+    }
+    
+    .strava-info h4 {
+        color: #1f2937;
+        margin-bottom: 8px;
+        font-size: 16px;
+    }
+    
+    .strava-info p {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 4px 0;
+    }
+    
+    .strava-connected {
+        background: #dcfce7 !important;
+        border-left: 4px solid #16a34a;
+    }
+    
+    .btn-disconnect-strava {
+        padding: 10px 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        white-space: nowrap;
+    }
+    
+    .btn-disconnect-strava:hover {
+        background: #dc2626;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    }
+    
+    @media (max-width: 768px) {
+        .strava-status {
+            flex-direction: column;
+            text-align: center;
+        }
+        
+        .btn-disconnect-strava {
+            width: 100%;
+        }
+    }
 </style>
+
+<script>
+// CRITICAL: Authentication Check - MUST BE AT THE TOP
+// UPDATED: Authentication Check - handles both localStorage and cookie
+(function() {
+    console.log('🔍 Dashboard: Checking authentication on page load...');
+    
+    let token = localStorage.getItem('userToken');
+    
+    // ✅ If no token in localStorage, check if we have a cookie (OAuth flow)
+    if (!token || token === 'null' || token === 'undefined') {
+        console.log('⚠️ No token in localStorage');
+        
+        // Check if we have a cookie by trying to make an authenticated request
+        // The server will verify the cookie
+        console.log('🍪 Checking for cookie-based authentication...');
+        
+        // Give the page a moment to load cookie-based auth
+        // If we're here from OAuth, the cookie exists but localStorage doesn't yet
+        setTimeout(() => {
+            const tokenCheck = localStorage.getItem('userToken');
+            if (!tokenCheck || tokenCheck === 'null') {
+                console.error('❌ No valid authentication found after delay');
+                localStorage.clear();
+                window.location.href = '/login?error=no_token';
+            } else {
+                console.log('✅ Token found after delay, continuing...');
+            }
+        }, 2000); // Give 2 seconds for cookie auth to populate localStorage
+        
+        // Don't throw error immediately - let cookie auth work
+        return;
+    }
+    
+    // ✅ Token exists in localStorage - validate it
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+        console.error('❌ Token structure invalid');
+        //console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
+        localStorage.clear();
+        window.location.href = '/login?error=token_invalid';
+        throw new Error('Invalid token structure');
+    }
+    
+    console.log('✅ Token validation passed');
+    //console.log('   Length:', token.length);
+    //console.log('   Preview:', token.substring(0, 30) + '...');
+})();
+
+</script>
 
 <script>
 async function startTrial(planType) {
@@ -797,6 +923,16 @@ async function startTrial(planType) {
             <p style="color: #6b7280; font-size: 15px;">Connect your Strava account to get started with basic training insights.</p>
         </div>
 
+        <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
+        <div class="card-header">
+            <h3>🚴 Strava Connection</h3>
+        </div>
+        
+        <div class="strava-status" id="strava-status-display">
+            <!-- Populated by JavaScript -->
+        </div>
+    </div>
+
         <!-- Add this section after the welcome message in dashboard-free.html -->
 
 <div class="strava-connect-section">
@@ -819,6 +955,16 @@ async function startTrial(planType) {
 
         <div id="strava-status" class="strava-status" style="display: none;"></div>
     </div>
+
+    <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
+    <div class="card-header">
+        <h3>🚴 Strava Connection</h3>
+    </div>
+    
+    <div class="strava-status" id="strava-status">
+        <!-- Populated by JavaScript -->
+    </div>
+</div>
 </div>
 
 <style>
@@ -939,6 +1085,76 @@ async function startTrial(planType) {
     color: #10b981;
 }
 
+.strava-connection-card {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    
+    .strava-status {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        background: #f9fafb;
+        border-radius: 12px;
+        gap: 20px;
+    }
+    
+    .strava-info {
+        flex: 1;
+    }
+    
+    .strava-info h4 {
+        color: #1f2937;
+        margin-bottom: 8px;
+    }
+    
+    .strava-info p {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 4px 0;
+    }
+    
+    .strava-connected {
+        background: #dcfce7 !important;
+        border-left: 4px solid #16a34a;
+    }
+    
+    .btn-disconnect-strava {
+        padding: 10px 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-disconnect-strava:hover {
+        background: #dc2626;
+        transform: translateY(-2px);
+    }
+    
+    .btn-connect-strava {
+        padding: 10px 20px;
+        background: #fc5200;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-connect-strava:hover {
+        background: #e04700;
+        transform: translateY(-2px);
+    }
+
 /* Responsive */
 @media (max-width: 768px) {
     .cycle-toggle {
@@ -971,32 +1187,6 @@ async function startTrial(planType) {
 
         // Redirect to Strava OAuth
         window.location.href = '/auth/strava';
-    }
-
-    // Check if Strava is already connected
-    async function checkStravaConnection() {
-        const token = localStorage.getItem('userToken');
-        
-        try {
-            const response = await fetch('/api/strava/status', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-
-            if (data.connected) {
-                const statusDiv = document.getElementById('strava-status');
-                statusDiv.style.display = 'block';
-                statusDiv.className = 'strava-status success';
-                statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
-                
-                document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
-            }
-        } catch (error) {
-            console.error('Failed to check Strava status:', error);
-        }
     }
 
     // ==================== OAUTH LOGIN NOTIFICATION ====================
@@ -1218,55 +1408,133 @@ function dismissAllNotifications() {
     <script src="/components/nav-header.js"></script>
     <script src="/components/dashboard-widgets.js"></script>
 
-    <script>
-// CRITICAL: Authentication Check - MUST BE AT THE TOP
-// UPDATED: Authentication Check - handles both localStorage and cookie
-(function() {
-    console.log('🔍 Dashboard: Checking authentication on page load...');
+ <script>
+    // ==================== STRAVA CONNECTION STATUS ====================
     
-    let token = localStorage.getItem('userToken');
-    
-    // ✅ If no token in localStorage, check if we have a cookie (OAuth flow)
-    if (!token || token === 'null' || token === 'undefined') {
-        console.log('⚠️ No token in localStorage');
-        
-        // Check if we have a cookie by trying to make an authenticated request
-        // The server will verify the cookie
-        console.log('🍪 Checking for cookie-based authentication...');
-        
-        // Give the page a moment to load cookie-based auth
-        // If we're here from OAuth, the cookie exists but localStorage doesn't yet
-        setTimeout(() => {
-            const tokenCheck = localStorage.getItem('userToken');
-            if (!tokenCheck || tokenCheck === 'null') {
-                console.error('❌ No valid authentication found after delay');
-                localStorage.clear();
-                window.location.href = '/login?error=no_token';
-            } else {
-                console.log('✅ Token found after delay, continuing...');
+    async function loadStravaStatus() {
+        try {
+            const token = localStorage.getItem('userToken');
+            
+            if (!token) {
+                console.log('No token, skipping Strava status check');
+                return;
             }
-        }, 2000); // Give 2 seconds for cookie auth to populate localStorage
+            
+            const response = await fetch('/api/strava/connection-status', {
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.error('Strava status API error:', response.status);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.connected) {
+                // Show connection card
+                const card = document.getElementById('strava-connection-card');
+                const statusDiv = document.getElementById('strava-status-display');
+                
+                if (card && statusDiv) {
+                    card.style.display = 'block';
+                    statusDiv.className = 'strava-status strava-connected';
+                    
+                    // Format last sync date
+                    let lastSyncText = 'Never';
+                    if (data.lastSync) {
+                        const lastSync = new Date(data.lastSync);
+                        lastSyncText = lastSync.toLocaleString('en-IN', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short'
+                        });
+                    }
+                    
+                    statusDiv.innerHTML = `
+                        <div class="strava-info">
+                            <h4>✅ Connected to Strava</h4>
+                            <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
+                            <p><strong>Last Sync:</strong> ${lastSyncText}</p>
+                        </div>
+                        <button class="btn-disconnect-strava" onclick="disconnectStrava()">
+                            Disconnect
+                        </button>
+                    `;
+                }
+            } else {
+                // Hide card if not connected
+                const card = document.getElementById('strava-connection-card');
+                if (card) {
+                    card.style.display = 'none';
+                }
+            }
+            
+        } catch (error) {
+            console.error('Load Strava status error:', error);
+        }
+    }
+    
+    // ==================== DISCONNECT STRAVA ====================
+    
+    async function disconnectStrava() {
+        const confirmed = confirm(
+            '🔓 Disconnect from Strava?\n\n' +
+            'This will:\n' +
+            '• Remove automatic activity sync\n' +
+            '• Revoke Strava access to ZoneTrain\n\n' +
+            'Your existing workout history can be kept or deleted.\n\n' +
+            'Continue?'
+        );
         
-        // Don't throw error immediately - let cookie auth work
-        return;
+        if (!confirmed) return;
+        
+        const deleteActivities = confirm(
+            'Delete existing Strava activities?\n\n' +
+            'Click OK to delete all synced activities\n' +
+            'Click Cancel to keep existing activity history'
+        );
+        
+        try {
+            showNotification('🔓 Disconnecting Strava...', 'info');
+            
+            const token = localStorage.getItem('userToken');
+            const response = await fetch('/api/strava/disconnect', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ deleteActivities })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showNotification('✅ Strava disconnected successfully', 'success');
+                
+                // Hide connection card
+                const card = document.getElementById('strava-connection-card');
+                if (card) {
+                    card.style.display = 'none';
+                }
+                
+                // Reload page after delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                showNotification('❌ ' + data.message, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Disconnect error:', error);
+            showNotification('❌ Failed to disconnect Strava', 'error');
+        }
     }
-    
-    // ✅ Token exists in localStorage - validate it
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-        console.error('❌ Token structure invalid');
-        //console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
-        localStorage.clear();
-        window.location.href = '/login?error=token_invalid';
-        throw new Error('Invalid token structure');
-    }
-    
-    console.log('✅ Token validation passed');
-    //console.log('   Length:', token.length);
-    //console.log('   Preview:', token.substring(0, 30) + '...');
-})();
-
-</script>
+</script>   
 
     <script>
         // ==================== VERIFICATION BANNER ====================
@@ -1361,107 +1629,7 @@ function dismissAllNotifications() {
             purchaseSubscription(plan, billingCycle, promoCode);
         }
 
-        // ==================== PAGE INITIALIZATION ====================
-        
-        document.addEventListener('DOMContentLoaded', function() {
-    console.log('🚀 Dashboard Free - Initializing...');
-    
-    // 1. Check verification status
-    if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
-        checkVerificationStatus();
-    }
-    
-    if (window.location.search.includes('verify=required')) {
-        checkVerificationStatus();
-    }
-    
-    // 2. Check OAuth login status and show notification
-    const urlParams = new URLSearchParams(window.location.search);
-    const loginMethod = urlParams.get('login');
-    
-    if (loginMethod === 'google') {
-        showNotification('Successfully logged in with Google!', 'success');
-    } else if (loginMethod === 'facebook') {
-        showNotification('Successfully logged in with Facebook!', 'success');
-    }
-    
-    // 3. Check payment success
-    const paymentStatus = urlParams.get('payment');
-    if (paymentStatus === 'success') {
-        showNotification('Payment successful! Your subscription is now active.', 'success');
-        // Redirect to appropriate dashboard after 2 seconds
-        setTimeout(() => {
-            window.location.href = '/dashboard';
-        }, 2000);
-    }
-    
-    // Clean URL parameters
-    if (loginMethod || paymentStatus) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
-    
-    // 4. Check Strava connection status
-    checkStravaConnection();
-    
-    // 5. Check trial eligibility and show/hide banners (NEW)
-    checkTrialEligibility();
-    
-    // 6. Show weather widget
-    if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
-        window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
-    }
-    
-    // 7. Highlight recommended plan if any
-    const recommendedPlan = sessionStorage.getItem('recommendedPlan');
-    if (recommendedPlan) {
-        const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
-        if (planCard) {
-            planCard.style.animation = 'pulse 2s ease-in-out 3';
-        }
-        sessionStorage.removeItem('recommendedPlan');
-    }
-    
-    console.log('✅ Dashboard Free - Initialized');
-});
-        
         // ==================== STRAVA CONNECTION ====================
-        
-        function connectStrava() {
-            const token = localStorage.getItem('userToken');
-            
-            if (!token) {
-                alert('Please log in first');
-                window.location.href = '/login';
-                return;
-            }
-
-            window.location.href = '/auth/strava';
-        }
-
-        async function checkStravaConnection() {
-            const token = localStorage.getItem('userToken');
-            
-            try {
-                const response = await fetch('/api/strava/status', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                const data = await response.json();
-
-                if (data.connected) {
-                    const statusDiv = document.getElementById('strava-status');
-                    statusDiv.style.display = 'block';
-                    statusDiv.className = 'strava-status success';
-                    statusDiv.innerHTML = `✓ Connected as ${data.athleteName || 'Strava Athlete'}`;
-                    
-                    document.getElementById('connect-strava-btn').textContent = 'Reconnect Strava';
-                }
-            } catch (error) {
-                console.error('Failed to check Strava status:', error);
-            }
-        }
         
     </script>
 
@@ -1483,104 +1651,8 @@ function dismissAllNotifications() {
         }
     </style>
     <script>
-    // ==================== VERIFICATION BANNER ====================
-    
-    async function checkVerificationStatus() {
-        try {
-            const token = getCookie('userToken');
-            if (!token) return;
-
-            const response = await fetch('/api/auth/email-verification-status', {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (data.authProvider === 'email' && !data.emailVerified) {
-                document.getElementById('verification-banner').style.display = 'block';
-                document.body.style.paddingTop = '160px';
-            }
-        } catch (error) {
-            console.error('Check verification error:', error);
-        }
-    }
-
-    async function resendVerification() {
-        try {
-            const token = getCookie('userToken');
-            
-            const response = await fetch('/api/auth/resend-verification', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                alert('✅ ' + data.message);
-            } else {
-                alert('❌ ' + data.message);
-            }
-        } catch (error) {
-            console.error('Resend error:', error);
-            alert('❌ Failed to resend verification email. Please try again.');
-        }
-    }
-
-    function dismissBanner() {
-        document.getElementById('verification-banner').style.display = 'none';
-        document.body.style.paddingTop = '90px';
-        sessionStorage.setItem('verificationBannerDismissed', 'true');
-    }
-
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return null;
-    }
-
-    // ==================== PLAN SELECTION (PAYMENT) ====================
-    
-    // ✅ KEEP THIS ONE - Uses payment.js
-    function selectPlan(plan) {
-        const userToken = localStorage.getItem('userToken');
-        
-        if (!userToken) {
-            alert('Please log in to subscribe');
-            window.location.href = '/login?redirect=plans';
-            return;
-        }
-        
-        const promoCode = sessionStorage.getItem('promoCode') || null;
-        const billingCycle = sessionStorage.getItem('selectedBilling') || 'monthly';
-        
-        console.log('🛒 Initiating purchase:', { plan, billingCycle, promoCode });
-        
-        // Use payment.js function (already loaded in <head>)
-        purchaseSubscription(plan, billingCycle, promoCode);
-    }
-
     // ==================== STRAVA CONNECTION ====================
-    
-    function connectStrava() {
-        const token = localStorage.getItem('userToken');
-        
-        if (!token) {
-            alert('Please log in first');
-            window.location.href = '/login';
-            return;
-        }
 
-        window.location.href = '/auth/strava';
-    }
 
     async function checkStravaConnection() {
         const token = localStorage.getItem('userToken');
@@ -1934,8 +2006,9 @@ function scrollToPlans() {
 // ==================== PAGE INITIALIZATION ====================
     
     document.addEventListener('DOMContentLoaded', async function() {
-        console.log('🚀 Dashboard Free - Initializing...');
-        
+    console.log('🚀 Dashboard Free - Initializing...');
+    
+    try {
         // 1. Check verification status
         if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
             checkVerificationStatus();
@@ -1945,7 +2018,7 @@ function scrollToPlans() {
             checkVerificationStatus();
         }
         
-        // 2. Check OAuth login status
+        // 2. Handle OAuth login
         const urlParams = new URLSearchParams(window.location.search);
         const loginMethod = urlParams.get('login');
         
@@ -1955,32 +2028,36 @@ function scrollToPlans() {
             showNotification('✅ Successfully logged in with Facebook!', 'success');
         }
         
-        // 3. Check payment success
+        // 3. Handle payment success
         const paymentStatus = urlParams.get('payment');
         if (paymentStatus === 'success') {
             showNotification('✅ Payment successful! Your subscription is now active.', 'success');
             setTimeout(() => {
                 window.location.href = '/dashboard';
             }, 2000);
+            return; // Exit early if redirecting
         }
         
         // Clean URL
         if (loginMethod || paymentStatus) {
             window.history.replaceState({}, document.title, window.location.pathname);
         }
-
-        // 3.5 ✅ NEW: Check trial eligibility
+        
+        // 4. ✅ Check trial eligibility FIRST (with await)
         await checkTrialEligibility();
         
-        // 4. Check Strava connection
+        // 5. Check Strava connection (after trial banners ready)
         checkStravaConnection();
         
-        // 5. Show weather widget
-        if (window.dashboardWidgets && window.dashboardWidgets.renderWeatherWidget) {
+        // 6. Load Strava connection status (NEW from account deletion feature)
+        await loadStravaStatus();
+        
+        // 7. Show weather widget
+        if (window.dashboardWidgets?.renderWeatherWidget) {
             window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
         }
         
-        // 6. Highlight recommended plan
+        // 8. Highlight recommended plan
         const recommendedPlan = sessionStorage.getItem('recommendedPlan');
         if (recommendedPlan) {
             const planCard = document.querySelector(`.plan-card${recommendedPlan === 'race' ? '.featured' : ':not(.featured)'}`);
@@ -1991,7 +2068,13 @@ function scrollToPlans() {
         }
         
         console.log('✅ Dashboard Free - Initialized');
-    });
+        
+    } catch (error) {
+        console.error('❌ Dashboard initialization error:', error);
+        showNotification('⚠️ Some features may not be available', 'error');
+    }
+});
+
 </script>
 
 <style>

@@ -120,6 +120,76 @@
             gap: 24px;
             margin-bottom: 24px;
         }
+
+        .strava-connection-card {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    
+    .strava-status {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        background: #f9fafb;
+        border-radius: 12px;
+        gap: 20px;
+    }
+    
+    .strava-info {
+        flex: 1;
+    }
+    
+    .strava-info h4 {
+        color: #1f2937;
+        margin-bottom: 8px;
+    }
+    
+    .strava-info p {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 4px 0;
+    }
+    
+    .strava-connected {
+        background: #dcfce7 !important;
+        border-left: 4px solid #16a34a;
+    }
+    
+    .btn-disconnect-strava {
+        padding: 10px 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-disconnect-strava:hover {
+        background: #dc2626;
+        transform: translateY(-2px);
+    }
+    
+    .btn-connect-strava {
+        padding: 10px 20px;
+        background: #fc5200;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-connect-strava:hover {
+        background: #e04700;
+        transform: translateY(-2px);
+    }
         
         @media (max-width: 768px) {
             .dashboard-header {
@@ -204,7 +274,17 @@
         <div style="margin-top: 24px;">
             <div id="weekly-plan-container"></div>
         </div>
+
+        <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
+    <div class="card-header">
+        <h3>🚴 Strava Connection</h3>
     </div>
+    
+    <div class="strava-status" id="strava-status">
+        <!-- Populated by JavaScript -->
+    </div>
+</div>
+    
 
     <!-- Navigation Header -->
     <script src="/components/nav-header.js"></script>
@@ -444,6 +524,122 @@
     showElement('.upgrade-prompt-banner');
     }
 }
+
+async function loadStravaStatus() {
+        try {
+            const token = localStorage.getItem('userToken');
+            
+            if (!token) {
+                console.warn('No token found for Strava status check');
+                return;
+            }
+            
+            const response = await fetch('/api/strava/connection-status', {
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.error('Strava status API error:', response.status);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                const card = document.getElementById('strava-connection-card');
+                const statusDiv = document.getElementById('strava-status');
+                
+                if (data.connected) {
+                    const lastSyncDate = data.lastSync ? 
+                        new Date(data.lastSync._seconds * 1000).toLocaleString('en-IN', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short'
+                        }) : 'Never';
+                    
+                    statusDiv.className = 'strava-status strava-connected';
+                    statusDiv.innerHTML = `
+                        <div class="strava-info">
+                            <h4>✅ Connected to Strava</h4>
+                            <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
+                            <p><strong>Last Sync:</strong> ${lastSyncDate}</p>
+                            <p style="color: #16a34a; font-size: 13px; margin-top: 8px;">
+                                ✓ Your activities are automatically syncing
+                            </p>
+                        </div>
+                        <button class="btn-disconnect-strava" onclick="disconnectStrava()">
+                            Disconnect Strava
+                        </button>
+                    `;
+                    card.style.display = 'block';
+                    console.log('✅ Strava connected:', data.athleteName);
+                } else {
+                    card.style.display = 'none';
+                    console.log('ℹ️ Strava not connected');
+                }
+            }
+            
+        } catch (error) {
+            console.error('Load Strava status error:', error);
+        }
+    }
+
+    async function disconnectStrava() {
+        const confirmed = confirm(
+            '🔓 Disconnect from Strava?\n\n' +
+            'This will:\n' +
+            '• Stop automatic activity sync\n' +
+            '• Revoke Strava access to ZoneTrain\n' +
+            '• Remove your Strava connection\n\n' +
+            'Your existing workout history can be kept or deleted.\n\n' +
+            'Continue?'
+        );
+        
+        if (!confirmed) return;
+        
+        const deleteActivities = confirm(
+            '🗑️ Delete existing Strava activities?\n\n' +
+            '• Click OK to delete all synced Strava activities\n' +
+            '• Click Cancel to keep existing activity history\n\n' +
+            'Recommended: Keep history unless you want a fresh start'
+        );
+        
+        try {
+            showNotification('🔓 Disconnecting Strava...', 'info');
+            
+            const token = localStorage.getItem('userToken');
+            const response = await fetch('/api/strava/disconnect', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ deleteActivities })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                let message = '✅ Strava disconnected successfully';
+                if (data.activitiesDeleted) {
+                    message += '\n🗑️ Your Strava activities have been deleted';
+                } else {
+                    message += '\n💾 Your activity history has been preserved';
+                }
+                
+                showNotification(message, 'success');
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                showNotification('❌ ' + data.message, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Disconnect error:', error);
+            showNotification('❌ Failed to disconnect Strava. Please try again.', 'error');
+        }
+    }
         
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('Loading Basic Coach dashboard widgets...');
@@ -663,6 +859,8 @@ notification.addEventListener('click', () => {
                 }
             }
         }
+
+
     </script>
 
 </body>

@@ -421,6 +421,71 @@ body {
     #post-race-banner p {
         font-size: 14px;
     }
+
+    .strava-connection-card {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    
+    .strava-status {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        background: #f9fafb;
+        border-radius: 12px;
+        gap: 20px;
+    }
+    
+    .strava-info {
+        flex: 1;
+    }
+    
+    .strava-info h4 {
+        color: #1f2937;
+        margin-bottom: 8px;
+    }
+    
+    .strava-info p {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 4px 0;
+    }
+    
+    .strava-connected {
+        background: #dcfce7 !important;
+        border-left: 4px solid #16a34a;
+    }
+    
+    .btn-disconnect-strava {
+        padding: 10px 20px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-disconnect-strava:hover {
+        background: #dc2626;
+        transform: translateY(-2px);
+    }
+    
+    @media (max-width: 768px) {
+        .strava-status {
+            flex-direction: column;
+            text-align: center;
+        }
+        
+        .btn-disconnect-strava {
+            width: 100%;
+        }
+    }
 }
 
     </style>
@@ -450,6 +515,16 @@ body {
                 </div>
                 <span class="plan-badge">RACE COACH PRO</span>
             </div>
+
+            <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
+            <div class="card-header">
+                <h3>🚴 Strava Connection</h3>
+            </div>
+            
+            <div class="strava-status" id="strava-status">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
 
             <div class="stats-grid">
                 <div class="stat-card">
@@ -1093,62 +1168,137 @@ body {
 
     // Load subscription details from API
     async function loadSubscriptionDetails() {
-        const token = localStorage.getItem('userToken');
-        
-        try {
-            const response = await fetch('/api/user/access-status', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+    const token = localStorage.getItem('userToken');
+    if (!token) return;
 
-            if (!response.ok) throw new Error('Failed to load subscription');
+    try {
+        const response = await fetch('/api/user/access-status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
 
-            const data = await response.json();
-            const user = data.user;
-
-            // Update UI with subscription info
-            if (user.subscriptionEndDate) {
-                const endDate = new Date(user.subscriptionEndDate);
-                document.getElementById('next-billing-date').textContent = 
-                    endDate.toLocaleDateString('en-IN', { 
-                        day: 'numeric', 
-                        month: 'short', 
-                        year: 'numeric' 
-                    });
-
-                // Calculate days remaining
-                const today = new Date();
-                const daysRemaining = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-                
-                // Show warning if less than 7 days
-                if (daysRemaining <= 7 && daysRemaining > 0) {
-                    document.getElementById('next-billing-date').style.color = '#f59e0b';
-                    document.getElementById('next-billing-date').textContent += ` (${daysRemaining} days)`;
-                } else if (daysRemaining <= 0) {
-                    document.getElementById('sub-status').textContent = 'Expired';
-                    document.getElementById('sub-status').style.color = '#ef4444';
-                }
-            }
-
-            if (user.billingCycle) {
-                const cycle = user.billingCycle.charAt(0).toUpperCase() + user.billingCycle.slice(1);
-                document.getElementById('billing-cycle').textContent = cycle;
-            }
-
-            if (user.lastPaymentAmount) {
-                document.getElementById('billing-amount').textContent = `₹${user.lastPaymentAmount}`;
-            }
-
-            if (user.subscriptionStatus) {
-                const status = user.subscriptionStatus.charAt(0).toUpperCase() + user.subscriptionStatus.slice(1);
-                document.getElementById('sub-status').textContent = status;
-            }
-
-        } catch (error) {
-            console.error('Failed to load subscription:', error);
-            document.getElementById('next-billing-date').textContent = 'N/A';
+        if (!response.ok) {
+            throw new Error('Failed to load subscription');
         }
-    }
 
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.message || 'Failed to load subscription');
+        }
+
+        const user = data.user || {};
+
+        // DOM refs
+        const statusEl        = document.getElementById('sub-status');
+        const nextBillingEl   = document.getElementById('next-billing-date');
+        const billingCycleEl  = document.getElementById('billing-cycle');
+        const amountEl        = document.getElementById('billing-amount');
+        const manageBtn       = document.querySelector('.btn-manage');
+        const downgradeBtn    = document.querySelector('.btn-downgrade, .btn-action');
+
+        // Helper to safely convert Firestore Timestamp / ISO string
+        const toJsDate = (value) => {
+            if (!value) return null;
+            if (value.toDate) return value.toDate();          // Firestore Timestamp
+            if (value.seconds) return new Date(value.seconds * 1000); // {seconds, nanoseconds}
+            return new Date(value);                           // ISO string or ms
+        };
+
+        const isTrial  = user.subscriptionStatus === 'trial';
+        const plan     = user.currentPlan || 'free';
+
+        // 🔹 TRIAL STATE (what you want for Race trial)
+        if (isTrial && plan === 'race') {
+            console.log('Race trial detected in dashboard:', user);
+
+            // Status
+            if (statusEl) {
+                statusEl.textContent = 'Trial';
+                statusEl.style.color = '#3b82f6';
+            }
+
+            // Show trial end date instead of billing
+            const trialEnd = toJsDate(user.trialEndDate);
+            if (nextBillingEl) {
+                nextBillingEl.textContent = trialEnd
+                    ? trialEnd.toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                      })
+                    : 'Trial in progress';
+            }
+
+            // Billing cycle + amount for trial
+            if (billingCycleEl) {
+                billingCycleEl.textContent = 'Trial (no billing)';
+            }
+            if (amountEl) {
+                amountEl.textContent = '₹0';
+            }
+
+            // Buttons – hide downgrade, turn "Manage" into upgrade CTA
+            if (downgradeBtn) {
+                downgradeBtn.style.display = 'none';
+            }
+            if (manageBtn) {
+                manageBtn.textContent = 'Upgrade to paid plan';
+                manageBtn.href = '/subscription';   // or '/plans' if you prefer
+            }
+
+            // Done – do NOT run paid logic below
+            return;
+        }
+
+        // 🔹 NON‑TRIAL / PAID / FREE – existing behaviour
+
+        // Status
+        if (user.subscriptionStatus && statusEl) {
+            const status =
+                user.subscriptionStatus.charAt(0).toUpperCase() +
+                user.subscriptionStatus.slice(1);
+            statusEl.textContent = status;
+            statusEl.style.color =
+                user.subscriptionStatus === 'active' ? '#10b981' :
+                user.subscriptionStatus === 'cancelled' ? '#ef4444' :
+                user.subscriptionStatus === 'expired' ? '#ef4444' :
+                '#6b7280';
+        }
+
+        // Subscription end date → "Next Billing" / days left (only if backend sends it)
+        if (user.subscriptionEndDate && nextBillingEl) {
+            const endDate = toJsDate(user.subscriptionEndDate);
+            if (endDate && !Number.isNaN(endDate.getTime())) {
+                nextBillingEl.textContent = endDate.toLocaleDateString(
+                    'en-IN',
+                    { day: 'numeric', month: 'short', year: 'numeric' }
+                );
+            } else {
+                nextBillingEl.textContent = 'N/A';
+            }
+        } else if (nextBillingEl && !isTrial) {
+            // For free users with no end date
+            nextBillingEl.textContent = 'N/A';
+        }
+
+        // Billing cycle
+        if (user.billingCycle && billingCycleEl) {
+            const cycle =
+                user.billingCycle.charAt(0).toUpperCase() +
+                user.billingCycle.slice(1);
+            billingCycleEl.textContent = cycle;
+        }
+
+        // Amount (from last payment)
+        if (typeof user.lastPaymentAmount === 'number' && amountEl) {
+            amountEl.textContent = `₹${user.lastPaymentAmount}`;
+        }
+
+    } catch (error) {
+        console.error('Failed to load subscription in Race dashboard:', error);
+        const nextBillingEl = document.getElementById('next-billing-date');
+        if (nextBillingEl) nextBillingEl.textContent = 'N/A';
+    }
+}
     // Downgrade confirmation
     // REPLACE the existing confirmDowngrade function with this
 async function handleDowngrade() {
@@ -1294,6 +1444,103 @@ document.addEventListener('DOMContentLoaded', () => {
     loadPlanHistory();
 });
 </script>
+
+<script>
+        // Load Strava connection status on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            await loadStravaStatus();
+            
+            // Your existing DOMContentLoaded code...
+        });
+        
+        async function loadStravaStatus() {
+            try {
+                const token = localStorage.getItem('userToken');
+                const response = await fetch('/api/strava/connection-status', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const card = document.getElementById('strava-connection-card');
+                    const statusDiv = document.getElementById('strava-status');
+                    
+                    if (data.connected) {
+                        // Show connected state
+                        statusDiv.className = 'strava-status strava-connected';
+                        statusDiv.innerHTML = `
+                            <div class="strava-info">
+                                <h4>✅ Connected to Strava</h4>
+                                <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
+                                <p><strong>Last Sync:</strong> ${data.lastSync ? new Date(data.lastSync.toDate()).toLocaleString() : 'Never'}</p>
+                            </div>
+                            <button class="btn-disconnect-strava" onclick="disconnectStrava()">
+                                Disconnect
+                            </button>
+                        `;
+                        card.style.display = 'block';
+                    } else {
+                        // Hide card if not connected
+                        card.style.display = 'none';
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Load Strava status error:', error);
+            }
+        }
+        
+        async function disconnectStrava() {
+            const confirmed = confirm(
+                '🔓 Disconnect from Strava?\n\n' +
+                'This will:\n' +
+                '-  Remove automatic activity sync\n' +
+                '-  Revoke Strava access to ZoneTrain\n\n' +
+                'Your existing workout history can be kept or deleted.\n\n' +
+                'Continue?'
+            );
+            
+            if (!confirmed) return;
+            
+            const deleteActivities = confirm(
+                'Delete existing Strava activities?\n\n' +
+                'Click OK to delete all synced activities\n' +
+                'Click Cancel to keep existing activity history'
+            );
+            
+            try {
+                showNotification('🔓 Disconnecting Strava...', 'info');
+                
+                const token = localStorage.getItem('userToken');
+                const response = await fetch('/api/strava/disconnect', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ deleteActivities })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showNotification('✅ Strava disconnected successfully', 'success');
+                    
+                    // Reload page to update UI
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showNotification('❌ ' + data.message, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Disconnect error:', error);
+                showNotification('❌ Failed to disconnect Strava', 'error');
+            }
+        }
+    </script>
 
 
 </body>

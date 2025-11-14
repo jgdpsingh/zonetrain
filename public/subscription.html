@@ -36,16 +36,16 @@
             await loadSubscription();
         });
 
+        // ============= LOAD SUBSCRIPTION =============
+
         async function loadSubscription() {
             try {
-                const token = localStorage.getItem('userToken');
-                
-                // Use the getSubscriptionDetails from payment.js
-                const subscription = await window.getSubscriptionDetails();
-                
-                if (subscription) {
-                    currentSubscription = subscription;
-                    displaySubscription(subscription);
+                // Uses getSubscriptionDetails() from payment.js
+                const sub = await window.getSubscriptionDetails();
+
+                if (sub) {
+                    currentSubscription = sub;
+                    renderSubscriptionCard(sub);
                 } else {
                     throw new Error('Failed to load subscription');
                 }
@@ -58,29 +58,37 @@
             }
         }
 
-        function displaySubscription(sub) {
+        // ============= RENDER CARD (TRIAL-AWARE) =============
+
+        function renderSubscriptionCard(sub) {
             const content = document.getElementById('subscription-content');
-            
-            // Determine plan details
+
+            // Detect trial state (supports multiple backends)
+            const isTrial =
+                sub.status === 'trial' ||
+                sub.isTrial === true ||
+                sub.isTrialActive === true;
+
+            // Plan details
             let planClass = 'plan-free';
             let planName = 'Free Plan';
-            let planPrice = 0;
-            
+
             if (sub.plan === 'basic') {
                 planClass = 'plan-basic';
                 planName = 'Basic Coach';
-                planPrice = 199;
             } else if (sub.plan === 'race') {
                 planClass = 'plan-race';
                 planName = 'Race Coach';
-                planPrice = 399;
             }
 
             // Status display
             let statusColor = '#6b7280';
             let statusText = sub.status || 'free';
-            
-            if (sub.status === 'active') {
+
+            if (isTrial) {
+                statusColor = '#3b82f6';
+                statusText = 'Trial';
+            } else if (sub.status === 'active') {
                 statusColor = '#10b981';
                 statusText = 'Active';
             } else if (sub.status === 'cancelled') {
@@ -91,17 +99,67 @@
                 statusText = 'Past Due';
             }
 
-            // Renewal countdown
+            // Price label
+            let priceHTML = '';
+            if (!isTrial && sub.plan !== 'free' && sub.price) {
+                priceHTML = `
+                    <div class="info-item">
+                        <div class="info-label">Price</div>
+                        <div class="info-value">₹${sub.price}/month</div>
+                    </div>
+                `;
+            } else if (isTrial && sub.plan !== 'free') {
+                priceHTML = `
+                    <div class="info-item">
+                        <div class="info-label">Price</div>
+                        <div class="info-value">₹0 during trial</div>
+                    </div>
+                `;
+            }
+
+            // Next billing / trial end
+            let nextBillingHTML = '';
+            if (!isTrial && sub.plan !== 'free' && sub.nextBilling) {
+                const renewal = new Date(sub.nextBilling);
+                nextBillingHTML = `
+                    <div class="info-item">
+                        <div class="info-label">Next Billing</div>
+                        <div class="info-value" style="font-size: 14px;">
+                            ${renewal.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                        </div>
+                    </div>
+                `;
+            } else if (isTrial) {
+                const trialEnd =
+                    sub.trialEnd ||
+                    sub.trialEndDate ||
+                    sub.nextBilling || // fallback if backend reused nextBilling as trial end
+                    null;
+
+                if (trialEnd) {
+                    const endDate = new Date(trialEnd);
+                    nextBillingHTML = `
+                        <div class="info-item">
+                            <div class="info-label">Trial Ends</div>
+                            <div class="info-value" style="font-size: 14px;">
+                                ${endDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // Renewal / countdown box – only for paid, non‑trial
             let renewalHTML = '';
-            if (sub.plan !== 'free' && sub.nextBilling) {
+            if (!isTrial && sub.plan !== 'free' && sub.nextBilling) {
                 const now = new Date();
                 const renewal = new Date(sub.nextBilling);
                 const daysRemaining = Math.ceil((renewal - now) / (1000 * 60 * 60 * 24));
-                
+
                 let colorClass = 'renewal-green';
                 let textClass = 'green-text';
                 let statusLabel = 'All Good';
-                
+
                 if (daysRemaining <= 3) {
                     colorClass = 'renewal-red';
                     textClass = 'red-text';
@@ -122,6 +180,33 @@
                         </div>
                     </div>
                 `;
+            } else if (isTrial) {
+                const trialEnd =
+                    sub.trialEnd ||
+                    sub.trialEndDate ||
+                    sub.nextBilling ||
+                    null;
+
+                if (trialEnd) {
+                    const end = new Date(trialEnd);
+                    const now = new Date();
+                    const daysLeft = Math.max(
+                        0,
+                        Math.ceil((end - now) / (1000 * 60 * 60 * 24))
+                    );
+
+                    renewalHTML = `
+                        <div class="renewal-status renewal-yellow">
+                            <div class="info-label">Trial in progress</div>
+                            <div class="renewal-days yellow-text">${daysLeft}</div>
+                            <div style="font-weight: 600; font-size: 18px;">Days Left in Trial</div>
+                            <div style="margin-top: 10px; color: #6b7280; font-size: 14px;">
+                                Trial ends on ${end.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}.<br>
+                                You will not be charged automatically unless you upgrade.
+                            </div>
+                        </div>
+                    `;
+                }
             }
 
             // Features list based on plan
@@ -162,13 +247,25 @@
                 </div>
             `).join('');
 
-            // Action buttons based on plan and status
+            // Action buttons based on plan / status / trial
             let actionHTML = '';
-            
+
             if (sub.plan === 'free') {
                 actionHTML = `
                     <button class="btn-upgrade" onclick="upgradeFromFree()">
                         🚀 Upgrade to Premium
+                    </button>
+                `;
+            } else if (isTrial) {
+                // Trial: only allow upgrade, no cancel/downgrade
+                const targetPlanName =
+                    sub.plan === 'race' ? 'Race Coach' :
+                    sub.plan === 'basic' ? 'Basic Coach' :
+                    'premium';
+
+                actionHTML = `
+                    <button class="btn-upgrade" onclick="goToPlansForUpgrade()">
+                        🔓 Unlock full ${targetPlanName}
                     </button>
                 `;
             } else if (sub.plan === 'basic') {
@@ -182,7 +279,7 @@
                 `;
             } else if (sub.plan === 'race') {
                 actionHTML = `
-                    <button class="btn-cancel" onclick="downgradeToBasic()" 
+                    <button class="btn-cancel" onclick="downgradeToBasic()"
                             style="background: white; color: #3b82f6; border-color: #3b82f6; margin-bottom: 10px;">
                         ⬇️ Downgrade to Basic Coach
                     </button>
@@ -194,7 +291,7 @@
 
             // Cancelled subscription notice
             let cancelledNotice = '';
-            if (sub.status === 'cancelled' && sub.accessUntil) {
+            if (!isTrial && sub.status === 'cancelled' && sub.accessUntil) {
                 const accessDate = new Date(sub.accessUntil);
                 cancelledNotice = `
                     <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
@@ -212,8 +309,8 @@
 
             content.innerHTML = `
                 ${cancelledNotice}
-                
-                <div class="plan-badge ${planClass}">${planName}</div>
+
+                <div class="plan-badge ${planClass}">${planName}${isTrial ? ' – Trial' : ''}</div>
 
                 <div class="info-grid">
                     <div class="info-item">
@@ -222,20 +319,8 @@
                             ${statusText}
                         </div>
                     </div>
-                    ${sub.price ? `
-                    <div class="info-item">
-                        <div class="info-label">Price</div>
-                        <div class="info-value">₹${sub.price}/month</div>
-                    </div>
-                    ` : ''}
-                    ${sub.nextBilling ? `
-                    <div class="info-item">
-                        <div class="info-label">Next Billing</div>
-                        <div class="info-value" style="font-size: 14px;">
-                            ${new Date(sub.nextBilling).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
-                        </div>
-                    </div>
-                    ` : ''}
+                    ${priceHTML}
+                    ${nextBillingHTML}
                 </div>
 
                 ${renewalHTML}
@@ -245,7 +330,7 @@
                     ${featuresHTML}
                 </div>
 
-                ${sub.status !== 'cancelled' ? actionHTML : ''}
+                ${(!isTrial && sub.status !== 'cancelled') ? actionHTML : (isTrial ? actionHTML : '')}
             `;
         }
 
@@ -255,9 +340,12 @@
             window.location.href = '/plans';
         }
 
+        function goToPlansForUpgrade() {
+            window.location.href = '/plans';
+        }
+
         async function upgradeToRace() {
             try {
-                // Show confirmation
                 const confirmed = confirm(
                     'Upgrade to Race Coach?\n\n' +
                     'Benefits:\n' +
@@ -271,9 +359,7 @@
 
                 if (!confirmed) return;
 
-                // Use payment.js function
                 await window.upgradeSubscription('race', 'monthly');
-
             } catch (error) {
                 console.error('Upgrade error:', error);
                 alert('Failed to process upgrade. Please try again.');
@@ -296,14 +382,11 @@
 
                 if (!confirmed) return;
 
-                // Use payment.js function
                 await window.downgradeSubscription('basic');
 
-                // Reload page to show updated subscription
                 setTimeout(() => {
                     loadSubscription();
                 }, 2000);
-
             } catch (error) {
                 console.error('Downgrade error:', error);
                 alert('Failed to process downgrade. Please try again.');
@@ -312,7 +395,6 @@
 
         async function handleCancellation() {
             try {
-                // Get cancellation reason
                 const reasons = [
                     'Too expensive',
                     'Not using it enough',
@@ -329,7 +411,7 @@
 
                 if (!reason) return;
 
-                const reasonIndex = parseInt(reason) - 1;
+                const reasonIndex = parseInt(reason, 10) - 1;
                 const selectedReason = reasons[reasonIndex] || 'Other';
 
                 const confirmed = confirm(
@@ -341,14 +423,11 @@
 
                 if (!confirmed) return;
 
-                // Use payment.js function
                 await window.cancelSubscription(selectedReason);
 
-                // Reload page to show cancelled status
                 setTimeout(() => {
                     loadSubscription();
                 }, 2000);
-
             } catch (error) {
                 console.error('Cancellation error:', error);
                 alert('Failed to cancel subscription. Please contact support.');

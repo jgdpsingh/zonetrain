@@ -316,6 +316,183 @@
         }
     }
 </script>
+
+<div class="danger-zone">
+    <h2>⚠️ Danger Zone</h2>
+    
+    <div class="danger-section">
+        <div class="danger-info">
+            <h3>Delete Account</h3>
+            <p>Permanently delete your ZoneTrain account, all data, and Strava connection.</p>
+            <ul>
+                <li>✓ All workout history will be deleted</li>
+                <li>✓ Strava connection will be removed</li>
+                <li>✓ Active subscriptions will be cancelled</li>
+                <li>✓ Unused subscription time will be refunded</li>
+                <li>⚠️ This action cannot be undone</li>
+            </ul>
+        </div>
+        <button class="btn-delete-account" onclick="initiateAccountDeletion()">
+            Delete Account
+        </button>
+    </div>
+</div>
+
+<style>
+    .danger-zone {
+        background: white;
+        padding: 30px;
+        border-radius: 16px;
+        margin-top: 30px;
+        border: 2px solid #dc2626;
+    }
+    
+    .danger-zone h2 {
+        color: #dc2626;
+        margin-bottom: 20px;
+    }
+    
+    .danger-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 30px;
+        padding: 20px;
+        background: #fef2f2;
+        border-radius: 12px;
+    }
+    
+    .danger-info h3 {
+        color: #991b1b;
+        margin-bottom: 10px;
+    }
+    
+    .danger-info p {
+        color: #7f1d1d;
+        margin-bottom: 15px;
+    }
+    
+    .danger-info ul {
+        list-style: none;
+        padding: 0;
+    }
+    
+    .danger-info ul li {
+        color: #7f1d1d;
+        padding: 5px 0;
+        font-size: 14px;
+    }
+    
+    .btn-delete-account {
+        padding: 12px 24px;
+        background: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-delete-account:hover {
+        background: #b91c1c;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+    }
+    
+    @media (max-width: 768px) {
+        .danger-section {
+            flex-direction: column;
+            text-align: center;
+        }
+        
+        .btn-delete-account {
+            width: 100%;
+        }
+    }
+</style>
+
+<script>
+    async function initiateAccountDeletion() {
+        // First confirmation
+        const confirmed1 = confirm(
+            '⚠️ DELETE YOUR ACCOUNT?\n\n' +
+            'This will permanently:\n' +
+            '• Delete all your workout data\n' +
+            '• Remove Strava connection\n' +
+            '• Cancel active subscriptions\n' +
+            '• Process refunds (if applicable)\n\n' +
+            'This action CANNOT be undone!\n\n' +
+            'Are you sure you want to continue?'
+        );
+        
+        if (!confirmed1) return;
+        
+        // Second confirmation with text input
+        const confirmationText = prompt(
+            'To confirm account deletion, please type:\n\n' +
+            'DELETE MY ACCOUNT\n\n' +
+            '(Type exactly as shown, in capital letters)'
+        );
+        
+        if (confirmationText !== 'DELETE MY ACCOUNT') {
+            alert('❌ Confirmation text does not match. Account deletion cancelled.');
+            return;
+        }
+        
+        // Optional: Ask for reason
+        const reason = prompt(
+            'We\'re sorry to see you go!\n\n' +
+            'Would you mind sharing why you\'re deleting your account?\n' +
+            '(This helps us improve. Optional - click Cancel to skip)'
+        );
+        
+        try {
+            showNotification('🗑️ Deleting your account...', 'info');
+            
+            const token = localStorage.getItem('userToken');
+            const response = await fetch('/api/account/delete', {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    confirmationText: 'DELETE MY ACCOUNT',
+                    reason: reason || 'Not specified'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                let message = '✅ Your account has been permanently deleted.';
+                
+                if (data.refund) {
+                    message += `\n\n💰 Refund of ₹${data.refund.amount} is being processed.`;
+                    message += `\n⏱️ ${data.refund.timeline}`;
+                }
+                
+                alert(message);
+                
+                // Clear local storage
+                localStorage.clear();
+                
+                // Redirect to homepage
+                window.location.href = '/';
+                
+            } else {
+                showNotification('❌ ' + data.message, 'error');
+            }
+            
+        } catch (error) {
+            console.error('Account deletion error:', error);
+            showNotification('❌ Failed to delete account. Please try again.', 'error');
+        }
+    }
+</script>
+
 <script src="/components/nav-header.js"></script>
 
 </body>

@@ -9641,6 +9641,342 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
 
 console.log('✅ Strava analytics and notification routes initialized');
 
+app.delete('/api/account/delete', authenticateToken, async (req, res) => {
+try {
+const userId = req.user.userId;
+const { confirmationText, password } = req.body;
+console.log('🗑️ Account deletion request for user:', userId);
+    
+    // Validate confirmation text
+    if (confirmationText !== 'DELETE MY ACCOUNT') {
+        return res.status(400).json({
+            success: false,
+            message: 'Confirmation text does not match. Please type "DELETE MY ACCOUNT" to proceed.'
+        });
+    }
+    
+    // Get user data
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+        return res.status(404).json({
+            success: false,
+            message: 'User not found'
+        });
+    }
+    
+    const user = userDoc.data();
+    
+    // Process refunds if applicable
+    let refundAmount = 0;
+    let refundProcessed = false;
+    
+    if (user.subscriptionStatus === 'active' && user.currentPlan !== 'free') {
+        const refundResult = await processAccountDeletionRefund(userId, user);
+        refundAmount = refundResult.amount;
+        refundProcessed = refundResult.processed;
+    }
+    
+    // Revoke Strava access
+    if (user.stravaAccessToken) {
+        await revokeStravaAccess(userId, user.stravaAccessToken);
+    }
+    
+    // Delete user data in batches
+    await deleteUserData(userId);
+    
+    // Delete Firebase Auth account
+    await admin.auth().deleteUser(userId);
+    
+    // Log deletion
+    await db.collection('account_deletions').add({
+        userId,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        currentPlan: user.currentPlan,
+        subscriptionStatus: user.subscriptionStatus,
+        refundAmount,
+        refundProcessed,
+        stravaDisconnected: !!user.stravaAccessToken,
+        deletedAt: new Date(),
+        reason: req.body.reason || 'Not specified'
+    });
+    
+    console.log(`✅ Account deleted successfully: ${userId}`);
+    
+    res.json({
+        success: true,
+        message: 'Your account has been permanently deleted',
+        refund: refundProcessed ? {
+            amount: refundAmount,
+            status: 'Processing',
+            timeline: '5-7 business days'
+        } : null
+    });
+    
+} catch (error) {
+    console.error('❌ Account deletion error:', error);
+    res.status(500).json({
+        success: false,
+        message: 'Failed to delete account: ' + error.message
+    });
+}
+});
+
+// ==================== HELPER FUNCTIONS ====================
+
+// Process refund for account deletion
+async function processAccountDeletionRefund(userId, user) {
+try {
+console.log('💰 Processing refund for account deletion:', userId);
+// Calculate unused days
+    const now = new Date();
+    const subscriptionEnd = user.subscriptionEndDate?.toDate() || now;
+    const daysRemaining = Math.max(0, Math.ceil((subscriptionEnd - now) / (1000 * 60 * 60 * 24)));
+    
+    if (daysRemaining === 0) {
+        console.log('⚠️ No refund - subscription already expired');
+        return { amount: 0, processed: false };
+    }
+    
+    // Calculate pro-rata refund
+    const planPrices = {
+        basic: 199,
+        race: 399
+    };
+    
+    const monthlyPrice = planPrices[user.currentPlan] || 0;
+    const refundAmount = Math.round((daysRemaining / 30) * monthlyPrice);
+    
+    if (refundAmount < 50) {
+        console.log('⚠️ Refund amount too small (< ₹50), skipping refund');
+        return { amount: 0, processed: false };
+    }
+    
+    // Get payment details
+    const paymentsSnapshot = await db.collection('payments')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+    
+    if (paymentsSnapshot.empty) {
+        console.log('⚠️ No payment record found, skipping refund');
+        return { amount: 0, processed: false };
+    }
+    
+    const lastPayment = paymentsSnapshot.docs.data();
+    
+    // Initiate Razorpay refund
+    const razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET
+    });
+    
+    const refund = await razorpay.payments.refund(lastPayment.razorpayPaymentId, {
+        amount: refundAmount * 100, // Convert to paise
+        notes: {
+            reason: 'Account deletion - pro-rata refund',
+            userId: userId,
+            daysRemaining: daysRemaining
+        }
+    });
+    
+    // Log refund
+    await db.collection('refunds').add({
+        userId,
+        paymentId: lastPayment.razorpayPaymentId,
+        refundId: refund.id,
+        amount: refundAmount,
+        reason: 'account_deletion',
+        daysRemaining,
+        status: refund.status,
+        createdAt: new Date()
+    });
+    
+    console.log(`✅ Refund initiated: ₹${refundAmount} for ${daysRemaining} days`);
+    
+    return { amount: refundAmount, processed: true };
+    
+} catch (error) {
+    console.error('❌ Refund processing error:', error);
+    // Don't fail account deletion if refund fails
+    return { amount: 0, processed: false, error: error.message };
+}
+}
+
+// Revoke Strava access
+async function revokeStravaAccess(userId, accessToken) {
+try {
+console.log('🔓 Revoking Strava access for:', userId);
+// Deauthorize from Strava
+    await axios.post('https://www.strava.com/oauth/deauthorize', {}, {
+        headers: {
+            'Authorization': `Bearer ${accessToken}`
+        }
+    });
+    
+    console.log('✅ Strava access revoked');
+    
+} catch (error) {
+    console.error('⚠️ Strava revocation error (continuing anyway):', error.message);
+    // Don't fail deletion if Strava revocation fails
+}
+}
+
+// Delete all user data
+async function deleteUserData(userId) {
+try {
+console.log('🗑️ Deleting user data for:', userId);
+const batch = db.batch();
+    let deleteCount = 0;
+    
+    // Collections to delete
+    const collections = [
+        'strava_activities',
+        'workout_plans',
+        'training_sessions',
+        'notifications',
+        'payments',
+        'transactions'
+    ];
+    
+    // Delete documents from each collection
+    for (const collectionName of collections) {
+        const snapshot = await db.collection(collectionName)
+            .where('userId', '==', userId)
+            .get();
+        
+        snapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+            deleteCount++;
+        });
+    }
+    
+    // Delete user document
+    batch.delete(db.collection('users').doc(userId));
+    deleteCount++;
+    
+    // Commit batch
+    await batch.commit();
+    
+    console.log(`✅ Deleted ${deleteCount} documents for user ${userId}`);
+    
+} catch (error) {
+    console.error('❌ User data deletion error:', error);
+    throw error;
+}
+}
+
+// ==================== STRAVA DISCONNECTION ====================
+
+app.post('/api/strava/disconnect', authenticateToken, async (req, res) => {
+try {
+const userId = req.user.userId;
+console.log('🔓 Disconnecting Strava for user:', userId);
+    
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+        return res.status(404).json({
+            success: false,
+            message: 'User not found'
+        });
+    }
+    
+    const user = userDoc.data();
+    
+    if (!user.stravaAccessToken) {
+        return res.json({
+            success: true,
+            message: 'Strava is not connected',
+            alreadyDisconnected: true
+        });
+    }
+    
+    // Revoke Strava access
+    try {
+        await axios.post('https://www.strava.com/oauth/deauthorize', {}, {
+            headers: {
+                'Authorization': `Bearer ${user.stravaAccessToken}`
+            }
+        });
+        console.log('✅ Strava OAuth revoked');
+    } catch (error) {
+        console.warn('⚠️ Strava revocation failed (continuing anyway):', error.message);
+    }
+    
+    // Remove Strava data from user record
+    await db.collection('users').doc(userId).update({
+        stravaAccessToken: admin.firestore.FieldValue.delete(),
+        stravaRefreshToken: admin.firestore.FieldValue.delete(),
+        stravaAthleteId: admin.firestore.FieldValue.delete(),
+        stravaAthleteName: admin.firestore.FieldValue.delete(),
+        stravaConnectedAt: admin.firestore.FieldValue.delete(),
+        stravaLastSync: admin.firestore.FieldValue.delete(),
+        stravaDisconnectedAt: new Date()
+    });
+    
+    // Optional: Keep activity history or delete it
+    const { deleteActivities } = req.body;
+    
+    if (deleteActivities) {
+        const activitiesSnapshot = await db.collection('strava_activities')
+            .where('userId', '==', userId)
+            .get();
+        
+        const batch = db.batch();
+        activitiesSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        console.log(`✅ Deleted ${activitiesSnapshot.size} Strava activities`);
+    }
+    
+    console.log('✅ Strava disconnected successfully');
+    
+    res.json({
+        success: true,
+        message: 'Strava disconnected successfully',
+        activitiesDeleted: deleteActivities || false
+    });
+    
+} catch (error) {
+    console.error('❌ Strava disconnect error:', error);
+    res.status(500).json({
+        success: false,
+        message: 'Failed to disconnect Strava: ' + error.message
+    });
+}
+});
+
+// Check if Strava is connected
+app.get('/api/strava/connection-status', authenticateToken, async (req, res) => {
+try {
+const userId = req.user.userId;
+const userDoc = await db.collection('users').doc(userId).get();
+const user = userDoc.data();
+res.json({
+        success: true,
+        connected: !!user.stravaAccessToken,
+        athleteName: user.stravaAthleteName || null,
+        connectedAt: user.stravaConnectedAt || null,
+        lastSync: user.stravaLastSync || null
+    });
+    
+} catch (error) {
+    console.error('Strava status error:', error);
+    res.status(500).json({
+        success: false,
+        message: error.message
+    });
+}
+});
+
+
+
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Updated welcome page route - replace your existing '/' route
