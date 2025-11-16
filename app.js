@@ -4317,73 +4317,6 @@ async function verifyUserStatus(token) {
 }
 
 
-
-// RESET TEST USERS - Add this route temporarily
-app.get('/debug/reset-test-users', async (req, res) => {
-    try {
-        // Delete existing test users
-        const freeUserSnapshot = await db.collection('users').where('email', '==', 'free@test.com').get();
-        const premiumUserSnapshot = await db.collection('users').where('email', '==', 'premium@test.com').get();
-        
-        for (const doc of freeUserSnapshot.docs) {
-            await doc.ref.delete();
-            console.log('🗑️ Deleted free test user');
-        }
-        
-        for (const doc of premiumUserSnapshot.docs) {
-            await doc.ref.delete();
-            console.log('🗑️ Deleted premium test user');
-        }
-        
-        // Create fresh test users
-        console.log('🔧 Creating fresh test users...');
-        
-        // Free user
-        const freeUser = await userManager.createUser({
-            email: 'free@test.com',
-            password: 'password123',
-            firstName: 'Free',
-            lastName: 'User',
-            phoneNumber: null
-        });
-        console.log('✅ Free test user created:', freeUser.id);
-        
-        // Premium user
-        const premiumUser = await userManager.createUser({
-            email: 'premium@test.com',
-            password: 'password123',
-            firstName: 'Premium',
-            lastName: 'User',
-            phoneNumber: null
-        });
-        
-        await userManager.updateUser(premiumUser.id, {
-            subscriptionStatus: 'active',
-            currentPlan: 'fitness',
-            currentPrice: 199,
-            originalPrice: 199,
-            planStartDate: new Date()
-        });
-        console.log('✅ Premium test user created and upgraded:', premiumUser.id);
-        
-        res.json({
-            success: true,
-            message: 'Test users reset successfully',
-            users: {
-                free: freeUser.id,
-                premium: premiumUser.id
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Reset error:', error);
-        res.json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 // Logout endpoint
 app.post('/api/auth/logout', (req, res) => {
     console.log('🚪 User logging out');
@@ -5847,7 +5780,10 @@ app.get('/api/subscription/details', authenticateToken, async (req, res) => {
                 subscriptionEndDate: user.subscriptionEndDate || null,
                 lastPaymentDate: user.lastPaymentDate || null,
                 lastPaymentAmount: user.lastPaymentAmount || null,
-                totalSavingsFromPromos: user.totalSavingsFromPromos || 0
+                totalSavingsFromPromos: user.totalSavingsFromPromos || 0,
+
+                pauseReason: user.pauseReason || null,
+        pauseEndDate: user.pauseEndDate || null
             },
             transactions: transactions
         });
@@ -6420,138 +6356,6 @@ app.get('/debug/onboarding-status', authenticateToken, async (req, res) => {
 });
 
 
-async function initializeTestUsers() {
-    try {
-        console.log('🔧 Creating test users...');
-        
-        // 1. FREE TEST USER
-        try {
-            const freeUser = {
-                email: 'free@test.com',
-                password: 'password123',
-                firstName: 'Free',
-                lastName: 'User',
-                phoneNumber: null
-            };
-            await userManager.createUser(freeUser);
-            console.log('✅ Free test user created');
-        } catch (error) {
-            if (error.message === 'User already exists') {
-                console.log('✅ Free test user already exists');
-            } else {
-                console.error('❌ Error creating free user:', error.message);
-            }
-        }
-        
-        // 2. BASIC COACH TEST USER
-        try {
-            const basicUser = await userManager.createUser({
-                email: 'basic@test.com',
-                password: 'password123',
-                firstName: 'Basic',
-                lastName: 'Coach',
-                phoneNumber: null
-            });
-            
-            // Upgrade to basic plan
-            await userManager.updateUser(basicUser.id, {
-                subscriptionStatus: 'active',
-                currentPlan: 'basic',
-                currentPrice: 299,
-                originalPrice: 299,
-                planStartDate: new Date()
-            });
-            console.log('✅ Basic Coach test user created and upgraded');
-        } catch (error) {
-            if (error.message === 'User already exists') {
-                // Find existing user and upgrade
-                const existingUser = await userManager.getUserByEmail('basic@test.com');
-                if (existingUser) {
-                    await userManager.updateUser(existingUser.id, {
-                        subscriptionStatus: 'active',
-                        currentPlan: 'basic',
-                        currentPrice: 299,
-                        originalPrice: 299,
-                        planStartDate: new Date()
-                    });
-                    console.log('✅ Basic Coach test user upgraded');
-                }
-            } else {
-                console.error('❌ Error creating basic user:', error.message);
-            }
-        }
-        
-        // 3. RACE COACH TEST USER
-        try {
-            const raceUser = await userManager.createUser({
-                email: 'race@test.com',
-                password: 'password123',
-                firstName: 'Race',
-                lastName: 'Coach',
-                phoneNumber: null
-            });
-            
-            // Upgrade to race plan
-            await userManager.updateUser(raceUser.id, {
-                subscriptionStatus: 'active',
-                currentPlan: 'race',
-                currentPrice: 599,
-                originalPrice: 599,
-                planStartDate: new Date()
-            });
-            console.log('✅ Race Coach test user created and upgraded');
-        } catch (error) {
-            if (error.message === 'User already exists') {
-                // Find existing user and upgrade
-                const existingUser = await userManager.getUserByEmail('race@test.com');
-                if (existingUser) {
-                    await userManager.updateUser(existingUser.id, {
-                        subscriptionStatus: 'active',
-                        currentPlan: 'race',
-                        currentPrice: 599,
-                        originalPrice: 599,
-                        planStartDate: new Date()
-                    });
-                    console.log('✅ Race Coach test user upgraded');
-                }
-            } else {
-                console.error('❌ Error creating race user:', error.message);
-            }
-        }
-        
-        // Also update your existing premium user to basic
-        try {
-            const premiumUser = await userManager.getUserByEmail('premium@test.com');
-            if (premiumUser) {
-                await userManager.updateUser(premiumUser.id, {
-                    subscriptionStatus: 'active',
-                    currentPlan: 'basic',  // Changed from 'fitness' to 'basic'
-                    currentPrice: 299,
-                    originalPrice: 299,
-                    planStartDate: new Date()
-                });
-                console.log('✅ Premium test user updated to basic plan');
-            }
-        } catch (error) {
-            console.log('ℹ️ Premium user not found or already updated');
-        }
-        
-        console.log('\n🎉 All test users ready!');
-        console.log('📧 Login credentials (all use password: password123):');
-        console.log('   • free@test.com → Free Dashboard');
-        console.log('   • basic@test.com → Basic Coach Dashboard');
-        console.log('   • race@test.com → Race Coach Dashboard');
-        console.log('   • premium@test.com → Basic Coach Dashboard\n');
-        
-    } catch (error) {
-        console.error('❌ Error initializing test users:', error);
-    }
-}
-
-// Initialize test users (this line should already exist)
-initializeTestUsers();
-
-
 // ==================== AUTHENTICATION ROUTES ====================
 
 app.post('/api/auth/register', async (req, res) => {
@@ -6769,39 +6573,38 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/user/access-status', authenticateToken, async (req, res) => {
     try {
         const userId = req.user?.userId;
-        
+
         if (!userId) {
             console.error('❌ No userId in request');
-            return res.status(401).json({ 
-                success: false, 
-                message: 'User not authenticated' 
+            return res.status(401).json({
+                success: false,
+                message: 'User not authenticated'
             });
         }
-        
+
+        // Use your existing userManager helper
         const user = await userManager.getUserById(userId);
-        
         if (!user) {
             console.error('❌ User not found:', userId);
-            return res.status(404).json({ 
-                success: false, 
-                message: 'User not found' 
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
             });
         }
-        
-        const featureStatus = {};
-        for (const feature of Object.keys(FEATURE_ACCESS)) {
-            featureStatus[feature] = await checkFeatureAccess(user, feature);
-        }
-        
+
+        // 🔹 Temporarily disable feature flags (they were causing 500s)
+        const featureStatus = {};  // you can re‑enable FEATURE_ACCESS later
+
         // Check if user completed AI onboarding
         let aiOnboardingCompleted = false;
         try {
-            const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+            // Use the same collection name you use elsewhere (likely 'aiProfiles')
+            const profileDoc = await db.collection('aiProfiles').doc(userId).get();
             aiOnboardingCompleted = profileDoc.exists;
         } catch (error) {
             console.warn('⚠️ Unable to check AI onboarding status:', error.message);
         }
-        
+
         res.json({
             success: true,
             user: {
@@ -6809,18 +6612,22 @@ app.get('/api/user/access-status', authenticateToken, async (req, res) => {
                 subscriptionStatus: user.subscriptionStatus || 'free',
                 currentPlan: user.currentPlan || null,
                 trialEndDate: user.trialEndDate || null,
-                aiOnboardingCompleted: aiOnboardingCompleted
+                subscriptionEndDate: user.subscriptionEndDate || null,
+                billingCycle: user.billingCycle || null,
+                lastPaymentAmount: user.lastPaymentAmount || null
             },
+            aiOnboardingCompleted,
             features: featureStatus
         });
     } catch (error) {
         console.error('❌ Access status error:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to get access status' 
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get access status'
         });
     }
 });
+
 
 app.get('/api/training-plan', authenticateToken, async (req, res) => {
     try {
@@ -6973,17 +6780,38 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
 
         // Get user data
         const userDoc = await db.collection('users').doc(userId).get();
-        
         if (!userDoc.exists) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
             });
         }
-        
-        const user = userDoc.data();
+        const user = userDoc.data() || {};
 
-        // Check if user has an ACTIVE subscription (paid or trial)
+        const subscriptionStatus = user.subscriptionStatus || 'free';
+        const currentPlan = user.currentPlan || 'free';
+
+        // 🔒 GLOBAL EARLY GUARD: block any new trial if user already on trial/paid
+        if (subscriptionStatus === 'trial') {
+            return res.status(400).json({
+                success: false,
+                message: `You already have an active ${currentPlan === 'basic' ? 'Basic Coach' : currentPlan === 'race' ? 'Race Coach' : currentPlan} trial. Please upgrade or wait for it to end before starting another trial.`,
+                alreadyOnTrial: true,
+                currentPlan
+            });
+        }
+
+        if (subscriptionStatus === 'active') {
+            return res.status(400).json({
+                success: false,
+                message: `You already have an active ${currentPlan === 'basic' ? 'Basic Coach' : currentPlan === 'race' ? 'Race Coach' : currentPlan} subscription. Use upgrade/downgrade instead of starting a new trial.`,
+                alreadySubscribed: true,
+                currentPlan
+            });
+        }
+
+        // (Optional extra safety – if you want to distinguish cases)
+        // Existing logic for active subscriptions kept for clarity
         if (user.subscriptionStatus === 'active' || user.subscriptionStatus === 'trial') {
             // If they have an active subscription to the SAME plan
             if (user.currentPlan === planType) {
@@ -6993,7 +6821,7 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
                     alreadyActive: true
                 });
             }
-            
+
             // If they have Basic and want Race, allow upgrade but not trial
             if (user.currentPlan === 'basic' && planType === 'race') {
                 return res.status(400).json({
@@ -7043,7 +6871,7 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
         // Schedule trial expiry reminder (optional but recommended)
         const reminderDate = new Date(trialEndDate);
         reminderDate.setDate(reminderDate.getDate() - 3); // Remind 3 days before expiry
-        
+
         await db.collection('scheduled_notifications').add({
             userId,
             type: 'trial_expiring',
@@ -7054,11 +6882,11 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
             createdAt: new Date()
         });
 
-        console.log('✅ Trial started:', { 
-            userId, 
-            planType, 
+        console.log('✅ Trial started:', {
+            userId,
+            planType,
             startDate: trialStartDate,
-            endDate: trialEndDate 
+            endDate: trialEndDate
         });
 
         res.json({
@@ -7071,7 +6899,7 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
                 daysRemaining: 14
             }
         });
-        
+
     } catch (error) {
         console.error('❌ Trial start error:', error);
         res.status(500).json({
@@ -7081,89 +6909,108 @@ app.post('/api/subscription/start-trial', authenticateToken, async (req, res) =>
     }
 });
 
+
 // Check if user is eligible for trial
 app.get('/api/subscription/trial-eligibility', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { planType } = req.query; // Accept plan type as query parameter
-        
-        // Validate plan type
+        const { planType } = req.query; // optional: 'basic' | 'race'
+
+        // Validate plan type if provided
         if (planType && !['basic', 'race'].includes(planType)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid plan type. Must be "basic" or "race".'
             });
         }
-        
+
         const userDoc = await db.collection('users').doc(userId).get();
-        
         if (!userDoc.exists) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
             });
         }
-        
+
         const user = userDoc.data();
         const trialUsed = user.trialUsed || {};
         const currentPlan = user.currentPlan || 'free';
         const subscriptionStatus = user.subscriptionStatus || 'free';
-        
-        // If specific plan requested, check that plan
+
+        // Treat both paid and trial as "something active"
+        const hasActiveSomething =
+            subscriptionStatus === 'active' || subscriptionStatus === 'trial';
+
+        // ---------- SINGLE PLAN CASE ----------
         if (planType) {
-            const isEligible = (
-                !trialUsed[planType] && // Trial not used for this plan
-                subscriptionStatus !== 'active' && // No active subscription
-                currentPlan !== planType // Not currently on this plan
-            );
-            
+            let eligible = false;
             let reason = null;
-            if (!isEligible) {
-                if (trialUsed[planType]) {
-                    reason = `Trial already used for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
-                } else if (subscriptionStatus === 'active' && currentPlan === planType) {
-                    reason = `Already subscribed to ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
-                } else if (subscriptionStatus === 'trial' && currentPlan === planType) {
-                    reason = `Trial already active for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
+
+            if (hasActiveSomething) {
+                // Already on some active plan or trial → no new trial
+                eligible = false;
+
+                if (subscriptionStatus === 'trial') {
+                    reason = `You already have an active ${currentPlan} trial. Finish or upgrade before starting another trial.`;
                 } else {
-                    reason = 'Unknown reason';
+                    reason = `You already have an active ${currentPlan} subscription.`;
+                }
+            } else {
+                // No active subscription/trial: only check if this plan's trial was used
+                const alreadyUsed = !!trialUsed[planType];
+                eligible = !alreadyUsed;
+
+                if (alreadyUsed) {
+                    reason = `Trial already used for ${planType === 'basic' ? 'Basic Coach' : 'Race Coach'}`;
                 }
             }
-            
+
             return res.json({
                 success: true,
-                planType: planType,
-                eligible: isEligible,
-                reason: reason,
-                currentPlan: currentPlan,
-                subscriptionStatus: subscriptionStatus,
-                trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate : null
+                planType,
+                eligible,
+                reason,
+                currentPlan,
+                subscriptionStatus,
+                trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate || null : null
             });
         }
-        
-        // If no plan specified, return eligibility for ALL plans
+
+        // ---------- ALL PLANS CASE ----------
+        // If anything is active (trial or paid), no plan is eligible
         const eligibility = {
             basic: {
-                eligible: !trialUsed.basic && subscriptionStatus !== 'active',
-                trialUsed: trialUsed.basic || false,
+                eligible: !hasActiveSomething && !trialUsed.basic,
+                trialUsed: !!trialUsed.basic,
                 reason: trialUsed.basic ? 'Trial already used for Basic Coach' : null
             },
             race: {
-                eligible: !trialUsed.race && subscriptionStatus !== 'active',
-                trialUsed: trialUsed.race || false,
+                eligible: !hasActiveSomething && !trialUsed.race,
+                trialUsed: !!trialUsed.race,
                 reason: trialUsed.race ? 'Trial already used for Race Coach' : null
             }
         };
-        
-        res.json({
+
+        let globalReason = null;
+        if (hasActiveSomething) {
+            globalReason =
+                subscriptionStatus === 'trial'
+                    ? `You already have an active ${currentPlan} trial.`
+                    : `You already have an active ${currentPlan} subscription.`;
+        }
+
+        const canTryAnyPlan = eligibility.basic.eligible || eligibility.race.eligible;
+
+        return res.json({
             success: true,
-            currentPlan: currentPlan,
-            subscriptionStatus: subscriptionStatus,
-            trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate : null,
-            eligibility: eligibility,
-            canTryAnyPlan: eligibility.basic.eligible || eligibility.race.eligible
+            currentPlan,
+            subscriptionStatus,
+            trialEndDate: subscriptionStatus === 'trial' ? user.trialEndDate || null : null,
+            eligibility,
+            canTryAnyPlan,
+            reason: globalReason
         });
-        
+
     } catch (error) {
         console.error('Trial eligibility check error:', error);
         res.status(500).json({
@@ -7172,6 +7019,7 @@ app.get('/api/subscription/trial-eligibility', authenticateToken, async (req, re
         });
     }
 });
+
 
 
 // Make the method accessible
@@ -7630,6 +7478,55 @@ app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
     }
 });
 
+// app.js – Subscription routes section
+
+// Pause subscription
+app.post('/api/subscription/pause', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { durationDays, reason } = req.body;
+
+    const result = await subscriptionService.pauseSubscription(
+      userId,
+      parseInt(durationDays, 10) || 14,
+      reason || 'Not specified'
+    );
+
+    res.json({
+      success: true,
+      message: `Subscription paused until ${result.pauseEndDate.toDateString()}.`,
+      pauseEndDate: result.pauseEndDate,
+      extendedEndDate: result.extendedEndDate
+    });
+  } catch (error) {
+    console.error('Pause subscription error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to pause subscription'
+    });
+  }
+});
+
+// Resume paused subscription
+app.post('/api/subscription/resume', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = await subscriptionService.resumeSubscription(userId);
+
+    res.json({
+      success: result.success,
+      message: 'Subscription resumed successfully.'
+    });
+  } catch (error) {
+    console.error('Resume subscription error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to resume subscription'
+    });
+  }
+});
+
+
 // Get user profile for profile page
 app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
@@ -7813,28 +7710,6 @@ app.get('/debug/tokens', (req, res) => {
     refresh_token: storedTokens?.refresh_token ? 'Present' : 'Missing',
     storedTokens_exists: typeof storedTokens !== 'undefined'
   });
-});
-
-app.get('/debug/test-token', async (req, res) => {
-  const access_token = storedTokens.access_token;
-  
-  try {
-    const response = await axios.get('https://www.strava.com/api/v3/athlete', {
-      headers: { Authorization: `Bearer ${access_token}` }
-    });
-    
-    res.json({
-      status: 'Token works!',
-      athlete: response.data.firstname + ' ' + response.data.lastname,
-      token_length: access_token.length
-    });
-  } catch (error) {
-    res.json({
-      status: 'Token failed',
-      error: error.response?.status,
-      message: error.response?.data || error.message
-    });
-  }
 });
 
 // Add this route (duplicate for compatibility)

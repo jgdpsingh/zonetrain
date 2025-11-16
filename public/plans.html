@@ -841,6 +841,46 @@
         }
 
         console.log('✅ Plans page ready');
+
+        async function initTrialButtons() {
+  const token = localStorage.getItem('userToken');
+  if (!token) return; // guests already get login modal
+
+  try {
+    const res = await fetch('/api/subscription/trial-eligibility', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // If already on any trial/subscription, hide *all* trial buttons
+    if (data.subscriptionStatus === 'trial' || data.subscriptionStatus === 'active') {
+      document.querySelectorAll('.btn-trial').forEach(btn => {
+        btn.style.display = 'none';
+      });
+      return;
+    }
+
+    // Otherwise, you can optionally hide per‑plan buttons if trialUsed is true
+    if (data.eligibility) {
+      if (data.eligibility.basic && !data.eligibility.basic.eligible) {
+        document
+          .querySelectorAll('.btn-trial[data-plan="fitness"]')
+          .forEach(btn => (btn.style.display = 'none'));
+      }
+      if (data.eligibility.race && !data.eligibility.race.eligible) {
+        document
+          .querySelectorAll('.btn-trial[data-plan="race"]')
+          .forEach(btn => (btn.style.display = 'none'));
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load trial eligibility', e);
+  }
+}
+
+initTrialButtons();
+
     </script>
 </body>
 </html>

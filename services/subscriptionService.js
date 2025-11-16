@@ -441,6 +441,286 @@ class SubscriptionService {
         }
     }
 
+    // Pause subscription for N days (injury, travel, etc.)
+async pauseSubscription(userId, durationDays = 14, reason = 'Not specified') {
+  try {
+    console.log('Pausing subscription for user', userId, 'for', durationDays, 'days');
+
+    if (durationDays <= 0) {
+      throw new Error('Pause duration must be at least 1 day.');
+    }
+
+    const MAX_DAYS_PER_PAUSE = 60;
+    const MAX_PAUSES_PER_CYCLE = 2;   // per billing period
+    const MIN_HOURS_BEFORE_RENEWAL = 24; // safety window
+
+    if (durationDays > MAX_DAYS_PER_PAUSE) {
+      durationDays = MAX_DAYS_PER_PAUSE;
+    }
+
+    const userRef = this.db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) throw new Error('User not found');
+
+    const user = userDoc.data();
+
+    if (user.subscriptionStatus !== 'active') {
+      throw new Error('Only active subscriptions can be paused.');
+    }
+
+    if (!['basic', 'race'].includes(user.currentPlan)) {
+      throw new Error('Only Basic Coach and Race Coach plans can be paused.');
+    }
+
+    if (!user.subscriptionEndDate) {
+      throw new Error('Subscription end date missing; cannot compute pause.');
+    }
+
+    const now = new Date();
+    const currentEnd = user.subscriptionEndDate.toDate
+      ? user.subscriptionEndDate.toDate()
+      : new Date(user.subscriptionEndDate);
+
+    // 1) Block pausing too close to renewal (e.g., last 24h)
+    const millisUntilEnd = currentEnd.getTime() - now.getTime();
+    const hoursUntilEnd = millisUntilEnd / (1000 * 60 * 60);
+
+    if (hoursUntilEnd <= MIN_HOURS_BEFORE_RENEWAL) {
+      throw new Error(
+        `Your plan renews very soon. Please pause at least ${MIN_HOURS_BEFORE_RENEWAL} hours before the renewal date, or pause after your next billing cycle starts.`
+      );
+    }
+
+    // 2) Count pauses in current billing period
+    //    Optional: store pause history on user doc: pauseHistory: [{ startDate, endDate, reason }]
+    const pauseHistory = user.pauseHistory || [];
+    const cycleStart = user.subscriptionStartDate?.toDate
+      ? user.subscriptionStartDate.toDate()
+      : new Date(user.subscriptionStartDate || now);
+
+    const pausesThisCycle = pauseHistory.filter(entry => {
+      const start = entry.startDate?.toDate ? entry.startDate.toDate() : new Date(entry.startDate);
+      return start >= cycleStart && start <= currentEnd;
+    });
+
+    if (pausesThisCycle.length >= MAX_PAUSES_PER_CYCLE) {
+      throw new Error(
+        `You have already paused your subscription ${MAX_PAUSES_PER_CYCLE} times this billing cycle.`
+      );
+    }
+
+    // 3) Block "back‑to‑back" pause: user was just auto‑resumed today
+    if (user.lastAutoResumeAt) {
+      const lastAutoResume = user.lastAutoResumeAt.toDate
+        ? user.lastAutoResumeAt.toDate()
+        : new Date(user.lastAutoResumeAt);
+
+      const hoursSinceAutoResume =
+        (now.getTime() - lastAutoResume.getTime()) / (1000 * 60 * 60);
+
+      if (hoursSinceAutoResume < 24) {
+        throw new Error(
+          'Your subscription was just resumed. Please wait 24 hours before pausing again.'
+        );
+      }
+    }
+
+    // Compute new end date by adding pause days
+    const extendedEnd = new Date(currentEnd.getTime());
+    extendedEnd.setDate(extendedEnd.getDate() + durationDays);
+
+    // Compute pause end date (when we auto-resume)
+    const pauseEndDate = new Date(now.getTime());
+    pauseEndDate.setDate(pauseEndDate.getDate() + durationDays);
+
+    // Append to pause history
+    const newHistoryEntry = {
+      startDate: now,
+      endDate: pauseEndDate,
+      durationDays,
+      reason,
+      createdAt: now
+    };
+
+    const updatedHistory = [...pauseHistory, newHistoryEntry];
+
+    await userRef.update({
+      subscriptionStatus: 'paused',
+      pauseStartDate: now,
+      pauseEndDate: pauseEndDate,
+      pauseReason: reason,
+      previousStatus: user.subscriptionStatus,
+      previousPlan: user.currentPlan,
+      subscriptionEndDate: extendedEnd,
+      pauseHistory: updatedHistory,
+      updatedAt: now
+    });
+
+    // Mark active subscription record as paused
+    const subSnapshot = await this.db.collection('subscriptions')
+      .where('userId', '==', userId)
+      .where('status', '==', 'active')
+      .limit(1)
+      .get();
+
+    if (!subSnapshot.empty) {
+      const subRef = subSnapshot.docs[0].ref;
+      await subRef.update({
+        status: 'paused',
+        pauseStartDate: now,
+        pauseEndDate: pauseEndDate,
+        pauseReason: reason,
+        updatedAt: now
+      });
+    }
+
+    // Notification
+    const notificationRef = this.db.collection('notifications').doc();
+    await notificationRef.set({
+      userId,
+      type: 'subscriptionpaused',
+      title: 'Subscription Paused',
+      message: `Your ${user.currentPlan === 'basic' ? 'Basic Coach' : 'Race Coach'} plan is paused until ${pauseEndDate.toDateString()}.`,
+      read: false,
+      createdAt: now
+    });
+
+    console.log('Subscription paused until', pauseEndDate);
+    return { success: true, pauseEndDate, extendedEndDate: extendedEnd };
+  } catch (error) {
+    console.error('Pause subscription error', error);
+    throw error;
+  }
+}
+
+
+// Resume a paused subscription (manual resume)
+async resumeSubscription(userId) {
+  try {
+    console.log('Resuming subscription for user', userId);
+
+    const userDoc = await this.db.collection('users').doc(userId).get();
+    if (!userDoc.exists) throw new Error('User not found');
+
+    const user = userDoc.data();
+
+    if (user.subscriptionStatus !== 'paused') {
+      throw new Error('Only paused subscriptions can be resumed.');
+    }
+
+    const now = new Date();
+
+    await this.db.collection('users').doc(userId).update({
+      subscriptionStatus: 'active',
+      pauseStartDate: null,
+      pauseEndDate: null,
+      pauseReason: null,
+      updatedAt: now
+    });
+
+    const subSnapshot = await this.db.collection('subscriptions')
+      .where('userId', '==', userId)
+      .where('status', '==', 'paused')
+      .limit(1)
+      .get();
+
+    if (!subSnapshot.empty) {
+      const subRef = subSnapshot.docs[0].ref;
+      await subRef.update({
+        status: 'active',
+        resumedAt: now,
+        updatedAt: now
+      });
+    }
+
+    const notificationRef = this.db.collection('notifications').doc();
+    await notificationRef.set({
+      userId,
+      type: 'subscriptionresumed',
+      title: 'Subscription Resumed',
+      message: 'Your subscription has been resumed. Welcome back!',
+      read: false,
+      createdAt: now
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Resume subscription error', error);
+    throw error;
+  }
+}
+
+// Check for paused subscriptions that should be resumed
+async checkPausedSubscriptions() {
+  try {
+    const now = new Date();
+    console.log('Checking for paused subscriptions to resume...');
+
+    const pausedSnapshot = await this.db.collection('users')
+      .where('subscriptionStatus', '==', 'paused')
+      .where('pauseEndDate', '<=', now)
+      .get();
+
+    if (pausedSnapshot.empty) {
+      console.log('No paused subscriptions to resume');
+      return { resumedCount: 0 };
+    }
+
+    const batch = this.db.batch();
+    let resumedCount = 0;
+
+    for (const doc of pausedSnapshot.docs) {
+      const userId = doc.id;
+      const user = doc.data();
+
+      batch.update(doc.ref, {
+        subscriptionStatus: 'active',
+        pauseStartDate: null,
+        pauseEndDate: null,
+        pauseReason: null,
+        lastAutoResumeAt: now,
+        updatedAt: now
+      });
+
+      // Update subscription record(s)
+      const subSnapshot = await this.db.collection('subscriptions')
+        .where('userId', '==', userId)
+        .where('status', '==', 'paused')
+        .get();
+
+      subSnapshot.docs.forEach(subDoc => {
+        batch.update(subDoc.ref, {
+          status: 'active',
+          resumedAt: now,
+          updatedAt: now
+        });
+      });
+
+      // Notification
+      const notificationRef = this.db.collection('notifications').doc();
+      batch.set(notificationRef, {
+        userId,
+        type: 'subscriptionresumed',
+        title: 'Subscription Resumed',
+        message: 'Your paused subscription has automatically resumed.',
+        read: false,
+        createdAt: now
+      });
+
+      resumedCount++;
+      console.log('Auto-resuming subscription for user', userId);
+    }
+
+    await batch.commit();
+    console.log('Resumed', resumedCount, 'paused subscriptions');
+    return { resumedCount };
+  } catch (error) {
+    console.error('checkPausedSubscriptions error', error);
+    throw error;
+  }
+}
+
+
     // Generate invoice PDF
     async generateInvoice(invoiceData) {
         return new Promise((resolve, reject) => {
@@ -990,31 +1270,29 @@ async sendRenewalReminders() {
  * Initialize all scheduled tasks (call this once when service starts)
  */
 initializeScheduledTasks() {
-    console.log('🚀 Initializing subscription management tasks...');
-    
-    // Run expired trial check every 6 hours
-    const SIX_HOURS = 6 * 60 * 60 * 1000;
-    setInterval(() => this.checkExpiredTrials(), SIX_HOURS);
-    
-    // Run trial reminder check daily
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    setInterval(() => this.sendTrialExpiryReminders(), TWENTY_FOUR_HOURS);
-    
-    // Run expired subscription check every 6 hours
-    setInterval(() => this.checkExpiredSubscriptions(), SIX_HOURS);
-    
-    // Run renewal reminder check daily
-    setInterval(() => this.sendRenewalReminders(), TWENTY_FOUR_HOURS);
-    
-    // Run all checks immediately on startup
-    this.checkExpiredTrials();
-    this.sendTrialExpiryReminders();
-    this.checkExpiredSubscriptions();
-    this.sendRenewalReminders();
-    
-    console.log('✅ All subscription tasks scheduled');
-}
+  console.log('Initializing subscription management tasks...');
 
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+  // Existing jobs
+  setInterval(this.checkExpiredTrials.bind(this), SIX_HOURS);
+  setInterval(this.sendTrialExpiryReminders.bind(this), TWENTY_FOUR_HOURS);
+  setInterval(this.checkExpiredSubscriptions.bind(this), SIX_HOURS);
+  setInterval(this.sendRenewalReminders.bind(this), TWENTY_FOUR_HOURS);
+
+  // NEW: resume paused subscriptions
+  setInterval(this.checkPausedSubscriptions.bind(this), SIX_HOURS);
+
+  // Run all once on startup
+  this.checkExpiredTrials();
+  this.sendTrialExpiryReminders();
+  this.checkExpiredSubscriptions();
+  this.sendRenewalReminders();
+  this.checkPausedSubscriptions();
+
+  console.log('All subscription tasks scheduled');
+}
 
 }
 

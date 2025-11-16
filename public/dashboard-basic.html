@@ -237,8 +237,29 @@
             <div>
                 <h1 style="font-size: 32px; color: #1f2937; margin-bottom: 8px;">Your Training Dashboard 🏃</h1>
                 <p style="color: #6b7280;">Basic Coach Plan • HRV-Adaptive Training</p>
+                <p id="basic-next-billing-wrapper"
+       style="color: #4b5563; font-size: 13px; margin-top: 6px;">
+      Next billing: <span id="basic-next-billing-date">Loading...</span>
+    </p>
+                <span id="sub-status" style="display:none;">active</span>
             </div>
             <span class="plan-badge">BASIC COACH</span>
+
+            <button class="btn-pause"
+            onclick="handlePauseOrResume()"
+            style="
+              padding: 10px 18px;
+              border-radius: 10px;
+              border: 2px solid #F59E0B;
+              background: #FBBF24;
+              color: #92400E;
+              font-weight: 600;
+              font-size: 13px;
+              cursor: pointer;
+            ">
+      ⏸️ Pause subscription
+    </button>
+  </div>
         </div>
 
         <!-- Upgrade Banner -->
@@ -641,7 +662,101 @@ async function loadStravaStatus() {
         }
     }
         
-        document.addEventListener('DOMContentLoaded', async function() {
+    // Load Basic subscription status and configure pause button
+async function loadSubscriptionDetailsBasic() {
+  try {
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+      console.warn('No auth token; cannot load subscription details');
+      return;
+    }
+
+    const res = await fetch('/api/user/access-status', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!res.ok) {
+      console.error('access-status error on basic dashboard', res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const user = data.user || {};
+
+    const status = (user.subscriptionStatus || 'free').toLowerCase();
+    const plan = (user.currentPlan || 'free').toLowerCase();
+
+    // Write status into a hidden element so handlePauseOrResume() can read it
+    const statusEl = document.getElementById('sub-status');
+    if (statusEl) {
+      statusEl.textContent = status === 'active'
+        ? 'Active'
+        : status === 'paused'
+        ? 'Paused'
+        : status === 'trial'
+        ? 'Trial'
+        : 'Free';
+    }
+
+    const billingEl = document.getElementById('basic-next-billing-date');
+    if (billingEl && user.subscriptionEndDate && plan === 'basic' && status !== 'trial') {
+      const endDate = user.subscriptionEndDate._seconds
+        ? new Date(user.subscriptionEndDate._seconds * 1000)
+        : new Date(user.subscriptionEndDate);
+
+      if (!Number.isNaN(endDate.getTime())) {
+        billingEl.textContent = endDate.toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+        // store raw timestamp for the guard
+        billingEl.dataset.billingTs = endDate.getTime().toString();
+      } else {
+        billingEl.textContent = 'N/A';
+        delete billingEl.dataset.billingTs;
+      }
+    } else if (billingEl) {
+      billingEl.textContent = 'N/A';
+      delete billingEl.dataset.billingTs;
+    }
+
+    const pauseBtn = document.querySelector('.btn-pause');
+
+    if (!pauseBtn) return;
+
+    // Hide pause button for non-basic or trial/free users
+    if (plan !== 'basic' || status === 'trial' || status === 'free') {
+      pauseBtn.style.display = 'none';
+      return;
+    }
+
+    // Show / style based on status
+    pauseBtn.style.display = 'inline-block';
+
+    if (status === 'paused') {
+      pauseBtn.textContent = '▶️ Resume subscription';
+      pauseBtn.style.background = '#10B981';
+      pauseBtn.style.borderColor = '#059669';
+      pauseBtn.style.color = 'white';
+    } else if (status === 'active') {
+      pauseBtn.textContent = '⏸️ Pause subscription';
+      pauseBtn.style.background = '#FBBF24';
+      pauseBtn.style.borderColor = '#F59E0B';
+      pauseBtn.style.color = '#92400E';
+    } else {
+      pauseBtn.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('loadSubscriptionDetailsBasic error', error);
+  }
+}
+        
+    
+    document.addEventListener('DOMContentLoaded', async function() {
             console.log('Loading Basic Coach dashboard widgets...');
             
             const urlParams = new URLSearchParams(window.location.search);
@@ -659,6 +774,8 @@ async function loadStravaStatus() {
 
             // ✅ CHECK RACE COACH TRIAL ELIGIBILITY (NEW)
             await checkRaceTrialEligibility();
+
+            await loadSubscriptionDetailsBasic();
             
             window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
             window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
@@ -739,6 +856,121 @@ async function loadStravaStatus() {
                 showNotification('❌ Failed to start trial. Please try again.', 'error');
             }
         }
+
+        async function handlePauseOrResume() {
+  try {
+    const statusEl = document.getElementById('sub-status');
+    const statusText = statusEl?.textContent?.trim().toLowerCase();
+
+    // Do nothing for trial/free
+    if (statusText === 'trial' || statusText === 'free') {
+      alert('Pause is only available for paid subscriptions.');
+      return;
+    }
+
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+
+    const billingEl = document.getElementById('basic-next-billing-date');
+    const rawTs = billingEl?.dataset?.billingTs;
+
+    if (rawTs) {
+      const billingAt = new Date(parseInt(rawTs, 10));
+      const now = new Date();
+      const hoursUntilBilling =
+        (billingAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursUntilBilling <= 24) {
+        if (typeof showNotification === 'function') {
+          showNotification(
+            'Your Basic Coach plan renews in less than 24 hours. Pausing is only allowed earlier in the cycle or after renewal.',
+            'warning'
+          );
+        } else {
+          alert(
+            'Your Basic Coach plan renews in less than 24 hours.\n\n' +
+            'Pausing is only allowed earlier in the cycle or after the next renewal.'
+          );
+        }
+        return;
+      }
+    }
+
+    if (statusText === 'paused') {
+      // Resume
+      const confirmed = confirm('Resume your subscription now?');
+      if (!confirmed) return;
+
+      const res = await fetch('/api/subscription/resume', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Failed to resume');
+
+      alert('Your subscription has been resumed.');
+      loadSubscriptionDetails(); // refresh card
+      return;
+    }
+
+    // Otherwise, status is active → ask for pause duration
+    const input = prompt(
+      'Pause your subscription for how many days? (max 60)\n\n' +
+      'Recommended options:\n' +
+      '7 – Short injury / busy week\n' +
+      '14 – Moderate break\n' +
+      '30 – Longer recovery'
+    );
+    if (!input) return;
+
+    const days = parseInt(input, 10);
+    if (Number.isNaN(days) || days <= 0) {
+      alert('Please enter a valid number of days.');
+      return;
+    }
+
+    const reason = prompt(
+      'Optional: Why are you pausing?\n' +
+      '(e.g., injury, travel, illness)'
+    ) || 'Not specified';
+
+    const res = await fetch('/api/subscription/pause', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ durationDays: days, reason })
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Failed to pause');
+
+    alert(`Your subscription is paused until ${new Date(data.pauseEndDate).toLocaleDateString('en-IN')}.`);
+    loadSubscriptionDetails();
+  } catch (error) {
+  console.error('Pause/resume error:', error);
+  const msg =
+    error?.message ||
+    (error?.responseMessage) ||
+    'Something went wrong while updating your subscription.';
+
+  // Prefer in-app toast if available
+  if (typeof showNotification === 'function') {
+    showNotification(msg, 'error');
+  } else {
+    alert(msg);
+  }
+}
+}
+
         
         // ✅ 4. HELPER FUNCTIONS
         function hideElement(selector) {

@@ -5,8 +5,191 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Subscription - ZoneTrain</title>
     <style>
-        /* Keep all your existing styles */
-    </style>
+  /* Page background and typography */
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f3f4f6;
+    color: #111827;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 80px auto 40px;
+    padding: 0 16px;
+  }
+
+  .subscription-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px 20px 28px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10);
+    border: 1px solid #e5e7eb;
+  }
+
+  .subscription-card h1 {
+    font-size: 24px;
+    margin: 0 0 4px;
+    color: #111827;
+  }
+
+  .subscription-card .subtitle {
+    margin: 0 0 16px;
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  /* Plan badge at top */
+  .plan-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: #eef2ff;
+    color: #4f46e5;
+    margin-bottom: 16px;
+  }
+
+  /* Status text colour is still controlled inline from JS,
+     this just keeps weight consistent */
+  .status-text {
+    font-weight: 600;
+  }
+
+  /* Info grid holding status / price / billing / pause summary */
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px 18px;
+    margin-top: 8px;
+  }
+
+  .info-item {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+  }
+
+  .info-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+    margin-bottom: 4px;
+  }
+
+  .info-value {
+    font-size: 14px;
+    color: #111827;
+  }
+
+  /* Pause summary highlight */
+  .info-item.pause-summary {
+    background: #fffbeb;
+    border-color: #fbbf24;
+  }
+
+  .info-item.pause-summary .info-label {
+    color: #92400e;
+  }
+
+  .info-item.pause-summary .info-value {
+    color: #92400e;
+  }
+
+  .info-item.pause-summary .info-value strong {
+    font-weight: 700;
+  }
+
+  /* Section below grid: renewal / actions */
+  .section-divider {
+    margin: 20px 0 16px;
+    border: none;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6b7280;
+    margin-bottom: 8px;
+  }
+
+  /* Buttons on subscription page */
+  .sub-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .sub-btn-primary {
+    background: #4f46e5;
+    border-color: #4338ca;
+    color: #ffffff;
+    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
+  }
+
+  .sub-btn-primary:hover {
+    background: #4338ca;
+  }
+
+  .sub-btn-secondary {
+    background: #ffffff;
+    border-color: #d1d5db;
+    color: #374151;
+  }
+
+  .sub-btn-secondary:hover {
+    background: #f3f4f6;
+  }
+
+  /* Cancelled notice at top, if you show it */
+  .cancelled-notice {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .cancelled-notice span.icon {
+    font-size: 16px;
+    line-height: 1;
+    margin-top: 1px;
+  }
+
+  @media (max-width: 640px) {
+    .container {
+      margin-top: 72px;
+    }
+
+    .subscription-card {
+      padding: 20px 16px 24px;
+    }
+  }
+</style>
+
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="/js/payment.js"></script>
 </head>
@@ -58,6 +241,8 @@
             }
         }
 
+        
+
         // ============= RENDER CARD (TRIAL-AWARE) =============
 
         function renderSubscriptionCard(sub) {
@@ -98,6 +283,36 @@
                 statusColor = '#f59e0b';
                 statusText = 'Past Due';
             }
+
+            // Pause summary (only when paused)
+let pauseSummaryHTML = '';
+
+if (sub.status === 'paused') {
+  const reason = sub.pauseReason || 'Not specified';
+
+  // Optional: show when the pause ends if you sent pauseEndDate
+  let endsText = '';
+  if (sub.pauseEndDate) {
+    const end = new Date(sub.pauseEndDate._seconds ? sub.pauseEndDate._seconds * 1000 : sub.pauseEndDate);
+    if (!Number.isNaN(end.getTime())) {
+      endsText = ` • Pause ends on ${end.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      })}`;
+    }
+  }
+
+  pauseSummaryHTML = `
+    <div class="info-item pause-summary">
+      <div class="info-label">Pause summary</div>
+      <div class="info-value">
+        You paused because: <strong>${reason}</strong>${endsText}
+      </div>
+    </div>
+  `;
+}
+
 
             // Price label
             let priceHTML = '';
@@ -308,22 +523,21 @@
             }
 
             content.innerHTML = `
-                ${cancelledNotice}
+  ${cancelledNotice}
+  <div class="plan-badge ${planClass}">${planName}${isTrial ? ' Trial' : ''}</div>
 
-                <div class="plan-badge ${planClass}">${planName}${isTrial ? ' – Trial' : ''}</div>
+  <div class="info-grid">
+    <div class="info-item">
+      <div class="info-label">Status</div>
+      <div class="info-value" style="color: ${statusColor}">${statusText}</div>
+    </div>
 
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="info-label">Status</div>
-                        <div class="info-value" style="color: ${statusColor};">
-                            ${statusText}
-                        </div>
-                    </div>
-                    ${priceHTML}
-                    ${nextBillingHTML}
-                </div>
+    ${pauseSummaryHTML}
+    ${priceHTML}
+    ${nextBillingHTML}
+  </div>
 
-                ${renewalHTML}
+  ${renewalHTML}
 
                 <div class="features">
                     <h3 style="margin-bottom: 15px; color: #1f2937;">Your Features</h3>

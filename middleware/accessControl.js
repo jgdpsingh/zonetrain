@@ -160,38 +160,53 @@ function authenticateToken(req, res, next) {
     });
 }
 
-
 /**
  * Middleware to check if user has required subscription plan
  * @param {string|string[]} requiredPlans - Single plan or array of allowed plans
  */
 function requirePlan(requiredPlans) {
-    return (req, res, next) => {
-        const userPlan = req.user?.subscriptionStatus || 'free';
-        
-        // Convert to array if single plan
-        const allowedPlans = Array.isArray(requiredPlans) ? requiredPlans : [requiredPlans];
-        
-        if (allowedPlans.includes(userPlan)) {
-            console.log(`✅ User has required plan: ${userPlan}`);
-            next();
-        } else {
-            console.log(`❌ Access denied. Required: ${allowedPlans.join(' or ')}, User has: ${userPlan}`);
-            
-            if (req.path.startsWith('/api/')) {
-                return res.status(403).json({
-                    success: false,
-                    message: `This feature requires ${allowedPlans.join(' or ')} plan`,
-                    code: 'INSUFFICIENT_PLAN',
-                    userPlan: userPlan,
-                    requiredPlans: allowedPlans
-                });
-            } else {
-                return res.redirect('/plans?upgrade=required');
-            }
-        }
-    };
+  return (req, res, next) => {
+    const userStatus = req.user?.subscriptionStatus || 'free';
+    
+    // Convert to array if single plan
+    const allowedPlans = Array.isArray(requiredPlans) ? requiredPlans : [requiredPlans];
+
+    // 🔒 Block paused subscriptions explicitly
+    if (userStatus === 'paused') {
+      console.log('❌ Access denied: Subscription is paused');
+      if (req.path.startsWith('/api/')) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your subscription is currently paused. Resume it to access this feature.',
+          code: 'SUBSCRIPTION_PAUSED',
+          userPlan: userStatus
+        });
+      } else {
+        return res.redirect('/dashboard?error=subscription_paused');
+      }
+    }
+
+    // Check if user has one of the required plans
+    if (allowedPlans.includes(userStatus)) {
+      console.log(`✅ User has required plan: ${userStatus}`);
+      next();
+    } else {
+      console.log(`❌ Access denied. Required: ${allowedPlans.join(' or ')}, User has: ${userStatus}`);
+      if (req.path.startsWith('/api/')) {
+        return res.status(403).json({
+          success: false,
+          message: `This feature requires ${allowedPlans.join(' or ')} plan`,
+          code: 'INSUFFICIENT_PLAN',
+          userPlan: userStatus,
+          requiredPlans: allowedPlans
+        });
+      } else {
+        return res.redirect('/plans?upgrade=required');
+      }
+    }
+  };
 }
+
 
 /**
  * Middleware to check if user is an admin

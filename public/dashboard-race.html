@@ -583,6 +583,13 @@ body {
                 <button class="btn-action" onclick="handleDowngrade()" style="background: #dc2626;">
     Downgrade to Basic Coach
 </button>
+<!-- Only show this button when not in trial; JS will handle hiding in trial -->
+<button class="btn-action btn-pause"
+        onclick="handlePauseOrResume()"
+        style="background: #FBBF24; border-color: #F59E0B; color: #92400E; margin-right: 10px;">
+  ⏸️ Pause Subscription
+</button>
+
 
             </div>
         </div>
@@ -1167,7 +1174,7 @@ body {
     }
 
     // Load subscription details from API
-    async function loadSubscriptionDetails() {
+   async function loadSubscriptionDetails() {
     const token = localStorage.getItem('userToken');
     if (!token) return;
 
@@ -1193,20 +1200,26 @@ body {
         const billingCycleEl  = document.getElementById('billing-cycle');
         const amountEl        = document.getElementById('billing-amount');
         const manageBtn       = document.querySelector('.btn-manage');
-        const downgradeBtn    = document.querySelector('.btn-downgrade, .btn-action');
+        const subscriptionCard = document.querySelector('.subscription-card');
+        const downgradeBtn = subscriptionCard
+            ? subscriptionCard.querySelector('.btn-action')
+            : null;
+        const pauseBtn = subscriptionCard
+            ? subscriptionCard.querySelector('.btn-pause')
+            : null;
 
         // Helper to safely convert Firestore Timestamp / ISO string
         const toJsDate = (value) => {
             if (!value) return null;
-            if (value.toDate) return value.toDate();          // Firestore Timestamp
+            if (value.toDate) return value.toDate();                  // Firestore Timestamp
             if (value.seconds) return new Date(value.seconds * 1000); // {seconds, nanoseconds}
-            return new Date(value);                           // ISO string or ms
+            return new Date(value);                                   // ISO string or ms
         };
 
-        const isTrial  = user.subscriptionStatus === 'trial';
-        const plan     = user.currentPlan || 'free';
+        const isTrial = user.subscriptionStatus === 'trial';
+        const plan    = user.currentPlan || 'free';
 
-        // 🔹 TRIAL STATE (what you want for Race trial)
+        // 🔹 TRIAL STATE (Race trial)
         if (isTrial && plan === 'race') {
             console.log('Race trial detected in dashboard:', user);
 
@@ -1236,9 +1249,15 @@ body {
                 amountEl.textContent = '₹0';
             }
 
-            // Buttons – hide downgrade, turn "Manage" into upgrade CTA
+            // Buttons – hide & disable downgrade, turn "Manage" into upgrade CTA
             if (downgradeBtn) {
                 downgradeBtn.style.display = 'none';
+                downgradeBtn.disabled = true;
+                downgradeBtn.removeAttribute('onclick');
+            }
+            if (pauseBtn) {
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
             }
             if (manageBtn) {
                 manageBtn.textContent = 'Upgrade to paid plan';
@@ -1258,27 +1277,33 @@ body {
                 user.subscriptionStatus.slice(1);
             statusEl.textContent = status;
             statusEl.style.color =
-                user.subscriptionStatus === 'active' ? '#10b981' :
-                user.subscriptionStatus === 'cancelled' ? '#ef4444' :
-                user.subscriptionStatus === 'expired' ? '#ef4444' :
+                user.subscriptionStatus === 'active'   ? '#10b981' :
+                user.subscriptionStatus === 'cancelled'? '#ef4444' :
+                user.subscriptionStatus === 'expired'  ? '#ef4444' :
+                user.subscriptionStatus === 'paused'   ? '#f59e0b' :
                 '#6b7280';
         }
 
-        // Subscription end date → "Next Billing" / days left (only if backend sends it)
+        // Subscription end date → "Next Billing"
         if (user.subscriptionEndDate && nextBillingEl) {
-            const endDate = toJsDate(user.subscriptionEndDate);
-            if (endDate && !Number.isNaN(endDate.getTime())) {
-                nextBillingEl.textContent = endDate.toLocaleDateString(
-                    'en-IN',
-                    { day: 'numeric', month: 'short', year: 'numeric' }
-                );
-            } else {
-                nextBillingEl.textContent = 'N/A';
-            }
-        } else if (nextBillingEl && !isTrial) {
-            // For free users with no end date
-            nextBillingEl.textContent = 'N/A';
-        }
+  const endDate = toJsDate(user.subscriptionEndDate);
+  if (endDate && !Number.isNaN(endDate.getTime())) {
+    nextBillingEl.textContent = endDate.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+    // 🔴 store raw timestamp so front-end can enforce rules
+    nextBillingEl.dataset.billingTs = endDate.getTime().toString();
+  } else {
+    nextBillingEl.textContent = 'N/A';
+    delete nextBillingEl.dataset.billingTs;
+  }
+} else if (nextBillingEl && !isTrial) {
+  nextBillingEl.textContent = 'N/A';
+  delete nextBillingEl.dataset.billingTs;
+}
+
 
         // Billing cycle
         if (user.billingCycle && billingCycleEl) {
@@ -1293,37 +1318,94 @@ body {
             amountEl.textContent = `₹${user.lastPaymentAmount}`;
         }
 
+        // 🔹 Pause / Resume button label & visibility
+        if (pauseBtn) {
+            // Hide for free or non‑coach plans
+            if (plan === 'free' || !['basic', 'race'].includes(plan)) {
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
+            } else if (user.subscriptionStatus === 'active') {
+                // Show "Pause" for active paid plans
+                pauseBtn.style.display = 'inline-block';
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = '⏸️ Pause Subscription';
+                pauseBtn.style.background = '#FBBF24';
+                pauseBtn.style.borderColor = '#F59E0B';
+                pauseBtn.style.color = '#92400E';
+            } else if (user.subscriptionStatus === 'paused') {
+                // Show "Resume" when paused
+                pauseBtn.style.display = 'inline-block';
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = '▶️ Resume Subscription';
+                pauseBtn.style.background = '#10B981';
+                pauseBtn.style.borderColor = '#059669';
+                pauseBtn.style.color = '#FFFFFF';
+            } else {
+                // Cancelled / expired / trial etc.
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
+            }
+        }
+
     } catch (error) {
         console.error('Failed to load subscription in Race dashboard:', error);
         const nextBillingEl = document.getElementById('next-billing-date');
         if (nextBillingEl) nextBillingEl.textContent = 'N/A';
     }
 }
-    // Downgrade confirmation
+
+// Downgrade confirmation
     // REPLACE the existing confirmDowngrade function with this
 async function handleDowngrade() {
+    // Extra safety: do nothing if user is on a trial
+    const statusText = document
+        .getElementById('sub-status')
+        ?.textContent?.trim()
+        .toLowerCase();
+
+    if (statusText === 'trial') {
+        alert(
+            'Downgrade is only available for paid subscriptions. ' +
+            'Your Race trial is free and will end automatically.'
+        );
+        return;
+    }
+
     const modal = document.createElement('div');
+    modal.className = 'downgrade-overlay';
     modal.style.cssText = `
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        inset: 0;
         background: rgba(0,0,0,0.7);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10000;
     `;
-    
+
     modal.innerHTML = `
-        <div style="background: white; padding: 40px; border-radius: 16px; max-width: 500px; margin: 20px;">
-            <h2 style="color: #DC2626; margin-bottom: 20px;">⚠️ Downgrade to Basic Coach?</h2>
+        <div class="downgrade-modal" style="
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            max-width: 500px;
+            margin: 20px;
+        ">
+            <h2 style="color: #DC2626; margin-bottom: 20px;">
+                ⚠️ Downgrade to Basic Coach?
+            </h2>
             <p style="color: #6B7280; margin-bottom: 15px; line-height: 1.6;">
                 This downgrade will take effect from your next billing date.
             </p>
-            <div style="background: #FEF3C2; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                <h3 style="color: #92400E; margin-bottom: 10px; font-size: 14px;">You will lose access to:</h3>
+            <div style="
+                background: #FEF3C2;
+                padding: 20px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+            ">
+                <h3 style="color: #92400E; margin-bottom: 10px; font-size: 14px;">
+                    You will lose access to:
+                </h3>
                 <ul style="color: #92400E; margin-left: 20px; line-height: 1.8;">
                     <li>Race-specific training plans</li>
                     <li>Advanced performance analytics</li>
@@ -1335,20 +1417,70 @@ async function handleDowngrade() {
             <p style="color: #10B981; font-weight: 600; margin-bottom: 20px;">
                 ✅ You'll get credited days added to your new plan!
             </p>
-            <div style="display: flex; gap: 15px;">
-                <button onclick="this.closest('div').parentElement.remove()" 
-                    style="flex: 1; padding: 12px; border: 2px solid #DC2626; background: white; color: #DC2626; border-radius: 8px; cursor: pointer; font-weight: 600;">
+            <div class="downgrade-actions" style="display: flex; gap: 15px;">
+                <button type="button"
+                    class="btn-cancel-downgrade"
+                    style="
+                        flex: 1;
+                        padding: 12px;
+                        border: 2px solid #DC2626;
+                        background: white;
+                        color: #DC2626;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    ">
                     Cancel
                 </button>
-                <button onclick="proceedWithDowngrade()" 
-                    style="flex: 1; padding: 12px; border: none; background: #DC2626; color: white; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                <button type="button"
+                    class="btn-confirm-downgrade"
+                    style="
+                        flex: 1;
+                        padding: 12px;
+                        border: none;
+                        background: #DC2626;
+                        color: white;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    ">
                     Confirm Downgrade
                 </button>
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+
+    const closeModal = () => {
+        modal.remove();
+        document.body.style.overflow = '';
+    };
+
+    const cancelBtn  = modal.querySelector('.btn-cancel-downgrade');
+    const confirmBtn = modal.querySelector('.btn-confirm-downgrade');
+
+    // Close on Cancel
+    cancelBtn.addEventListener('click', closeModal);
+
+    // Close when clicking outside the dialog
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+
+    // Confirm → close modal, then run existing downgrade flow
+    confirmBtn.addEventListener('click', async () => {
+        closeModal();
+        try {
+            await proceedWithDowngrade();  // this should call downgradeSubscription('basic') internally
+        } catch (error) {
+            console.error('Downgrade error:', error);
+            alert('Failed to process downgrade. Please try again.');
+        }
+    });
 }
 
 async function proceedWithDowngrade() {
@@ -1366,6 +1498,121 @@ async function proceedWithDowngrade() {
         showNotification('Failed to downgrade. Please try again.', 'error');
     }
 }
+
+async function handlePauseOrResume() {
+  try {
+    const statusEl = document.getElementById('sub-status');
+    const statusText = statusEl?.textContent?.trim().toLowerCase();
+
+    // Do nothing for trial/free
+    if (statusText === 'trial' || statusText === 'free') {
+      alert('Pause is only available for paid subscriptions.');
+      return;
+    }
+
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+
+    const nextBillingEl = document.getElementById('next-billing-date');
+    const rawTs = nextBillingEl?.dataset?.billingTs;
+
+    if (rawTs) {
+      const billingAt = new Date(parseInt(rawTs, 10));
+      const now = new Date();
+      const hoursUntilBilling =
+        (billingAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursUntilBilling <= 24) {
+        // Use your toast if available
+        if (typeof showNotification === 'function') {
+          showNotification(
+            'Your plan renews in less than 24 hours. Pausing is only allowed earlier in the cycle or after renewal.',
+            'warning'
+          );
+        } else {
+          alert(
+            'Your plan renews in less than 24 hours.\n\n' +
+            'Pausing is only allowed earlier in the cycle or after the next renewal.'
+          );
+        }
+        return;
+      }
+    }
+
+    if (statusText === 'paused') {
+      // Resume
+      const confirmed = confirm('Resume your subscription now?');
+      if (!confirmed) return;
+
+      const res = await fetch('/api/subscription/resume', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Failed to resume');
+
+      alert('Your subscription has been resumed.');
+      loadSubscriptionDetails(); // refresh card
+      return;
+    }
+
+    // Otherwise, status is active → ask for pause duration
+    const input = prompt(
+      'Pause your subscription for how many days? (max 60)\n\n' +
+      'Recommended options:\n' +
+      '7 – Short injury / busy week\n' +
+      '14 – Moderate break\n' +
+      '30 – Longer recovery'
+    );
+    if (!input) return;
+
+    const days = parseInt(input, 10);
+    if (Number.isNaN(days) || days <= 0) {
+      alert('Please enter a valid number of days.');
+      return;
+    }
+
+    const reason = prompt(
+      'Optional: Why are you pausing?\n' +
+      '(e.g., injury, travel, illness)'
+    ) || 'Not specified';
+
+    const res = await fetch('/api/subscription/pause', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ durationDays: days, reason })
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Failed to pause');
+
+    alert(`Your subscription is paused until ${new Date(data.pauseEndDate).toLocaleDateString('en-IN')}.`);
+    loadSubscriptionDetails();
+  } catch (error) {
+  console.error('Pause/resume error:', error);
+  const msg =
+    error?.message ||
+    (error?.responseMessage) ||
+    'Something went wrong while updating your subscription.';
+
+  // Prefer in-app toast if available
+  if (typeof showNotification === 'function') {
+    showNotification(msg, 'error');
+  } else {
+    alert(msg);
+  }
+}}
+
 
 </script>
 
