@@ -27,6 +27,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const appEnv = process.env.APP_ENV || 'development';
+const isRealProd = appEnv === 'production';
 
 
 
@@ -36,29 +38,29 @@ const nodemailer = require('nodemailer'); // You'll need: npm install nodemailer
 // Optional security middleware
 const helmet = require('helmet');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per 15 minutes
+  max: 100,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV !== 'production', // Disable in dev
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress, // Fallback for rate limiting
+  skip: (req) => process.env.NODE_ENV !== 'production',
+  // Use helper to handle IPv4 + IPv6 correctly
+  keyGenerator: (req, res) => ipKeyGenerator(req),
 });
 
 // Stricter limiter for auth endpoints (prevent brute force)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Only 5 login/signup attempts
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: 'Too many login/signup attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV !== 'production',
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress,
+  keyGenerator: (req, res) => ipKeyGenerator(req),
 });
-
 
 const port = process.env.PORT || 3000;
 
@@ -138,7 +140,7 @@ if (process.env.JWT_SECRET && (
 }
 
 // Check production-specific requirements
-if (process.env.NODE_ENV === 'production') {
+if (isRealProd) {
   console.log('🚀 Production mode detected - enforcing strict validation');
   
   if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
