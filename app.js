@@ -12,7 +12,7 @@ const { db, auth, admin } = require('./public/js/firebase-admin');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
-const db = admin.firestore();
+
 const FileStore = require('session-file-store')(session);
 const axios = require('axios');
 const path = require('path');
