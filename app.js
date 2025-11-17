@@ -805,15 +805,6 @@ const baseInsight = insights.length > 0
             border-color: #1877F2;
         }
 
-        .btn-phone {
-            border-color: #10B981;
-        }
-
-        .btn-phone:hover {
-            background: #ECFDF5;
-            border-color: #10B981;
-        }
-
         .divider {
             text-align: center;
             margin: 25px 0;
@@ -974,13 +965,6 @@ const baseInsight = insights.length > 0
             Continue with Facebook
         </a>
 
-        <a href="/phone-login" class="btn-social btn-phone">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            Continue with Phone
-        </a>
-
         <div class="divider"><span>OR</span></div>
 
         <!-- Email/Password Login Form -->
@@ -1040,7 +1024,6 @@ window.addEventListener('DOMContentLoaded', function() {
         'google-failed': 'Google login failed. Please try again.',
         'google-no-email': 'Google did not provide your email. Please allow email access or use another login method.',
         'google-callback-failed': 'Google login callback failed. Please try again.',
-        'phone-failed': 'Phone authentication failed. Please try again.',
         'session-expired': 'Your session expired. Please login again.',
         'auth-failed': 'Authentication failed. Please try again.',
         'oauth_failed': 'Social login failed. Please try again or use email/password.',
@@ -1469,15 +1452,6 @@ app.get('/signup', apiLimiter, (req, res) => {
             border-color: #1877F2;
         }
 
-        .btn-phone {
-            border-color: #10B981;
-        }
-
-        .btn-phone:hover {
-            background: #ECFDF5;
-            border-color: #10B981;
-        }
-
         .login-section {
             text-align: center;
             margin-top: 25px;
@@ -1607,13 +1581,6 @@ app.get('/signup', apiLimiter, (req, res) => {
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
             </svg>
             Continue with Facebook
-        </a>
-
-        <a href="/phone-login" class="btn-social btn-phone">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2">
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-            </svg>
-            Continue with Phone
         </a>
 
         <div class="login-section">
@@ -2063,9 +2030,9 @@ const plan = hasPlan ? planSnapshot.docs[0].data() : null;
 });
 
 // Phone login page route
-app.get('/phone-login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'phone-login.html'));
-});
+//app.get('/phone-login', (req, res) => {
+    //res.sendFile(path.join(__dirname, 'public', 'phone-login.html'));
+//});
 
 
 // Helper function
@@ -4688,7 +4655,7 @@ console.log('✅ WhatsApp daily workout scheduler initialized');
 
 // Phone authentication endpoint
 // Phone Authentication Endpoint - COMPLETE VERSION
-app.post('/api/auth/phone-login', async (req, res) => {
+/*app.post('/api/auth/phone-login', async (req, res) => {
     try {
         const { phoneNumber, firebaseUid, idToken } = req.body;
 
@@ -4817,7 +4784,7 @@ app.post('/api/auth/phone-login', async (req, res) => {
             message: 'Phone authentication failed: ' + error.message
         });
     }
-});
+});*/
 
 
 const WhatsAppService = require('./services/whatsappService');
