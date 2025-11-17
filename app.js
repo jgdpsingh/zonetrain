@@ -7,7 +7,7 @@ const { AIService } = require('./services/aiService');
 const aiService = new AIService();
 
 
-const { db, auth, admin } = require('./public/js/firebase-admin');
+const { db, auth, admin } = require('./lib/firebase-admin');
 
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
