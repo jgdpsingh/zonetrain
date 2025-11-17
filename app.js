@@ -7,14 +7,7 @@ const { AIService } = require('./services/aiService');
 const aiService = new AIService();
 
 
-const admin = require('firebase-admin');
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  }),
-});
+const { db, auth, admin } = require('./public/js/firebase-admin');
 
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
