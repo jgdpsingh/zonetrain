@@ -55,7 +55,10 @@ const authLimiter = rateLimit({
   keyGenerator: (req, res) => ipKeyGenerator(req),
 });
 
+
+
 const port = process.env.PORT || 3000;
+
 // Near the top of app.js, after `const port = process.env.PORT || 3000`
 const appBaseUrl =
   process.env.WEB_ORIGIN || process.env.FRONTEND_URL || `http://localhost:${port}`;

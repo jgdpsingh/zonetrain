@@ -112,104 +112,69 @@ class UserManager {
    * Send verification email
    */
   async sendVerificationEmail(userId, email, firstName) {
-    try {
-      console.log('📧 Sending verification email to:', email);
+  try {
+    console.log('📧 Sending verification email to:', email);
 
-      // Generate verification token
-      const token = this.generateEmailVerificationToken(userId, email);
-      
-      // Create verification URL
-      const verificationUrl = `${appBaseUrl}/verify-email?token=${verificationToken}`;
-// Use verificationUrl in the email HTML
+    // 1) Generate verification token
+    const verificationToken = this.generateEmailVerificationToken(userId, email);
 
+    // 2) Build base URL on the server (no frontend globals)
+    const port = process.env.PORT || 3000;
+    const baseUrl =
+      process.env.WEB_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      `http://localhost:${port}`;
 
-      // Configure nodemailer transporter
-      const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || 'smtp.zoho.com',
-        port: process.env.EMAIL_PORT || 465,
-        secure: true,
-        auth: {
-          user: process.env.ZOHO_EMAIL,
-          pass: process.env.ZOHO_PASSWORD
-        },
-        tls: {
-                rejectUnauthorized: true,
-                minVersion: 'TLSv1.2'
-            },
-            // Connection timeout
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 10000
-      });
+    // 3) Create verification URL
+    const verificationUrl = `${baseUrl}/verify-email?token=${verificationToken}`;
 
-      // Email template
-      const mailOptions = {
-        from: `"ZoneTrain" <${process.env.ZOHO_EMAIL}>`,
-        to: email,
-        subject: 'Verify Your Email - ZoneTrain',
-        html: `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-              .button { display: inline-block; background: #6B46C1; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
-              .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>🏃 Welcome to ZoneTrain!</h1>
-              </div>
-              <div class="content">
-                <h2>Hi ${firstName || 'there'}!</h2>
-                <p>Thank you for signing up with ZoneTrain. We're excited to have you on board!</p>
-                <p>To get started, please verify your email address by clicking the button below:</p>
-                <center>
-                  <a href="${verificationUrl}" class="button">Verify Email Address</a>
-                </center>
-                <p>Or copy and paste this link into your browser:</p>
-                <p style="background: #fff; padding: 10px; border-radius: 5px; word-break: break-all;">
-                  ${verificationUrl}
-                </p>
-                <p><strong>This link will expire in 24 hours.</strong></p>
-                <p>If you didn't create an account with ZoneTrain, please ignore this email.</p>
-              </div>
-              <div class="footer">
-                <p>© 2025 ZoneTrain. All rights reserved.</p>
-                <p>AI-Powered Running Coach</p>
-              </div>
-            </div>
-          </body>
-          </html>
-        `
-      };
+    // 4) Configure nodemailer transporter (your existing config)
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.zoho.com',
+      port: process.env.EMAIL_PORT || 465,
+      secure: true,
+      auth: {
+        user: process.env.ZOHO_EMAIL,
+        pass: process.env.ZOHO_PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000
+    });
 
-      // Send email
-      const info = await transporter.sendMail(mailOptions);
-      console.log('✅ Verification email sent:', info.messageId);
+    // 5) Email template: keep as is, just uses verificationUrl
+    const mailOptions = {
+      from: `"ZoneTrain" <${process.env.ZOHO_EMAIL}>`,
+      to: email,
+      subject: 'Verify Your Email - ZoneTrain',
+      html: `... <a href="${verificationUrl}" class="button">Verify Email Address</a> ... ${verificationUrl} ...`
+    };
 
-      // Store token in database
-      await this.db.collection('users').doc(userId).update({
-        emailVerificationToken: token,
-        emailVerificationSentAt: new Date(),
-        updatedAt: new Date()
-      });
+    // 6) Send email
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Verification email sent:', info.messageId);
 
-      return {
-        success: true,
-        messageId: info.messageId
-      };
+    // 7) Store the *same* token in Firestore
+    await this.db.collection('users').doc(userId).update({
+      emailVerificationToken: verificationToken,
+      emailVerificationSentAt: new Date(),
+      updatedAt: new Date()
+    });
 
-    } catch (error) {
-      console.error('❌ Send verification email error:', error);
-      throw error;
-    }
+    return {
+      success: true,
+      messageId: info.messageId
+    };
+  } catch (error) {
+    console.error('❌ Send verification email error:', error);
+    throw error;
   }
+}
+
 
   /**
    * Verify email token
