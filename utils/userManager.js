@@ -119,7 +119,9 @@ class UserManager {
       const token = this.generateEmailVerificationToken(userId, email);
       
       // Create verification URL
-      const verificationUrl = `${process.env.APP_URL || 'http://localhost:3000'}/verify-email?token=${token}`;
+      const verificationUrl = `${appBaseUrl}/verify-email?token=${verificationToken}`;
+// Use verificationUrl in the email HTML
+
 
       // Configure nodemailer transporter
       const transporter = nodemailer.createTransport({

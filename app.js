@@ -56,6 +56,10 @@ const authLimiter = rateLimit({
 });
 
 const port = process.env.PORT || 3000;
+// Near the top of app.js, after `const port = process.env.PORT || 3000`
+const appBaseUrl =
+  process.env.WEB_ORIGIN || process.env.FRONTEND_URL || `http://localhost:${port}`;
+
 
 const cron = require('node-cron');
 
@@ -2811,11 +2815,34 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         console.log('🤖 Saving AI onboarding data for user:', userId, `(${planType})`);
         
         // Validate required fields
-        const requiredFields = ['age', 'gender', 'height', 'weight', 'pb_distance', 'pb_time', 
-                               'target_distance', 'target_date', 'weekly_mileage', 'running_days', 
-                               'intensity_preference'];
+        let requiredFields;
+
+    if (planType === 'basic') {
+      requiredFields = [
+        'age',
+        'gender',
+        'height',
+        'weight',
+        'sleep_quality',
+        'running_days',      // or target frequency / preferred days, based on your Basic form
+      ];
+    } else {
+      requiredFields = [
+        'age',
+        'gender',
+        'height',
+        'weight',
+        'pb_distance',
+        'pb_time',
+        'target_distance',
+        'target_date',
+        'weekly_mileage',
+        'running_days',
+        'intensity_preference',
+      ];
+    }
         
-        const missingFields = requiredFields.filter(field => !onboardingData[field]);
+        const missingFields = requiredFields.filter(f => !onboardingData[f]);
         
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -7844,8 +7871,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     });
 
     // Send reset email
-    const resetUrl = `http://localhost:${port}/reset-password?token=${resetToken}`;
-    
+    const resetUrl = `${appBaseUrl}/reset-password?token=${resetToken}`;    
 
 const mailOptions = {
   from: process.env.ZOHO_EMAIL,
