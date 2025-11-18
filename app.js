@@ -6075,31 +6075,35 @@ app.post('/api/auth/resend-verification', authenticateToken, async (req, res) =>
 });
 
 // Check email verification status
-app.get('/api/auth/email-verification-status', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const user = await userManager.getUserById(userId);
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            emailVerified: user.emailVerified || false,
-            email: user.email
-        });
-
-    } catch (error) {
-        console.error('Check verification status error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to check verification status'
-        });
+app.get('/apiauth/email-verification-status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const user = await userManager.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
+
+    const authProvider = user.authProvider || 'email';
+    const emailVerified = !!user.emailVerified;
+
+    let hoursRemaining = null;
+    if (authProvider === 'email' && !emailVerified && user.createdAt) {
+      const createdAt = user.createdAt.toDate ? user.createdAt.toDate() : new Date(user.createdAt);
+      const hoursSince = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+      hoursRemaining = Math.max(0, Math.floor(24 - hoursSince));
+    }
+
+    res.json({
+      success: true,
+      emailVerified,
+      email: user.email,
+      authProvider,
+      hoursRemaining
+    });
+  } catch (error) {
+    console.error('Check verification status error:', error);
+    res.status(500).json({ success: false, message: 'Failed to check verification status' });
+  }
 });
 
 
@@ -6108,8 +6112,6 @@ app.get('/api/auth/email-verification-status', authenticateToken, async (req, re
 app.get('/plans', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'plans.html'));
 });
-
-
 
 
 // Test route to check if everything is working

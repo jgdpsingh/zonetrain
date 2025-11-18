@@ -368,32 +368,40 @@
 
         async function checkVerificationStatus() {
             try {
-                const token = getCookie('userToken');
-                if (!token) return;
+                const token = localStorage.getItem('userToken');
+    if (!token) {
+      console.warn('No auth token found for verification check');
+      return;
+    }
 
                 const response = await fetch('/api/auth/email-verification-status', {
                     method: 'GET',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': 'Bearer ' + token,
                         'Content-Type': 'application/json'
                     }
                 });
                 
                 const data = await response.json();
                 
-                if (data.authProvider === 'email' && !data.emailVerified) {
-                    document.getElementById('verification-banner').style.display = 'block';
-                    
-                    if (data.hoursRemaining !== undefined) {
-                        hoursRemaining = data.hoursRemaining;
-                        updateCountdown();
-                        setInterval(updateCountdown, 60000);
-                    }
-                }
-            } catch (error) {
-                console.error('Check verification error:', error);
-            }
-        }
+                if (!data.emailVerified) {
+      document.getElementById('verification-banner').style.display = 'block';
+
+      const msg = document.getElementById('verification-message');
+      if (msg && data.email) {
+        msg.textContent = `Please verify ${data.email}. Your account will be blocked if not verified within 24 hours.`;
+      }
+
+      if (typeof data.hoursRemaining === 'number') {
+        hoursRemaining = data.hoursRemaining;
+        updateCountdown();
+        setInterval(updateCountdown, 60_000);
+      }
+    }
+  } catch (error) {
+    console.error('Check verification error:', error);
+  }
+}
 
         function updateCountdown() {
             if (hoursRemaining === null) return;
@@ -414,12 +422,17 @@
 
         async function resendVerification() {
             try {
-                const token = getCookie('userToken');
+                const token = localStorage.getItem('userToken');
+    if (!token) {
+      alert('Please log in again to resend the verification email.');
+      window.location.href = '/login';
+      return;
+    }
                 
                 const response = await fetch('/api/auth/resend-verification', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': 'Bearer ' + token,
                         'Content-Type': 'application/json'
                     }
                 });
