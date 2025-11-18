@@ -11,9 +11,9 @@ const { db, auth, admin } = require('./lib/firebase-admin');
 
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const session = require('express-session');
+//const session = require('express-session');
 
-const FileStore = require('session-file-store')(session);
+//const FileStore = require('session-file-store')(session);
 const axios = require('axios');
 const path = require('path');
 const bcrypt = require('bcrypt');
@@ -384,7 +384,7 @@ app.use(cors({
 
 
 // Session configuration - PRODUCTION READY with Firebase Firestore
-app.use(session({
+/*app.use(session({
   store: new FileStore({
     path: path.join(__dirname, 'sessions'), // Stored in your app directory
     ttl: 24 * 60 * 60, // 24 hours
@@ -400,7 +400,7 @@ app.use(session({
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000
   }
-}));
+}));*/
 
 // Apply limiters
 app.use('/api/', apiLimiter); // ← Your rate limiter (general API)
