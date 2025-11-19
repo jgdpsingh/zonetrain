@@ -11007,47 +11007,28 @@ app.get('/', optionalAuth, apiLimiter, (req, res) => {
 
 // Success page that transfers data to localStorage
 app.get('/auth/success', (req, res) => {
-  // ✅ Get token and redirect from URL query parameters (not session)
-  const token = req.query.token;
-  const redirect = req.query.redirect || '/dashboard';
-  
-  if (!token) {
-    console.error('❌ No token in URL query');
-    return res.redirect('/login?error=no_token');
-  }
-  const safeToken = String(token).replace(/"/g, '\\"');
-  const safeRedirect = String(redirect || '/dashboard').replace(/"/g, '\\"');
-  
-  console.log('✅ Auth success page loaded');
-  //console.log('   Token length:', token.length);
-  //console.log('   Redirect target:', redirect);
-
   const html = `
   <!DOCTYPE html>
   <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Login Successful - ZoneTrain</title>
     <style>
-      * {
+      body {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
-      }
-      
-      body { 
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;
         background: linear-gradient(135deg, #6B46C1, #8B5CF6);
-        color: white; 
+        color: white;
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 20px;
       }
-      
-      .container { 
+      .container {
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
         padding: 60px 40px;
@@ -11056,29 +11037,20 @@ app.get('/auth/success', (req, res) => {
         max-width: 500px;
         box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
       }
-      
-      .spinner { 
+      .spinner {
         font-size: 4rem;
         animation: bounce 1s ease-in-out infinite;
         margin-bottom: 20px;
       }
-      
-      @keyframes bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-20px); }
-      }
-      
       h2 {
         font-size: 2rem;
         margin-bottom: 15px;
         font-weight: 600;
       }
-      
       p {
         font-size: 1.1rem;
         opacity: 0.9;
       }
-      
       .progress-bar {
         width: 100%;
         height: 4px;
@@ -11087,19 +11059,12 @@ app.get('/auth/success', (req, res) => {
         margin-top: 30px;
         overflow: hidden;
       }
-      
       .progress-fill {
         height: 100%;
-        background: white;
+        background: #ffffff;
         animation: progress 1.5s ease-in-out;
         border-radius: 2px;
       }
-      
-      @keyframes progress {
-        0% { width: 0%; }
-        100% { width: 100%; }
-      }
-      
       .error-container {
         display: none;
         background: rgba(239, 68, 68, 0.1);
@@ -11108,11 +11073,10 @@ app.get('/auth/success', (req, res) => {
         border-radius: 12px;
         margin-top: 20px;
       }
-      
       .retry-btn {
         margin-top: 20px;
         padding: 12px 30px;
-        background: white;
+        background: #ffffff;
         color: #6B46C1;
         border: none;
         border-radius: 10px;
@@ -11122,10 +11086,13 @@ app.get('/auth/success', (req, res) => {
         text-decoration: none;
         display: inline-block;
       }
-      
-      .retry-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+      @keyframes progress {
+        0% { width: 0; }
+        100% { width: 100%; }
       }
     </style>
   </head>
@@ -11137,84 +11104,59 @@ app.get('/auth/success', (req, res) => {
       <div class="progress-bar">
         <div class="progress-fill"></div>
       </div>
-      
       <div class="error-container" id="errorContainer">
-        <p>⚠️ Something went wrong. Redirecting to login...</p>
+        <p>Something went wrong. Redirecting to login...</p>
         <a href="/login" class="retry-btn">Try Again</a>
       </div>
     </div>
 
     <script>
-      (function() {
+      (function () {
         try {
-          console.log('🎯 OAuth Success page loaded');
-          
-          // ✅ Get token from the page (passed via template literal)
-          const token = "${token.replace(/"/g, '\\"')}"; // Escape quotes
-          const redirect = "${redirect}";
-          
-          //console.log('📋 Token received:', {length: token.length,preview: token.substring(0, 30) + '...',redirect: redirect});
-          
-          // ✅ Validate token
-          if (!token || token === 'undefined' || token === 'null') {
-            throw new Error('No token provided');
+          console.log('OAuth Success page loaded');
+
+          const params = new URLSearchParams(window.location.search);
+          const token = params.get('token');
+          const redirect = params.get('redirect') || '/dashboard';
+
+          if (!token) {
+            throw new Error('No token provided in URL');
           }
-          
-          // ✅ Validate token structure
+
           const parts = token.split('.');
           if (parts.length !== 3) {
-            throw new Error('Invalid token structure (expected 3 parts, got ' + parts.length + ')');
+            throw new Error('Invalid token structure');
           }
-          
-          //console.log('✅ Token validation passed');
-          
-          // ✅ Store token in localStorage
+
+          // Save token
           localStorage.setItem('userToken', token);
-          //console.log('💾 Token saved to localStorage');
-          
-          // ✅ Decode token to extract user info
+          console.log('Token saved to localStorage, length:', token.length);
+
+          // Try to decode payload (best-effort, not critical)
           try {
-            const payload = JSON.parse(atob(parts[1]));
-            //console.log('📦 Token payload:', payload);
-            
-            // ✅ Store user info in localStorage
+            const payloadJson = atob(parts[1]);
+            const payload = JSON.parse(payloadJson);
+            console.log('Token payload:', payload);
+
             localStorage.setItem('userId', payload.userId || payload.id || '');
             localStorage.setItem('userEmail', payload.email || '');
             localStorage.setItem('currentPlan', payload.plan || 'free');
             localStorage.setItem('subscriptionStatus', payload.status || 'free');
-            
-            //console.log('✅ User data saved to localStorage:', {
-              userId: payload.userId,
-              email: payload.email,
-              plan: payload.plan || 'free'
-            });
-            
           } catch (decodeError) {
-            console.warn('⚠️ Could not decode token payload:', decodeError.message);
-            // Continue anyway - token is still valid for auth
+            console.warn('Could not decode token payload:', decodeError.message);
           }
-          
-          // ✅ Redirect to dashboard after short delay
-          console.log('🚀 Redirecting to:', redirect);
-          setTimeout(function() {
-            window.location.href = redirect;
+
+          // Redirect after short delay
+          setTimeout(function () {
+            console.log('Redirecting to', redirect);
+            window.location.href = redirect || '/dashboard';
           }, 1500);
-          
         } catch (error) {
-          console.error('❌ OAuth success page error:', error);
-          console.error('   Error message:', error.message);
-          
-          // Show error UI
-          document.querySelector('.spinner').style.display = 'none';
-          document.querySelector('h2').textContent = 'Oops!';
-          document.querySelector('p').textContent = error.message || 'Something went wrong.';
-          document.getElementById('errorContainer').style.display = 'block';
-          
-          // Clear any corrupted data
+          console.error('OAuth success page error:', error);
+          const errorBox = document.getElementById('errorContainer');
+          if (errorBox) errorBox.style.display = 'block';
           localStorage.clear();
-          
-          // Redirect to login after delay
-          setTimeout(function() {
+          setTimeout(function () {
             window.location.href = '/login?error=auth-failed';
           }, 5000);
         }
@@ -11223,9 +11165,9 @@ app.get('/auth/success', (req, res) => {
   </body>
   </html>
   `;
-  
   res.send(html);
 });
+
 
 // Forgot password page route
 app.get('/forgot-password', (req, res) => {
