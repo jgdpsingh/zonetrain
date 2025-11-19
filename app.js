@@ -11015,6 +11015,8 @@ app.get('/auth/success', (req, res) => {
     console.error('❌ No token in URL query');
     return res.redirect('/login?error=no_token');
   }
+  const safeToken = String(token).replace(/"/g, '\\"');
+  const safeRedirect = String(redirect || '/dashboard').replace(/"/g, '\\"');
   
   console.log('✅ Auth success page loaded');
   //console.log('   Token length:', token.length);
