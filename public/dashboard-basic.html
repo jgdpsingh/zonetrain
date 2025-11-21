@@ -599,6 +599,12 @@ async function loadStravaStatus() {
                             <h4>✅ Connected to Strava</h4>
                             <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
                             <p><strong>Last Sync:</strong> ${lastSyncDate}</p>
+                            <p style="font-size: 12px; margin-top: 6px;">
+      For details on how ZoneTrain uses your Strava data, see
+      <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
+        Strava Integration Help
+      </a>.
+    </p>
                             <p style="color: #16a34a; font-size: 13px; margin-top: 8px;">
                                 ✓ Your activities are automatically syncing
                             </p>
@@ -789,6 +795,8 @@ async function loadSubscriptionDetailsBasic() {
             await checkRaceTrialEligibility();
 
             await loadSubscriptionDetailsBasic();
+
+            await loadStravaStatus();
             
             window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
             window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');

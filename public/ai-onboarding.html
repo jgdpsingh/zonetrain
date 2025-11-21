@@ -903,14 +903,15 @@ window.connectStrava = function() {
         submitBtn.disabled = true;
 
         try {
-            const response = await fetch('/api/ai-onboarding', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(formData)
-            });
+    // IMPORTANT: absolute path with leading slash
+    const response = await fetch('/api/ai-onboarding', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(formData)
+    });
 
             const result = await response.json();
             console.log('📡 Response:', result);

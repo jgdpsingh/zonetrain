@@ -278,6 +278,9 @@ app.get('/dashboard-race', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard-race.html'));
 });
 
+app.get('/support/strava', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'support-strava.html'));
+});
 
 
 // Add this helper function
@@ -991,6 +994,7 @@ const baseInsight = insights.length > 0
         <div class="cookie-links">
             <a href="/privacy">Privacy Policy</a>
             <a href="/cookie-policy">Cookie Policy</a>
+            <a href="/support/strava">Strava Integration Help</a>
         </div>
     </div>
 
@@ -1558,6 +1562,7 @@ app.get('/signup', apiLimiter, (req, res) => {
                 By creating an account, you agree to our 
                 <a href="/terms" target="_blank">Terms of Service</a> and 
                 <a href="/privacy" target="_blank">Privacy Policy</a>.
+                <a href="/support/strava">Strava Integration Help</a>
             </div>
 
             <button type="submit" class="btn-submit">Create Account</button>
@@ -10828,6 +10833,7 @@ app.get('/', optionalAuth, apiLimiter, (req, res) => {
           <h3>Legal</h3>
           <p><a href="/privacy">Privacy Policy</a></p>
           <p><a href="/terms">Terms of Service</a></p>
+          <p><a href="/support/strava">Strava Integration Help</a></p>
         </div>
       </div>
     </footer>

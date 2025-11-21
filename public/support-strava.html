@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Strava Integration & Support – ZoneTrain</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      --deep-purple: #6B46C1;
+      --light-purple: #8B5CF6;
+      --bg: #F9FAFB;
+      --text-main: #111827;
+      --text-muted: #4B5563;
+      --border: #E5E7EB;
+      --card-bg: #FFFFFF;
+      --accent: #10B981;
+      --danger: #EF4444;
+      --warning: #F59E0B;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
+      min-height: 100vh;
+      padding: 30px 16px;
+      color: var(--text-main);
+    }
+
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      background: var(--bg);
+      border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+      overflow: hidden;
+    }
+
+    .page-header {
+      background: linear-gradient(135deg, #6B46C1 0%, #8B5CF6 100%);
+      color: #FFF;
+      padding: 28px 24px;
+    }
+
+    .page-header h1 {
+      font-size: 26px;
+      margin-bottom: 6px;
+    }
+
+    .page-header p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .tagline {
+      margin-top: 10px;
+      font-size: 13px;
+      opacity: 0.9;
+    }
+
+    .page-body {
+      padding: 24px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 22px 0 10px;
+      color: var(--text-main);
+    }
+
+    h3 {
+      font-size: 15px;
+      margin: 16px 0 8px;
+      color: var(--text-main);
+    }
+
+    p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    ul {
+      margin: 6px 0 14px 18px;
+    }
+
+    li {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 16px 18px;
+      margin-top: 14px;
+    }
+
+    .card.badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      border: none;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .endpoint-list code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      background: #111827;
+      color: #E5E7EB;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      margin-left: 4px;
+      background: #EFF6FF;
+      color: #1D4ED8;
+    }
+
+    .pill-danger {
+      background: #FEF2F2;
+      color: var(--danger);
+    }
+
+    .pill-warning {
+      background: #FFFBEB;
+      color: var(--warning);
+    }
+
+    .support-contact {
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .note {
+      border-left: 4px solid var(--warning);
+      padding-left: 10px;
+      margin-top: 6px;
+    }
+
+    .legal {
+      font-size: 11px;
+      margin-top: 4px;
+      color: #6B7280;
+    }
+
+    @media (max-width: 640px) {
+      .page-header {
+        padding: 20px 18px;
+      }
+      .page-body {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>Strava Integration & Support</h1>
+      <p>
+        This page explains how ZoneTrain connects to Strava, what data is used,
+        and how you can disconnect or delete that data at any time.
+      </p>
+      <p class="tagline">
+        ZoneTrain is an independent application and is not sponsored,
+        endorsed, or administered by Strava. “Strava” is a registered
+        trademark of Strava Inc.
+      </p>
+    </header>
+
+    <section class="page-body">
+      <section class="card">
+        <div class="card badge">Support & Compliance</div>
+        <p class="support-contact">
+          For any questions about Strava or your data in ZoneTrain,
+          contact: <span>support@zonetrain.fit</span>
+        </p>
+        <p class="small">
+          You can also use the in‑app Help / Feedback option from the dashboard
+          to reach the same support team.
+        </p>
+      </section>
+
+      <h2>1. What Strava data ZoneTrain accesses</h2>
+      <section class="card">
+        <p>When you connect Strava, ZoneTrain may access:</p>
+        <ul>
+          <li>Basic Strava profile information (name, profile image, athlete ID).</li>
+          <li>Recent running activities that you have permission to share.</li>
+          <li>Activity metrics such as distance, time, pace, heart rate and elevation, when available.</li>
+          <li>Non‑private training metadata needed to show your own history and progress charts.</li>
+        </ul>
+        <p>
+          ZoneTrain does <strong>not</strong> access your Strava login password
+          and cannot post activities or modify your Strava account unless you
+          explicitly grant those scopes during authorization.
+        </p>
+      </section>
+
+      <h2>2. How ZoneTrain uses your Strava data</h2>
+      <section class="card">
+        <p>Your Strava data in ZoneTrain is used only to provide features directly to you:</p>
+        <ul>
+          <li>Displaying your own recent runs, training load, and progress inside your dashboard.</li>
+          <li>Deriving your training‑zone distribution and suggested workouts for your account.</li>
+          <li>Optional HRV and performance summaries based on your own activities.</li>
+        </ul>
+        <p class="note small">
+          Strava’s current API terms do not allow third‑party apps to use Strava
+          data for analytics across users, customer‑insight generation, product
+          improvement, or any AI / machine‑learning models. ZoneTrain does not
+          use Strava‑sourced data for any such purposes and does not share it
+          with third parties.
+        </p>
+      </section>
+
+      <h2>3. How to connect and disconnect Strava</h2>
+      <section class="card">
+        <h3>Connect Strava</h3>
+        <ul>
+          <li>From your ZoneTrain dashboard, choose “Connect Strava” to start the secure authorization flow.</li>
+          <li>You will be redirected to Strava’s site to review permissions and approve or deny access.</li>
+          <li>After you approve, you are returned to ZoneTrain and your Strava connection is stored for your account.</li>
+        </ul>
+
+        <h3>Disconnect Strava</h3>
+        <ul>
+          <li>In ZoneTrain, use the “Disconnect Strava” button in your dashboard Strava card.</li>
+          <li>
+            This triggers a secure call to our
+            <code>POST /api/strava/disconnect</code>
+            endpoint, which revokes access and removes stored Strava tokens.
+          </li>
+          <li>
+            You can also revoke access from your Strava account’s connected
+            applications page; when you do this, ZoneTrain will stop receiving
+            new data and will remove remaining Strava tokens on the next check.
+          </li>
+        </ul>
+      </section>
+
+      <h2>4. Data retention, removal and your rights</h2>
+      <section class="card">
+        <h3>Retention</h3>
+        <ul>
+          <li>
+            Strava‑sourced activity details are stored only as long as needed
+            to power your personal ZoneTrain views and training features.
+          </li>
+          <li>
+            Cached copies of Strava data are refreshed frequently and are not
+            kept beyond the short periods permitted by Strava’s API policies.
+          </li>
+        </ul>
+
+        <h3>Remove Strava data from ZoneTrain</h3>
+        <ul>
+          <li>
+            Use the dashboard “Disconnect Strava” option to revoke access and
+            optionally delete all synced Strava activities stored in ZoneTrain
+            via <code>POST /api/strava/disconnect</code>.
+          </li>
+          <li>
+            If you want all Strava‑linked data and your ZoneTrain account
+            removed, use the in‑app “Delete my account” flow, which calls
+            <code>DELETE /api/account/delete</code> and permanently deletes
+            user records and linked Strava activity data.
+          </li>
+          <li>
+            Once we receive a valid deletion or disconnection request, Strava
+            data associated with your account is removed from our systems
+            within a short period and no later than the timelines required by
+            Strava’s API Agreement and applicable law.
+          </li>
+        </ul>
+
+        <h3>Remove or download data from Strava itself</h3>
+        <p class="small">
+          You can manage or delete activities and your account directly in your
+          Strava settings. Any deletions you perform in Strava will be honored
+          by ZoneTrain: removed activities will no longer appear in your
+          ZoneTrain views once our next sync completes.
+        </p>
+      </section>
+
+      <h2>5. Strava‑related API endpoints in ZoneTrain</h2>
+      <section class="card endpoint-list">
+        <h3>Authentication & connection</h3>
+        <ul>
+          <li><code>GET /connect-strava</code> – begins the Strava OAuth flow for logged‑in users.</li>
+          <li><code>GET /auth/strava</code> – convenience redirect into the same connection flow.</li>
+          <li><code>GET /auth/strava/callback</code> – OAuth callback used to exchange the Strava authorization code for an access token and refresh token.</li>
+          <li><code>POST /api/claim-strava-connection</code> – binds a pending Strava connection to the authenticated ZoneTrain user.</li>
+        </ul>
+
+        <h3>Connection status & sync</h3>
+        <ul>
+          <li><code>GET /api/strava/connection-status</code> – returns whether Strava is connected and last sync timestamps for the current user.</li>
+          <li><code>POST /api/strava/sync</code> – pulls the latest permitted Strava activities into the user’s ZoneTrain account.</li>
+          <li><code>GET /api/analytics/workout-history</code> – reads the user’s stored workout history (which may include activities originally sourced from Strava).</li>
+          <li><code>GET /api/analytics/progress-chart</code> – returns aggregated metrics for the signed‑in user’s own training progress.</li>
+          <li><code>GET /api/analytics/personal-records</code> – returns personal records derived from the user’s stored activities.</li>
+        </ul>
+
+        <h3>Disconnection and deletion</h3>
+        <ul>
+          <li>
+            <code>POST /api/strava/disconnect</code>
+            – revokes Strava OAuth access for the authenticated user, removes stored
+            Strava tokens, and optionally deletes synced Strava activities owned by
+            that user.
+          </li>
+          <li>
+            <code>DELETE /api/account/delete</code>
+            – deletes the ZoneTrain account and associated data, including Strava‑
+            sourced content stored under that user ID.
+          </li>
+        </ul>
+
+        <p class="small">
+          All endpoints listed above are only available to the authenticated user
+          and only ever return or manipulate that user’s own Strava‑derived data.
+          ZoneTrain never exposes Strava data from one athlete to any other
+          athlete.
+        </p>
+      </section>
+
+      <h2>6. Privacy, security and AI use</h2>
+      <section class="card">
+        <ul>
+          <li>
+            ZoneTrain never sells or rents Strava‑sourced data and does not share
+            it with advertisers or external analytics platforms.
+          </li>
+          <li>
+            Strava‑sourced data is not used to train, fine‑tune or evaluate any
+            machine‑learning or artificial‑intelligence models and is not combined
+            with other customers’ data for analytics or product‑improvement
+            experiments.
+          </li>
+          <li>
+            Access to Strava‑linked data inside ZoneTrain is restricted to the
+            authenticated account owner and to limited internal services that are
+            required to provide your features.
+          </li>
+        </ul>
+        <p class="legal">
+          This page is intended to satisfy Strava’s API support, privacy and
+          deletion requirements and may be updated as Strava’s policies evolve.
+        </p>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

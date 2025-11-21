@@ -1721,6 +1721,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h4>✅ Connected to Strava</h4>
                                 <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
                                 <p><strong>Last Sync:</strong> ${data.lastSync ? new Date(data.lastSync.toDate()).toLocaleString() : 'Never'}</p>
+                                <p style="font-size: 12px; margin-top: 6px;">
+      For details on how ZoneTrain uses your Strava data, see
+      <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
+        Strava Integration Help
+      </a>.
+    </p>
                             </div>
                             <button class="btn-disconnect-strava" onclick="disconnectStrava()">
                                 Disconnect
