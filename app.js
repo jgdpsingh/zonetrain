@@ -2985,6 +2985,30 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         
         console.log('✅ Training plan saved:', planDoc.id);
 
+        // Get the user's fully updated record
+const updatedUser = await userManager.getUserById(userId);
+
+// Generate a NEW token with the correct plan and status
+const newToken = jwt.sign(
+  {
+    userId: updatedUser.id,
+    email: updatedUser.email,
+    plan: updatedUser.currentPlan, // Should now be 'race'
+    status: updatedUser.subscriptionStatus // Should now be 'trial'
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: '7d' }
+);
+
+// Also update the HttpOnly cookie for session consistency
+res.cookie('userToken', newToken, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  sameSite: 'lax',
+  path: '/'
+});
+
         // Track analytics
         try {
             await db.collection('analytics_events').add({
@@ -3012,6 +3036,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             userId: userId,
             trainingPlanId: planDoc.id,
             planType: planType,
+            token: newToken,
             nextStep: 'training_plan_generated'
         });
         

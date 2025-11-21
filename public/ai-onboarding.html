@@ -917,6 +917,10 @@ window.connectStrava = function() {
             console.log('📡 Response:', result);
 
             if (result.success) {
+                if (result.token) {
+      console.log('New token received, updating localStorage...');
+      localStorage.setItem('userToken', result.token);
+    }
                 alert('🎉 Your race plan is ready!');
                 window.location.href = '/dashboard';
             } else {
