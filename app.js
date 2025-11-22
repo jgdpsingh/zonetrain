@@ -418,8 +418,9 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Add this helper function near the top of app.js
-
-
+// Strava Webhook config
+const STRAVA_WEBHOOK_VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || 'STRAVA_WEBHOOK_SECRET';
+const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
 
 
 
@@ -1768,6 +1769,262 @@ app.get('/login', (req, res) => {
   const authUrl = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&redirect_uri=${process.env.STRAVA_REDIRECT_URI}&response_type=code&scope=read,activity:read_all,activity:write`;
   res.redirect(authUrl);
 });
+
+// Strava Webhook - verification (GET)
+app.get('/api/strava/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  console.log('Strava webhook verification request:', req.query);
+
+  if (mode === 'subscribe' && token === STRAVA_WEBHOOK_VERIFY_TOKEN) {
+    console.log('✅ Strava webhook verified successfully');
+    return res.json({ 'hub.challenge': challenge });
+  }
+
+  console.warn('❌ Strava webhook verification failed', { mode, token });
+  return res.sendStatus(403);
+});
+
+// Strava Webhook - event receiver (POST)
+app.post('/api/strava/webhook', async (req, res) => {
+  // Acknowledge immediately so Strava doesn't retry
+  res.sendStatus(200);
+
+  const event = req.body;
+  console.log('📡 Strava webhook event received:', event);
+
+  try {
+    // We only care about activity create / update / delete
+    if (event.object_type !== 'activity') {
+      console.log('Ignoring non-activity event');
+      return;
+    }
+
+    const { aspect_type, object_id, owner_id, updates = {} } = event;
+
+    // Handle deauthorization (athlete event) with authorized:false in updates
+    if (event.object_type === 'athlete' && updates.authorized === 'false') {
+      console.log('Athlete revoked app access:', owner_id);
+      await handleStravaDeauthorize(owner_id);
+      return;
+    }
+
+    if (aspect_type === 'delete') {
+      console.log('Activity deleted on Strava:', object_id);
+      await handleStravaActivityDelete(owner_id, object_id);
+      return;
+    }
+
+    if (aspect_type === 'create' || aspect_type === 'update') {
+      // If privacy changed to private, respect that and remove/hide locally
+      if (updates.private === 'true') {
+        console.log('Activity became private, removing local copy:', object_id);
+        await handleStravaActivityDelete(owner_id, object_id);
+        return;
+      }
+
+      console.log(`Handling activity ${aspect_type} for athlete ${owner_id}, activity ${object_id}`);
+      await handleStravaActivityUpsert(owner_id, object_id);
+    }
+  } catch (err) {
+    console.error('❌ Error processing Strava webhook event:', err);
+  }
+});
+
+// Remove Strava tokens when an athlete revokes access
+async function handleStravaDeauthorize(athleteId) {
+  try {
+    const usersSnap = await db
+      .collection('users')
+      .where('stravaAthleteId', '==', athleteId)
+      .limit(1)
+      .get();
+
+    if (usersSnap.empty) {
+      console.log('No user found for deauthorized Strava athlete:', athleteId);
+      return;
+    }
+
+    const userDoc = usersSnap.docs[0];
+    const userId = userDoc.id;
+
+    await db.collection('users').doc(userId).update({
+      stravaAccessToken: admin.firestore.FieldValue.delete(),
+      stravaRefreshToken: admin.firestore.FieldValue.delete(),
+      stravaConnected: false,
+      stravaDisconnectedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    console.log('✅ Cleared Strava tokens for user after deauth:', userId);
+  } catch (err) {
+    console.error('Error handling Strava deauthorization:', err);
+  }
+}
+
+// Remove or mark an activity as deleted/hidden in your DB
+async function handleStravaActivityDelete(athleteId, activityId) {
+  try {
+    const usersSnap = await db
+      .collection('users')
+      .where('stravaAthleteId', '==', athleteId)
+      .limit(1)
+      .get();
+
+    if (usersSnap.empty) {
+      console.log('No user found for Strava athlete on delete:', athleteId);
+      return;
+    }
+
+    const userId = usersSnap.docs[0].id;
+
+    // Example: activities stored under users/{userId}/stravaActivities/{activityId}
+    const activityRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('stravaActivities')
+      .doc(String(activityId));
+
+    const doc = await activityRef.get();
+    if (!doc.exists) {
+      console.log('Local activity not found to delete:', activityId);
+      return;
+    }
+
+    await activityRef.update({
+      deleted: true,
+      visibility: 'hidden',
+      deletedAt: new Date().toISOString()
+    });
+
+    console.log('✅ Marked activity as deleted in ZoneTrain:', userId, activityId);
+  } catch (err) {
+    console.error('Error handling Strava activity delete:', err);
+  }
+}
+
+// Fetch full activity from Strava and save/update for the user
+async function handleStravaActivityUpsert(athleteId, activityId) {
+  try {
+    // 1) Find the ZoneTrain user
+    const usersSnap = await db
+      .collection('users')
+      .where('stravaAthleteId', '==', athleteId)
+      .limit(1)
+      .get();
+
+    if (usersSnap.empty) {
+      console.log('No user found for Strava athlete:', athleteId);
+      return;
+    }
+
+    const userDoc = usersSnap.docs[0];
+    const userId = userDoc.id;
+    const user = userDoc.data();
+
+    // Only act for Basic / Race users
+    if (!['basic', 'race', 'trial'].includes(user.currentPlan || 'free')) {
+      console.log('User is not Basic/Race, skipping auto-sync:', userId, user.currentPlan);
+      return;
+    }
+
+    // 2) Get a valid Strava token (your existing logic)
+    let accessToken;
+    if (typeof userManager.getValidStravaTokens === 'function') {
+      const tokens = await userManager.getValidStravaTokens(userId);
+      if (!tokens || !tokens.accessToken) {
+        console.warn('No valid Strava tokens for user:', userId);
+        return;
+      }
+      accessToken = tokens.accessToken;
+    } else {
+      accessToken = user.stravaAccessToken;
+      if (!accessToken) {
+        console.warn('No Strava access token stored for user:', userId);
+        return;
+      }
+    }
+
+    // 3) Fetch the full activity
+    const url = `${STRAVA_API_BASE}/activities/${activityId}`;
+    console.log('Fetching Strava activity details:', url);
+
+    const response = await axios.get(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 10000
+    });
+
+    const activity = response.data;
+    console.log('✅ Strava activity fetched:', activity.id, activity.name);
+
+    // 3.5) Filter for running-only activities
+    const sportType = activity.sport_type || activity.type; // Strava docs recommend sport_type
+    const allowedRunTypes = ['Run', 'TrailRun', 'VirtualRun'];
+
+    if (!allowedRunTypes.includes(sportType)) {
+      console.log(
+        'Skipping non-running activity from webhook:',
+        activity.id,
+        'sport_type =',
+        sportType
+      );
+      return; // Do not store cycling/strength/etc.
+    }
+
+    // 4) Normalize and store under the user
+    const activityDocRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('stravaActivities')
+      .doc(String(activity.id));
+
+    const normalized = {
+      activityId: activity.id,
+      athleteId: athleteId,
+      name: activity.name,
+      type: activity.type,
+      sportType: sportType,
+      startDate: activity.start_date,
+      distance: activity.distance,
+      movingTime: activity.moving_time,
+      elapsedTime: activity.elapsed_time,
+      averageSpeed: activity.average_speed,
+      maxSpeed: activity.max_speed,
+      hasHeartRate: activity.has_heartrate,
+      averageHeartRate: activity.average_heartrate || null,
+      maxHeartRate: activity.max_heartrate || null,
+      totalElevationGain: activity.total_elevation_gain,
+      calories: activity.kilojoules || null,
+      isTrainer: activity.trainer,
+      isCommute: activity.commute,
+      visibility: activity.visibility || (activity.private ? 'only_you' : 'public'),
+      source: 'strava',
+      updatedFromWebhook: true,
+      updatedAt: new Date().toISOString(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await activityDocRef.set(normalized, { merge: true });
+    console.log('✅ Running activity stored for user:', userId, activity.id);
+
+    // 5) Optional: trigger analytics / training-plan updates
+    try {
+      if (typeof WorkoutAnalyticsService === 'function') {
+        // await new WorkoutAnalyticsService(db).processNewActivity(userId, normalized);
+      }
+      if (typeof TrainingPlanService === 'function') {
+        // await new TrainingPlanService(db).handleNewActivity(userId, normalized);
+      }
+    } catch (serviceErr) {
+      console.warn('Non-fatal error in analytics/training services:', serviceErr.message);
+    }
+
+  } catch (err) {
+    console.error('❌ Error in handleStravaActivityUpsert:', err.response?.data || err.message);
+  }
+}
 
 // REPLACE your existing /callback route with this enhanced version
 app.get('/callback', async (req, res) => {
