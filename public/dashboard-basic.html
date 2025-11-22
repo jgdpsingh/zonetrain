@@ -388,6 +388,25 @@
       document.getElementById('verification-banner').style.display = 'block';
 
       const msg = document.getElementById('verification-message');
+
+      if (data.emailVerified) {
+      if (banner) {
+        banner.style.display = 'none';
+      }
+      sessionStorage.setItem('verificationBannerDismissed', 'true');
+      console.log('Email verified, hiding verification banner for', data.email);
+      hoursRemaining = null;
+      const countdownElement = document.getElementById('countdown');
+      if (countdownElement) countdownElement.textContent = '';
+      return;
+    }
+
+    // ❌ Not verified: show banner
+    if (banner) {
+      banner.style.display = 'block';
+    }
+
+
       if (msg && data.email) {
         msg.textContent = `Please verify ${data.email}. Your account will be blocked if not verified within 24 hours.`;
       }
