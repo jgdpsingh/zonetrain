@@ -618,7 +618,65 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Location capture function
-window.getLocation = function() {
+    
+    let currentStep = 1;
+    const totalSteps = 5;
+
+  // Replace connectStrava function
+function saveRaceOnboardingDraft() {
+  const draft = { currentStep };
+  const inputs = document.querySelectorAll('#raceCoachForm input, #raceCoachForm select, #raceCoachForm textarea');
+
+  inputs.forEach(input => {
+    if (!input.name) return;
+    if (input.type === 'checkbox') {
+      draft[input.name] = draft[input.name] || [];
+      if (input.checked) draft[input.name].push(input.value);
+    } else if (input.type === 'radio') {
+      if (input.checked) draft[input.name] = input.value;
+    } else {
+      if (input.value) draft[input.name] = input.value;
+    }
+  });
+
+  localStorage.setItem('raceOnboardingDraft', JSON.stringify(draft));
+}
+
+function restoreRaceOnboardingDraft() {
+        const raw = localStorage.getItem('raceOnboardingDraft');
+        if (!raw) return;
+
+        let draft;
+        try {
+            draft = JSON.parse(raw);
+        } catch {
+            return;
+        }
+        const inputs = document.querySelectorAll('#raceCoachForm input, #raceCoachForm select, #raceCoachForm textarea');
+
+        inputs.forEach(input => {
+            if (!input.name) return;
+            const value = draft[input.name];
+
+            if (input.type === 'checkbox') {
+                input.checked = Array.isArray(value) && value.includes(input.value);
+            } else if (input.type === 'radio') {
+                input.checked = value === input.value;
+            } else if (value !== undefined) {
+                input.value = value;
+            }
+        });
+
+        if (draft.currentStep) {
+            currentStep = draft.currentStep;
+            showStep(currentStep);
+        }
+    }
+
+    // Call restore right after URL handling
+    restoreRaceOnboardingDraft();
+
+    window.getLocation = function() {
     const btn = document.getElementById('locationBtn');
     btn.innerHTML = '⏳ Getting location...';
     btn.disabled = true;
@@ -660,8 +718,7 @@ window.getLocation = function() {
     );
 };
 
-
-    async function claimStravaConnection(stravaToken) {
+async function claimStravaConnection(stravaToken) {
         const token = localStorage.getItem('userToken');
         
         try {
@@ -690,20 +747,23 @@ window.getLocation = function() {
             alert('Error connecting Strava. Please try again.');
         }
     }
-    let currentStep = 1;
-    const totalSteps = 5;
 
-  // Replace connectStrava function
-window.connectStrava = function() {
-    const token = localStorage.getItem('userToken');
-    if (!token) {
-        alert('Please login first');
-        return;
-    }
-    // Store return URL in localStorage
-    localStorage.setItem('stravaReturnUrl', window.location.href);
-    // Redirect without token in URL
-    window.location.href = '/connect-strava';
+
+window.connectStrava = function () {
+  const token = localStorage.getItem('userToken');
+  if (!token) {
+    alert('Please login first');
+    return;
+  }
+
+  // Save form + current step
+  saveRaceOnboardingDraft();
+
+  // Remember where to go back
+  localStorage.setItem('stravaReturnUrl', window.location.href);
+
+  // Start Strava connect flow
+  window.location.href = 'connect-strava';
 };
 
     // Auto-format time inputs (HH:MM:SS)
@@ -918,9 +978,10 @@ window.connectStrava = function() {
 
             if (result.success) {
                 if (result.token) {
-      console.log('New token received, updating localStorage...');
+      //console.log('New token received, updating localStorage...');
       localStorage.setItem('userToken', result.token);
     }
+    localStorage.removeItem('raceOnboardingDraft');
                 alert('🎉 Your race plan is ready!');
                 window.location.href = '/dashboard';
             } else {
@@ -934,8 +995,10 @@ window.connectStrava = function() {
         }
     });
 
-    // Initialize
-    showStep(1);
+    // If no draft changed the step yet, start at 1
+    if (currentStep === 1) {
+        showStep(1);
+    }
 
 }); // End of DOMContentLoaded
 </script>

@@ -534,6 +534,61 @@
         let currentStep = 1;
         const totalSteps = 3;
 
+        function saveBasicOnboardingDraft() {
+        const draft = { currentStep };
+        const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
+
+        inputs.forEach(input => {
+            if (!input.name) return;
+
+            if (input.type === 'checkbox') {
+                draft[input.name] = draft[input.name] || [];
+                if (input.checked) draft[input.name].push(input.value);
+            } else if (input.type === 'radio') {
+                if (input.checked) draft[input.name] = input.value;
+            } else if (input.value) {
+                draft[input.name] = input.value;
+            }
+        });
+
+        localStorage.setItem('basicOnboardingDraft', JSON.stringify(draft));
+    }
+
+    function restoreBasicOnboardingDraft() {
+        const raw = localStorage.getItem('basicOnboardingDraft');
+        if (!raw) return;
+
+        let draft;
+        try {
+            draft = JSON.parse(raw);
+        } catch {
+            return;
+        }
+
+        const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
+
+        inputs.forEach(input => {
+            if (!input.name) return;
+            const value = draft[input.name];
+
+            if (input.type === 'checkbox') {
+                input.checked = Array.isArray(value) && value.includes(input.value);
+            } else if (input.type === 'radio') {
+                input.checked = value === input.value;
+            } else if (value !== undefined) {
+                input.value = value;
+            }
+        });
+
+        if (draft.currentStep) {
+            currentStep = draft.currentStep;
+            showStep(currentStep);
+        }
+    }
+
+    // Restore any saved progress (e.g. after returning from Strava)
+    restoreBasicOnboardingDraft();
+
         // Sleep quality slider
         const sleepRange = document.getElementById('sleepRange');
         const sleepValue = document.getElementById('sleepValue');
@@ -550,6 +605,10 @@
                 alert('Please login first');
                 return;
             }
+
+            // Save wizard state before leaving
+  saveBasicOnboardingDraft();
+
             localStorage.setItem('stravaReturnUrl', window.location.href);
             window.location.href = '/connect-strava';
         };
@@ -676,7 +735,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': 'Bearer ' + token
                     },
                     body: JSON.stringify(formData)
                 });
@@ -684,6 +743,12 @@
                 const result = await response.json();
 
                 if (result.success) {
+                    if (result.token) {
+    localStorage.setItem('userToken', result.token);
+  }
+
+  // Clear saved Basic draft so it doesn’t re-fill later
+  localStorage.removeItem('basicOnboardingDraft');
                     alert('🎉 Your coaching plan is ready!');
                     window.location.href = '/dashboard';
                 } else {
@@ -696,7 +761,9 @@
             }
         });
 
+        if (currentStep === 1) {
         showStep(1);
+    }
     });
     </script>
     <!-- Before </body> -->
