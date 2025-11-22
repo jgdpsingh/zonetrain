@@ -3676,7 +3676,7 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         
         res.json({
             success: true,
-            goals: {
+            raceGoal: {
                 distance: currentGoals.distance,
                 date: currentGoals.raceDate,
                 targetTime: currentGoals.targetTime,
@@ -3725,17 +3725,20 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         const plan = planDoc.docs[0].data();
         
         res.json({
-            success: true,
-            planId: planDoc.docs[0].id,
-            planType: plan.planType,
-            coachType: plan.planData?.coachType || 'race',
-            createdAt: plan.createdAt,
-            data: plan.planData,
-            progress: {
-                weeksElapsed: calculateWeeksElapsed(plan.createdAt),
-                totalWeeks: getTotalWeeks(plan.planData)
-            }
-        });
+  success: true,
+  plan: {
+    id: planDoc.docs[0].id,
+    planType: plan.planType,
+    coachType: plan.planData?.coachType || 'race',
+    createdAt: plan.createdAt,
+    data: plan.planData,
+    progress: {
+      weeksElapsed: calculateWeeksElapsed(plan.createdAt),
+      totalWeeks: getTotalWeeks(plan.planData)
+    }
+  }
+});
+
         
     } catch (error) {
         console.error('Error fetching current plan:', error);
@@ -9726,6 +9729,99 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
         });
     }
 });
+
+// Weekly plan for dashboard widgets (wrapper around TrainingPlanService)
+app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const plan = await trainingPlanService.getCurrentPlan(userId);  // already implemented
+    if (!plan || !Array.isArray(plan.thisWeekWorkouts) || plan.thisWeekWorkouts.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No active training plan or no workouts scheduled this week',
+        weeklyPlan: { days: [] }
+      });
+    }
+
+    const days = plan.thisWeekWorkouts.map(w => ({
+      date: w.scheduledDate || null,
+      label: w.label || w.dayName || '',
+      workout: {
+        id: w.id,
+        title: w.title || w.workoutTitle || 'Workout',
+        description: w.description || '',
+        duration: w.duration || 0,
+        distance: w.distance || null,
+        intensity: w.intensity || 'easy',
+        zones: w.zones || []
+      }
+    }));
+
+    res.json({
+      success: true,
+      weeklyPlan: { days }
+    });
+  } catch (error) {
+    console.error('Weekly plan API error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load weekly plan',
+      weeklyPlan: { days: [] }
+    });
+  }
+});
+
+// Today's workout for dashboard widget
+app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const hrv = req.query.hrv || null;  // reserved for future use / logging
+
+    const plan = await trainingPlanService.getCurrentPlan(userId);
+    if (!plan || !Array.isArray(plan.thisWeekWorkouts) || plan.thisWeekWorkouts.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No workout scheduled for today',
+        workout: null
+      });
+    }
+
+    const todayStr = new Date().toDateString();
+    let todayWorkout = plan.thisWeekWorkouts.find(w =>
+      w.scheduledDate && new Date(w.scheduledDate).toDateString() === todayStr
+    );
+
+    // Fallback: if nothing matches exactly today, pick the next upcoming workout
+    if (!todayWorkout) {
+      todayWorkout = plan.thisWeekWorkouts[0];
+    }
+
+    const workoutPayload = {
+      id: todayWorkout.id,
+      title: todayWorkout.title || todayWorkout.workoutTitle || 'Workout',
+      description: todayWorkout.description || '',
+      duration: todayWorkout.duration || 0,
+      distance: todayWorkout.distance || null,
+      intensity: todayWorkout.intensity || 'easy',
+      zones: todayWorkout.zones || [],
+      scheduledDate: todayWorkout.scheduledDate || null
+    };
+
+    res.json({
+      success: true,
+      workout: workoutPayload
+    });
+  } catch (error) {
+    console.error('Today workout API error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load today workout',
+      workout: null
+    });
+  }
+});
+
 
 // Request workout modification
 app.post('/api/training-plan/modify-workout', authenticateToken, async (req, res) => {

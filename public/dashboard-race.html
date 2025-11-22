@@ -527,27 +527,65 @@ body {
         </div>
 
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">📈 Weekly Volume</div>
-                    <div class="stat-value" id="weekly-volume">42km</div>
-                    <div class="stat-label">Total distance</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">💓 Avg HRV</div>
-                    <div class="stat-value" id="avg-hrv">58</div>
-                    <div class="stat-label">7-day average</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">🎯 Training Load</div>
-                    <div class="stat-value" id="training-load">325</div>
-                    <div class="stat-label">Optimal zone</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">⏱️ Next Race</div>
-                    <div class="stat-value" id="next-race" style="font-size: 24px;">45 days</div>
-                    <div class="stat-label">Half Marathon</div>
-                </div>
-            </div>
+  <!-- Weekly Volume -->
+  <div class="stat-card">
+    <div class="stat-label">📈 Weekly Volume</div>
+    <!-- Filled from analytics (Strava + workouts) -->
+    <div class="stat-value" id="weekly-volume">-- km</div>
+    <div class="stat-label" id="weekly-volume-subtitle">Last 7 days</div>
+  </div>
+
+  <!-- Average HRV -->
+  <div class="stat-card">
+    <div class="stat-label">💓 Avg HRV</div>
+    <!-- Filled from HRV tracking / daily scheduler -->
+    <div class="stat-value" id="avg-hrv">--</div>
+    <div class="stat-label" id="avg-hrv-subtitle">7‑day average</div>
+  </div>
+
+  <!-- Training Load -->
+  <div class="stat-card">
+    <div class="stat-label">🎯 Training Load</div>
+    <!-- Filled from workoutAnalyticsService / loadTrainingLoad -->
+    <div class="stat-value" id="training-load">--</div>
+    <div class="stat-label" id="training-load-subtitle">Optimal zone</div>
+  </div>
+
+  <!-- Next Race (dynamic goal card) -->
+  <div class="stat-card">
+    <div class="stat-label">⏱️ Next Race</div>
+
+    <!-- Days remaining, e.g. "45 days" -->
+    <div class="stat-value" id="next-race-countdown">-- days</div>
+
+    <!-- Distance + label, e.g. "Half Marathon • 21.1 km on 15 Mar" -->
+    <div class="stat-label" id="next-race-subtitle">No race set</div>
+
+    <!-- Optional secondary line for location / target time -->
+    <div class="stat-label" id="next-race-meta" style="margin-top: 4px; font-size: 12px; opacity: 0.8;">
+      Connect a race to see details here.
+    </div>
+
+    <!-- Change goal button for mid‑plan adjustments -->
+    <button
+      type="button"
+      onclick="openUpdateRaceGoalModal()"
+      style="
+        margin-top: 10px;
+        padding: 8px 14px;
+        font-size: 13px;
+        border-radius: 8px;
+        border: 1px solid #4f46e5;
+        background: #eef2ff;
+        color: #3730a3;
+        font-weight: 600;
+        cursor: pointer;
+      ">
+      Change Race Goal
+    </button>
+  </div>
+</div>
+
         </div>
 
         <!-- ✅ NEW: Subscription Management Card -->
@@ -764,9 +802,11 @@ body {
         }
 
         function closeNewRaceModal() {
-            document.getElementById('new-race-modal').style.display = 'none';
-            document.body.style.overflow = 'auto';
-        }
+  const modal = document.getElementById('new-race-modal');
+  modal.style.display = 'none';
+  modal.dataset.mode = '';   // reset
+  document.body.style.overflow = 'auto';
+}
 
         async function dismissPostRaceBanner() {
             const token = localStorage.getItem('userToken');
@@ -807,53 +847,82 @@ body {
 
         // ✅ Handle new race form submission
         document.getElementById('new-race-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const token = localStorage.getItem('userToken');
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            const originalText = submitBtn.textContent;
-            
-            submitBtn.disabled = true;
-            submitBtn.textContent = '⏳ Creating plan...';
-            
-            const distance = document.getElementById('new-race-distance').value;
-            const actualDistance = distance === 'custom' 
-                ? document.getElementById('custom-race-distance').value 
-                : distance;
-            
-            const raceData = {
-                name: document.getElementById('new-race-name').value,
-                date: document.getElementById('new-race-date').value,
-                distance: parseFloat(actualDistance),
-                goalTime: document.getElementById('new-race-goal-time').value || null
-            };
-            
-            try {
-                const response = await fetch('/api/race/create', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(raceData)
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    closeNewRaceModal();
-                    document.getElementById('post-race-banner').style.display = 'none';
-                    alert('🎉 Success!\n\nYour new race plan has been created.\n\nYour personalized training schedule is being generated based on:\n• Current fitness level\n• HRV trends\n• Race distance: ' + actualDistance + 'km\n• Race date: ' + raceData.date + '\n\nRefreshing dashboard...');
-                    location.reload();
-                } else {
-                    throw new Error(data.message || 'Failed to create race plan');
-                }
-            } catch (error) {
-                alert('❌ Failed to create race plan\n\n' + error.message + '\n\nPlease try again or contact support.');
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-            }
-        });
+  e.preventDefault();
+
+  const token = localStorage.getItem('userToken');
+  if (!token) {
+    alert('Please login first');
+    return;
+  }
+
+  const modal = document.getElementById('new-race-modal');
+  const mode = modal.dataset.mode || 'create';
+
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = mode === 'update' ? 'Updating goal...' : 'Creating plan...';
+
+  const distanceVal = document.getElementById('new-race-distance').value;
+  const actualDistance = distanceVal === 'custom'
+    ? document.getElementById('custom-race-distance').value
+    : distanceVal;
+
+  const payload = {
+    targetDistance: parseFloat(actualDistance),
+    targetDate: document.getElementById('new-race-date').value || null,
+    targetTime: document.getElementById('new-race-goal-time').value || null
+  };
+
+  try {
+    let url, body;
+
+    if (mode === 'update') {
+      // Use your existing goals‑update endpoint
+      url = '/api/race-goals/update';
+      body = JSON.stringify(payload);
+    } else {
+      // Existing “new race” flow
+      url = '/api/race/create'; // also fix missing leading slash
+      body = JSON.stringify({
+        name: document.getElementById('new-race-name').value,
+        date: payload.targetDate,
+        distance: payload.targetDistance,
+        goalTime: payload.targetTime
+      });
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body
+    });
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to update race goal');
+    }
+
+    closeNewRaceModal();
+
+    alert(
+      mode === 'update'
+        ? 'Your race goal has been updated and a new training plan generated.'
+        : 'Success! A new race plan has been created.'
+    );
+
+    // reload dashboard to pick up new goals/plan
+    window.location.reload();
+  } catch (error) {
+    console.error('Race goal form error:', error);
+    alert('Failed: ' + error.message);
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+  }
+});
 
         // ✅ Close modal on outside click
         document.getElementById('new-race-modal').addEventListener('click', function(e) {
@@ -1619,23 +1688,40 @@ async function handlePauseOrResume() {
 <!-- Add this to your dashboard-race.html in <script> section -->
 
 <script>
+    let currentRaceGoal = null;
 // Fetch current race goals
 async function loadRaceGoals() {
     try {
-        const response = await fetch('/api/race-goals/current', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        const token = localStorage.getItem('userToken');
+        const res = await fetch('/api/race-goals/current', {
+            headers: { 'Authorization': 'Bearer ' + token }
         });
-        const data = await response.json();
+        const data = await res.json();
+        if (!data.success || !data.raceGoal) {
+      console.log('No current race goal:', data.message);
+      return;
+    }
+    currentRaceGoal = data.raceGoal; // { distance, date, daysToRace, targetTime, location }
         
-        // Display in existing widget
-        document.getElementById('raceGoalContainer').innerHTML = `
-            <div class="goal-card">
-                <h4>${data.goals.distance}km Race</h4>
-                <p>Date: ${new Date(data.goals.date).toLocaleDateString()}</p>
-                <p>Days Remaining: <strong>${data.goals.daysToRace}</strong></p>
-                <p>Target Time: ${data.goals.targetTime || 'N/A'}</p>
-            </div>
-        `;
+        const countdownEl = document.getElementById('next-race-countdown');
+    const subtitleEl  = document.getElementById('next-race-subtitle');
+    const metaEl      = document.getElementById('next-race-meta');
+
+    const days = currentRaceGoal.daysToRace ?? currentRaceGoal.daysRemaining;
+    countdownEl.textContent =
+  days != null
+    ? (days === 1 ? days + ' day' : days + ' days')
+    : '-- days';
+
+    const dateStr = currentRaceGoal.date
+      ? new Date(currentRaceGoal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : 'date TBC';
+
+    subtitleEl.textContent =
+      `${currentRaceGoal.distance || '?'} km • ${dateStr}`;
+
+    metaEl.textContent =
+      `${currentRaceGoal.location || 'Location TBC'} • Target: ${currentRaceGoal.targetTime || 'TBD'}`;
     } catch (error) {
         console.error('Error loading race goals:', error);
     }
@@ -1662,6 +1748,48 @@ async function loadTrainingPlan() {
         console.error('Error loading training plan:', error);
     }
 }
+
+function openUpdateRaceGoalModal() {
+  if (!currentRaceGoal) {
+    alert('No active race goal found. Please create a race plan first.');
+    return;
+  }
+
+  const modal = document.getElementById('new-race-modal');
+  if (!modal) return;
+
+  // Prefill fields
+  document.getElementById('new-race-name').value = '';  // optional: keep free text
+  document.getElementById('new-race-date').value =
+    currentRaceGoal.date ? currentRaceGoal.date.substring(0, 10) : '';
+
+  const distanceSelect = document.getElementById('new-race-distance');
+  const customField = document.getElementById('custom-distance-field');
+  const customInput = document.getElementById('custom-race-distance');
+
+  // Map current distance to one of the presets if possible
+  const d = currentRaceGoal.distance;
+  if (d === 5 || d === 5.0) distanceSelect.value = '5';
+  else if (d === 10 || d === 10.0) distanceSelect.value = '10';
+  else if (d === 21.1) distanceSelect.value = '21.1';
+  else if (d === 42.2) distanceSelect.value = '42.2';
+  else {
+    distanceSelect.value = 'custom';
+    customField.style.display = 'block';
+    customInput.required = true;
+    customInput.value = d || '';
+  }
+
+  document.getElementById('new-race-goal-time').value =
+    currentRaceGoal.targetTime || '';
+
+  // Flag that this modal is being used for an update, not a new race.
+  modal.dataset.mode = 'update';
+
+  modal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
 
 // Fetch plan history
 async function loadPlanHistory() {
