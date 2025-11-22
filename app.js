@@ -282,6 +282,14 @@ app.get('/support/strava', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'support-strava.html'));
 });
 
+app.get('/refund-policy', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'refund-policy.html'));
+});
+
+app.get('/shipping-policy', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'shipping-policy.html'));
+});
+
 
 // Add this helper function
 function validatePassword(password) {
@@ -11116,6 +11124,8 @@ app.get('/', optionalAuth, apiLimiter, (req, res) => {
           <p><a href="/privacy">Privacy Policy</a></p>
           <p><a href="/terms">Terms of Service</a></p>
           <p><a href="/support/strava">Strava Integration Help</a></p>
+          <p><a href="/shipping-policy">Shipping Policy</a></p>
+          <p><a href="/refund-policy">Refund Policy</a></p>
         </div>
       </div>
     </footer>
