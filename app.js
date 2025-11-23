@@ -4130,6 +4130,56 @@ app.get('/ai-onboarding-active', authenticateToken, (req, res) => {
     }
 });
 
+// Log a manual HRV reading from dashboard
+app.post('/api/hrv/log', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { value, source } = req.body;
+
+    const hrvValue = parseFloat(value);
+    if (!hrvValue || Number.isNaN(hrvValue) || hrvValue <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid HRV value is required'
+      });
+    }
+
+    const now = new Date();
+    const dayKey = now.toISOString().substring(0, 10); // YYYY-MM-DD
+
+    // Store in hrvReadings collection (you already describe this model in app.js comments)
+    await db.collection('hrvReadings').add({
+      userId,
+      value: hrvValue,
+      date: dayKey,
+      timestamp: now,
+      source: source || 'manual-dashboard'
+    });
+
+    // Optionally update quick fields on user profile
+    await db.collection('users').doc(userId).update({
+      lastHRV: hrvValue,
+      lastHRVDate: now,
+      updatedAt: now
+    });
+
+    res.json({
+      success: true,
+      message: 'HRV logged successfully',
+      value: hrvValue,
+      date: dayKey
+    });
+  } catch (error) {
+    console.error('HRV log error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to log HRV',
+      error: error.message
+    });
+  }
+});
+
+
 // Helper functions for AI onboarding
 
 

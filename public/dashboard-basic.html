@@ -285,6 +285,34 @@
         <div class="widgets-grid">
             <div id="weather-widget-container"></div>
             <div id="today-workout-container"></div>
+            <div class="card hrv-card">
+  <div class="card-header">
+    <h3>Log Today’s HRV</h3>
+    <p style="font-size: 13px; color: #6b7280;">
+      If you can’t reply on WhatsApp, enter your morning HRV here.
+    </p>
+  </div>
+  <div class="card-body" style="display: flex; gap: 10px; align-items: center;">
+    <input
+      type="number"
+      id="hrv-input"
+      min="1"
+      max="300"
+      placeholder="HRV value"
+      style="flex: 1; padding: 8px 10px; border-radius: 8px;
+             border: 1px solid #d1d5db; font-size: 14px;" />
+    <button
+      type="button"
+      onclick="logHRVFromDashboard()"
+      style="padding: 8px 14px; border-radius: 8px;
+             border: none; background: #10b981; color: white;
+             font-weight: 600; cursor: pointer;">
+      Save
+    </button>
+  </div>
+  <div id="hrv-status" style="margin-top: 6px; font-size: 12px; color: #6b7280;"></div>
+</div>
+
             <div id="workout-history-container"></div>
     <div id="progress-chart-container"></div>
     <div id="personal-records-container"></div>

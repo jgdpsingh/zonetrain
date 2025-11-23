@@ -5,6 +5,9 @@ class DashboardWidgets {
         this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
     }
 
+    static WEATHER_CACHE_KEY = 'zonetrain_weather_cache_v1';
+  static WEATHER_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 30 minutes
+
     // Weather Widget
     async renderWeatherWidget(containerId) {
         const container = document.getElementById(containerId);
@@ -18,12 +21,45 @@ class DashboardWidgets {
                 return;
             }
 
+            const lat = Number(latitude).toFixed(3);
+      const lon = Number(longitude).toFixed(3);
+
+      // 1) Try cache first
+      const cacheRaw = localStorage.getItem(DashboardWidgets.WEATHER_CACHE_KEY);
+      const now = Date.now();
+
+      if (cacheRaw) {
+        try {
+          const cache = JSON.parse(cacheRaw);
+          const sameLocation = cache.lat === lat && cache.lon === lon;
+          const fresh = now - cache.ts < DashboardWidgets.WEATHER_MAX_AGE_MS;
+
+          if (sameLocation && fresh && cache.weather) {
+            container.innerHTML = this.weatherTemplate(cache.weather, cache.mock);
+            return; // No network call
+          }
+        } catch (e) {
+          console.warn('Weather cache parse error, ignoring', e);
+        }
+      }
+
             const response = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}`, {
                 headers: { 'Authorization': `Bearer ${this.token}` }
             });
 
             const data = await response.json();
             if (data.success) {
+                localStorage.setItem(
+          DashboardWidgets.WEATHER_CACHE_KEY,
+          JSON.stringify({
+            ts: now,
+            lat,
+            lon,
+            weather: data.weather,
+            mock: data.mock
+          })
+        );
+
                 container.innerHTML = this.weatherTemplate(data.weather, data.mock);
             }
         } catch (error) {
@@ -731,6 +767,61 @@ async syncStrava() {
 }
 
 }
+
+async function logHRVFromDashboard() {
+  const input = document.getElementById('hrv-input');
+  const statusEl = document.getElementById('hrv-status');
+  const raw = input.value.trim();
+
+  const value = parseFloat(raw);
+  if (!value || Number.isNaN(value) || value <= 0) {
+    statusEl.textContent = 'Please enter a valid HRV value.';
+    statusEl.style.color = '#dc2626';
+    return;
+  }
+
+  const token = localStorage.getItem('userToken');
+  if (!token) {
+    alert('Please login again.');
+    window.location.href = '/login';
+    return;
+  }
+
+  try {
+    statusEl.textContent = 'Saving...';
+    statusEl.style.color = '#6b7280';
+
+    const res = await fetch('/api/hrv/log', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ value, source: 'manual-dashboard' })
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to log HRV');
+    }
+
+    // Save locally so the Today Workout widget gets it
+    localStorage.setItem('todayHRV', String(value));
+
+    statusEl.textContent = `HRV logged for today: ${value}`;
+    statusEl.style.color = '#16a34a';
+
+    // Optional: refresh Today’s Workout widget to adapt
+    if (window.dashboardWidgets && typeof window.dashboardWidgets.renderTodayWorkoutWidget === 'function') {
+      window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
+    }
+  } catch (err) {
+    console.error('HRV log error:', err);
+    statusEl.textContent = 'Failed to save HRV. Please try again.';
+    statusEl.style.color = '#dc2626';
+  }
+}
+
 
 // Initialize on page load
 window.dashboardWidgets = new DashboardWidgets();
