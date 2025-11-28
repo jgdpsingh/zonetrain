@@ -1804,29 +1804,31 @@ app.post('/api/strava/webhook', async (req, res) => {
   console.log('📡 Strava webhook event received:', event);
 
   try {
-    // We only care about activity create / update / delete
-    if (event.object_type !== 'activity') {
-      console.log('Ignoring non-activity event');
-      return;
-    }
+    const { object_type, aspect_type, object_id, owner_id, updates = {} } = event;
 
-    const { aspect_type, object_id, owner_id, updates = {} } = event;
-
-    // Handle deauthorization (athlete event) with authorized:false in updates
-    if (event.object_type === 'athlete' && updates.authorized === 'false') {
+    // 1) Handle deauthorization events (object_type === 'athlete')
+    if (object_type === 'athlete' && updates.authorized === 'false') {
       console.log('Athlete revoked app access:', owner_id);
       await handleStravaDeauthorize(owner_id);
       return;
     }
 
+    // 2) From here on, only care about activities
+    if (object_type !== 'activity') {
+      console.log('Ignoring non-activity event:', object_type);
+      return;
+    }
+
+    // Delete
     if (aspect_type === 'delete') {
       console.log('Activity deleted on Strava:', object_id);
       await handleStravaActivityDelete(owner_id, object_id);
       return;
     }
 
+    // Create / update
     if (aspect_type === 'create' || aspect_type === 'update') {
-      // If privacy changed to private, respect that and remove/hide locally
+      // If privacy changed to private, remove locally
       if (updates.private === 'true') {
         console.log('Activity became private, removing local copy:', object_id);
         await handleStravaActivityDelete(owner_id, object_id);
@@ -1890,10 +1892,8 @@ async function handleStravaActivityDelete(athleteId, activityId) {
 
     // Example: activities stored under users/{userId}/stravaActivities/{activityId}
     const activityRef = db
-      .collection('users')
-      .doc(userId)
-      .collection('stravaActivities')
-      .doc(String(activityId));
+      .collection('strava_activities')
+      .doc(`${userId}_${activityId}`);
 
     const doc = await activityRef.get();
     if (!doc.exists) {
@@ -1932,13 +1932,13 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
     const userId = userDoc.id;
     const user = userDoc.data();
 
-    // Only act for Basic / Race users
+    // Only act for Basic / Race / trial users
     if (!['basic', 'race', 'trial'].includes(user.currentPlan || 'free')) {
       console.log('User is not Basic/Race, skipping auto-sync:', userId, user.currentPlan);
       return;
     }
 
-    // 2) Get a valid Strava token (your existing logic)
+    // 2) Get a valid Strava token
     let accessToken;
     if (typeof userManager.getValidStravaTokens === 'function') {
       const tokens = await userManager.getValidStravaTokens(userId);
@@ -1955,7 +1955,7 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
       }
     }
 
-    // 3) Fetch the full activity
+    // 3) Fetch full activity from Strava
     const url = `${STRAVA_API_BASE}/activities/${activityId}`;
     console.log('Fetching Strava activity details:', url);
 
@@ -1967,51 +1967,40 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
     const activity = response.data;
     console.log('✅ Strava activity fetched:', activity.id, activity.name);
 
-    // 3.5) Filter for running-only activities
-    const sportType = activity.sport_type || activity.type; // Strava docs recommend sport_type
+    // 3.5) Filter for running‑only activities
+    const sportType = activity.sport_type || activity.type;
     const allowedRunTypes = ['Run', 'TrailRun', 'VirtualRun'];
-
     if (!allowedRunTypes.includes(sportType)) {
-      console.log(
-        'Skipping non-running activity from webhook:',
-        activity.id,
-        'sport_type =',
-        sportType
-      );
-      return; // Do not store cycling/strength/etc.
+      console.log('Skipping non-running activity from webhook:', activity.id, 'sport_type =', sportType);
+      return;
     }
 
-    // 4) Normalize and store under the user
+    // 4) Normalize to the *same shape* as syncActivities
     const activityDocRef = db
-      .collection('users')
-      .doc(userId)
-      .collection('stravaActivities')
-      .doc(String(activity.id));
+      .collection('strava_activities')
+      .doc(`${userId}_${activity.id}`);
 
     const normalized = {
-      activityId: activity.id,
-      athleteId: athleteId,
+      userId,
+      stravaActivityId: activity.id,
       name: activity.name,
       type: activity.type,
-      sportType: sportType,
-      startDate: activity.start_date,
-      distance: activity.distance,
-      movingTime: activity.moving_time,
-      elapsedTime: activity.elapsed_time,
-      averageSpeed: activity.average_speed,
-      maxSpeed: activity.max_speed,
-      hasHeartRate: activity.has_heartrate,
-      averageHeartRate: activity.average_heartrate || null,
-      maxHeartRate: activity.max_heartrate || null,
+      distance: activity.distance / 1000,              // km
+      movingTime: activity.moving_time / 60,           // minutes
+      elapsedTime: activity.elapsed_time / 60,
       totalElevationGain: activity.total_elevation_gain,
-      calories: activity.kilojoules || null,
-      isTrainer: activity.trainer,
-      isCommute: activity.commute,
-      visibility: activity.visibility || (activity.private ? 'only_you' : 'public'),
-      source: 'strava',
+      startDate: new Date(activity.start_date),
+      averageSpeed: activity.average_speed * 3.6,      // km/h
+      maxSpeed: activity.max_speed * 3.6,
+      averageHeartrate: activity.average_heartrate || null,
+      maxHeartrate: activity.max_heartrate || null,
+      calories: activity.calories || null,
+      hasHeartrate: activity.has_heartrate || false,
+      sportType,
+      synced: true,
+      syncedAt: new Date(),
       updatedFromWebhook: true,
-      updatedAt: new Date().toISOString(),
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      source: 'strava'
     };
 
     await activityDocRef.set(normalized, { merge: true });
@@ -2033,6 +2022,7 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
     console.error('❌ Error in handleStravaActivityUpsert:', err.response?.data || err.message);
   }
 }
+
 
 // REPLACE your existing /callback route with this enhanced version
 app.get('/callback', async (req, res) => {
@@ -3123,6 +3113,45 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 message: `Missing required fields: ${missingFields.join(', ')}`
             });
         }
+
+        const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const hrvSnapshot = await db.collection('hrvReadings')
+      .where('userId', '==', userId)
+      .where('timestamp', '>=', sevenDaysAgo)
+      .orderBy('timestamp', 'desc')
+      .limit(7)
+      .get();
+    
+    const recentHRV = hrvSnapshot.docs.map(doc => doc.data());
+    
+    // Calculate average HRV if available
+    let avgHRV = null;
+    if (recentHRV.length > 0) {
+  const sum = recentHRV.reduce((acc, r) => acc + r.value, 0);
+  const recentAvg = sum / recentHRV.length;
+
+  const baselineFromForm =
+    onboardingData.baseline_hrv || onboardingData.hrv_baseline;
+
+  avgHRV = baselineFromForm
+    ? Math.round((recentAvg + parseFloat(baselineFromForm)) / 2)
+    : Math.round(recentAvg);
+
+  console.log(
+    `📊 HRV blended avg for user ${userId}: ${avgHRV} (recent ${recentAvg.toFixed(
+      1
+    )}, baseline ${baselineFromForm || 'none'})`
+  );
+} else {
+  const baselineFromForm =
+    onboardingData.baseline_hrv || onboardingData.hrv_baseline;
+  if (baselineFromForm) {
+    avgHRV = parseInt(baselineFromForm, 10);
+    console.log(`📊 Using baseline HRV from form: ${avgHRV}`);
+  }
+}
         
         // Create AI profile document
         const aiProfile = {
@@ -3181,10 +3210,21 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 raceClimate: onboardingData.race_climate || null
             },
             stravaConnected: onboardingData.strava_connected === 'true',
+            hrv: {
+        baseline: avgHRV,
+        recentReadings: recentHRV.slice(0, 3).map(r => ({
+          value: r.value,
+          date: r.date,
+          source: r.source
+        })),
+        averageLast7Days: avgHRV,
+        updatedAt: new Date()
+      },
 
             createdAt: new Date(),
             updatedAt: new Date()
         };
+        const plan = await aiService.generateInitialTrainingPlan(aiProfile);
         
         // Save AI profile
         await db.collection('aiprofiles').doc(userId).set(aiProfile);
@@ -4193,135 +4233,181 @@ app.post('/api/hrv/log', authenticateToken, async (req, res) => {
  * Optimized for periodization, peak performance, race strategy
  */
 async function generateRaceCoachPlan(profile) {
-    try {
-        console.log('🤖 Generating RACE COACH plan for:', profile.personalProfile.email);
-        
-        const daysToRace = profile.raceHistory.targetRace.daysToRace;
-        
-        const prompt = `Create an advanced race-focused periodized training plan:
+  try {
+    console.log('🤖 Generating RACE COACH plan for:', profile.personalProfile.email);
 
-Profile:
+    const daysToRace = profile.raceHistory.targetRace.daysToRace;
+    const totalWeeks = Math.min(16, Math.floor(daysToRace / 7));
+
+    // Build an HRV summary line if data is available
+    let hrvLine = '';
+    if (profile.hrv?.baseline || profile.hrv?.averageLast7Days) {
+      const baseline = profile.hrv.baseline || profile.hrv.averageLast7Days;
+      const recent = profile.hrv.averageLast7Days || baseline;
+      hrvLine = `
+- Baseline HRV: ${baseline}
+- Recent 7‑day HRV average: ${recent}
+- Use HRV to down‑shift intensity on low HRV days and slightly up‑shift on high HRV days, without changing total weekly mileage too aggressively.`;
+    }
+
+    const prompt = `Create an advanced race-focused periodized training plan.
+
+ATHLETE PROFILE
 - Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
-- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
+- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage} km
 - Target race: ${profile.raceHistory.targetRace.distance} in ${daysToRace} days
 - Target time: ${profile.raceHistory.targetRace.targetTime || 'Personal best attempt'}
 - Training days: ${profile.trainingStructure.preferredDays?.join(', ')}
-- Recent PB: ${profile.raceHistory.recentPB?.distance} in ${profile.raceHistory.recentPB?.time || 'N/A'}
+- Recent PB: ${profile.raceHistory.recentPB?.distance} in ${profile.raceHistory.recentPB?.time || 'N/A'}${hrvLine}
 
-Create a ${Math.min(16, Math.floor(daysToRace / 7))}-week plan with:
-1. PERIODIZATION: Build → Intensity → Peak → Taper phases
-2. Race-specific workouts (tempo, intervals, threshold)
-3. Strategic mileage progression
-4. HRV-based recovery guidance
-5. Race day strategy
+PLAN REQUIREMENTS
+- Duration: ${totalWeeks} weeks, organized into phases: Build → Intensity → Peak → Taper
+- Include race-specific workouts: tempo, intervals, threshold, long runs with pace blocks
+- Progress weekly mileage gradually and safely
+- Include explicit HRV-based recovery guidance for each week:
+  * What to do on low HRV days (easier / shorter / swap to recovery)
+  * What to do on high HRV days (slightly more intensity but same total volume)
 
-Format as JSON with detailed weekly breakdowns.`;
-        
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-        
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const planText = response.text();
-        
-        let trainingPlan;
-        try {
-            const cleanedText = planText.replace(/``````/g, '').trim();
-            trainingPlan = JSON.parse(cleanedText);
-            trainingPlan.type = 'ai_generated_race';
-        } catch (e) {
-            trainingPlan = {
-                type: 'ai_text',
-                content: planText
-            };
-        }
-        
-        console.log('✅ AI RACE COACH plan generated');
-        return {
-            ...trainingPlan,
-            coachType: 'race',
-            source: 'ai_gemini_race',
-            generatedAt: new Date().toISOString()
-        };
-        
-    } catch (error) {
-        console.error('❌ Race coach plan generation failed:', error.message);
-        return {
-            type: 'template_fallback',
-            coachType: 'race',
-            source: 'fallback_template_race',
-            plan: generateRaceFallbackPlan(profile),
-            fallbackReason: error.message,
-            generatedAt: new Date().toISOString()
-        };
+OUTPUT FORMAT
+Return a valid JSON object with:
+- "weeks": array of week objects, each with:
+  * "weekNumber"
+  * "focus" (e.g. build, intensity, peak, taper)
+  * "summary"
+  * "hrvGuidance" (specific instructions for low/normal/high HRV days)
+  * "days": array of 7 day objects with fields:
+      - "dayName"
+      - "type" (easy, long, tempo, intervals, rest, cross-training)
+      - "description"
+      - "distanceKm" (number)
+      - "durationMin" (number, optional)
+      - "intensity" (easy / moderate / hard)
+- Do not include any text outside the JSON.`;
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const planText = response.text();
+
+    let trainingPlan;
+    try {
+      const cleanedText = planText.replace(/``````/g, '').trim();
+      trainingPlan = JSON.parse(cleanedText);
+      trainingPlan.type = 'ai_generated_race';
+    } catch (e) {
+      trainingPlan = { type: 'ai_text', content: planText };
     }
+
+    console.log('✅ AI RACE COACH plan generated');
+    return {
+      ...trainingPlan,
+      coachType: 'race',
+      source: 'ai_gemini_race',
+      generatedAt: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('❌ Race coach plan generation failed:', error.message);
+    return {
+      type: 'template_fallback',
+      coachType: 'race',
+      source: 'fallback_template_race',
+      plan: generateRaceFallbackPlan(profile),
+      fallbackReason: error.message,
+      generatedAt: new Date().toISOString()
+    };
+  }
 }
+
 
 /**
  * BASIC COACH PLAN GENERATOR
  * Optimized for habit formation, consistency, beginner-friendly
  */
 async function generateBasicCoachPlan(profile) {
-    try {
-        console.log('🤖 Generating BASIC COACH plan for:', profile.personalProfile.email);
-        
-        const prompt = `Create a beginner-friendly running plan focused on HABIT FORMATION:
+  try {
+    console.log('🤖 Generating BASIC COACH plan for:', profile.personalProfile.email);
 
-Profile:
+    const daysPerWeek = profile.trainingStructure.daysPerWeek || 3;
+
+    let hrvLine = '';
+    if (profile.hrv?.baseline || profile.hrv?.averageLast7Days) {
+      const baseline = profile.hrv.baseline || profile.hrv.averageLast7Days;
+      const recent = profile.hrv.averageLast7Days || baseline;
+      hrvLine = `
+- Baseline HRV: ${baseline}
+- Recent 7‑day HRV average: ${recent}
+- On low HRV days, allow the user to walk more or shorten the run; on high HRV days, keep it easy but note that they may feel fresher.`;
+    }
+
+    const prompt = `Create a beginner-friendly running plan focused on HABIT FORMATION.
+
+ATHLETE PROFILE
 - Age: ${profile.personalProfile.age}, Gender: ${profile.personalProfile.gender}
-- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage}km
-- Training days per week: ${profile.trainingStructure.daysPerWeek}
-- Preferred days: ${profile.trainingStructure.preferredDays?.join(', ')}
+- Current weekly mileage: ${profile.raceHistory.currentWeeklyMileage} km
+- Training days per week: ${daysPerWeek}
+- Preferred days: ${profile.trainingStructure.preferredDays?.join(', ')}${hrvLine}
 
-Focus on:
+PLAN FOCUS
 1. Building running habits (consistency over intensity)
 2. Sustainable easy paces
-3. Gradual progression (max 5-10% weekly increase)
+3. Gradual progression (max 5–10% weekly increase)
 4. Making running enjoyable
-5. Recovery emphasis
+5. Simple HRV-based recovery rules (e.g. swap to walk/rest if recovery is low)
 
-Create a 4-week plan emphasizing CONSISTENCY with daily structure, motivation tips.
-Format as JSON.`;
-        
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-        
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const planText = response.text();
-        
-        let trainingPlan;
-        try {
-            const cleanedText = planText.replace(/``````/g, '').trim();
-            trainingPlan = JSON.parse(cleanedText);
-            trainingPlan.type = 'ai_generated_basic';
-        } catch (e) {
-            trainingPlan = {
-                type: 'ai_text',
-                content: planText
-            };
-        }
-        
-        console.log('✅ AI BASIC COACH plan generated');
-        return {
-            ...trainingPlan,
-            coachType: 'basic',
-            source: 'ai_gemini_basic',
-            generatedAt: new Date().toISOString()
-        };
-        
-    } catch (error) {
-        console.error('❌ Basic coach plan generation failed:', error.message);
-        return {
-            type: 'template_fallback',
-            coachType: 'basic',
-            source: 'fallback_template_basic',
-            plan: generateBasicFallbackPlan(profile),
-            fallbackReason: error.message,
-            generatedAt: new Date().toISOString()
-        };
+OUTPUT FORMAT
+Return a valid JSON object with:
+- "weeks": array of 4 week objects, each with:
+  * "weekNumber"
+  * "theme" (e.g. get started, build consistency, extend distance)
+  * "hrvGuidance" (simple instructions: what to do on low HRV days)
+  * "days": array of 7 day objects with:
+      - "dayName"
+      - "type" (easy run, walk, rest, optional cross-training)
+      - "description"
+      - "durationMin" (number)
+      - "intensity" (easy / very easy / rest)
+- Do not include any explanation outside the JSON.`;
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const planText = response.text();
+
+    let trainingPlan;
+    try {
+      const cleanedText = planText.replace(/``````/g, '').trim();
+      trainingPlan = JSON.parse(cleanedText);
+      trainingPlan.type = 'ai_generated_basic';
+    } catch (e) {
+      trainingPlan = { type: 'ai_text', content: planText };
     }
+
+    console.log('✅ AI BASIC COACH plan generated');
+    return {
+      ...trainingPlan,
+      coachType: 'basic',
+      source: 'ai_gemini_basic',
+      generatedAt: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('❌ Basic coach plan generation failed:', error.message);
+    return {
+      type: 'template_fallback',
+      coachType: 'basic',
+      source: 'fallback_template_basic',
+      plan: generateBasicFallbackPlan(profile),
+      fallbackReason: error.message,
+      generatedAt: new Date().toISOString()
+    };
+  }
 }
+
 
 /**
  * RACE FALLBACK: Safe template if AI fails
@@ -4364,17 +4450,20 @@ function generateBasicFallbackPlan(profile) {
 /**
  * FACTORY FUNCTION: Route to correct generator based on plan type
  */
+// Plan router – keep as is
 async function generateInitialTrainingPlan(profile, planType = 'race') {
-    console.log(`🎯 Routing to ${planType} coach plan generator...`);
-    
-    if (planType === 'basic') {
-        return generateBasicCoachPlan(profile);
-    } else if (planType === 'race') {
-        return generateRaceCoachPlan(profile);
-    } else {
-        throw new Error(`Unknown plan type: ${planType}`);
-    }
+  console.log(`🎯 Routing to ${planType} coach plan generator...`);
+  
+  if (planType === 'basic') {
+    return generateBasicCoachPlan(profile);
+  } else if (planType === 'race') {
+    return generateRaceCoachPlan(profile);
+  } else {
+    throw new Error(`Unknown plan type: ${planType}`);
+  }
 }
+
+
 
 
 /**

@@ -477,7 +477,7 @@
                 <div class="row">
                     <div class="form-group">
                         <label>HRV Baseline</label>
-                        <input type="number" name="baseline_hrv" min="10" max="200">
+                        <input type="number" name="baseline_hrv" min="10" max="200" placeholder="Average HRV (optional)">
                         <span class="hint">If tracked by watch/device</span>
                     </div>
                     <div class="form-group">
@@ -607,6 +607,9 @@
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
+    let currentStep = 1;
+    const totalSteps = 5;
+
     if (urlParams.get('strava') === 'success') {
         const stravaToken = urlParams.get('token');
         if (stravaToken) {
@@ -619,9 +622,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Location capture function
     
-    let currentStep = 1;
-    const totalSteps = 5;
-
+    
   // Replace connectStrava function
 function saveRaceOnboardingDraft() {
   const draft = { currentStep };
@@ -673,8 +674,58 @@ function restoreRaceOnboardingDraft() {
         }
     }
 
+    function updateStravaUI(connected, athleteName) {
+    // Find the existing "Connect Strava" button in Step 3 card
+    const connectBtn =
+      document.querySelector('button[onclick="connectStrava()"]') ||
+      document.querySelector('button[onclick=connectStrava]');
+    if (!connectBtn) return;
+
+    const card = connectBtn.closest('div');
+    if (!card) return;
+
+    let statusText = card.querySelector('.strava-status-text');
+    if (!statusText) {
+      statusText = document.createElement('p');
+      statusText.className = 'strava-status-text';
+      statusText.style.marginTop = '10px';
+      statusText.style.fontSize = '13px';
+      statusText.style.color = 'rgba(255,255,255,0.9)';
+      card.appendChild(statusText);
+    }
+
+    if (connected) {
+      connectBtn.style.display = 'none';
+      statusText.textContent = `✅ Connected as ${athleteName || 'Strava athlete'}`;
+      statusText.style.fontWeight = '600';
+    } else {
+      connectBtn.style.display = 'inline-block';
+      statusText.textContent = 'Connect Strava to auto-import your recent activities.';
+      statusText.style.fontWeight = '400';
+    }
+  }
+
+  async function checkStravaStatus() {
+    try {
+      const token = localStorage.getItem('userToken');
+      if (!token) return;
+
+      const res = await fetch('/api/strava/connection-status', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      const data = await res.json();
+
+      if (data.success && data.connected) {
+        updateStravaUI(true, data.athleteName);
+      }
+    } catch (err) {
+      console.error('Strava status check error:', err);
+    }
+  }
+
     // Call restore right after URL handling
     restoreRaceOnboardingDraft();
+    checkStravaStatus();
 
     window.getLocation = function() {
     const btn = document.getElementById('locationBtn');
@@ -736,17 +787,27 @@ async function claimStravaConnection(stravaToken) {
             const result = await response.json();
             
             if (result.success) {
-                alert('🎉 Strava connected successfully! Athlete: ' + (result.athleteName || 'Connected'));
-                // Remove query params to clean URL
-                window.history.replaceState({}, '', window.location.pathname + '?plan=race');
-            } else {
-                alert('Failed to connect Strava: ' + result.message);
-            }
-        } catch (error) {
-            console.error('❌ Claim error:', error);
-            alert('Error connecting Strava. Please try again.');
+        alert('🎉 Strava connected successfully! Athlete: ' + (result.athleteName || 'Connected'));
+
+        // Update the card UI
+        updateStravaUI(true, result.athleteName);
+
+        // Clean query params but keep ?plan=race if present
+        const url = new URL(window.location.href);
+        url.searchParams.delete('strava');
+        url.searchParams.delete('token');
+        if (!url.searchParams.has('plan')) {
+          url.searchParams.set('plan', 'race');
         }
+        window.history.replaceState({}, '', url.toString());
+      } else {
+        alert('Failed to connect Strava: ' + result.message);
+      }
+    } catch (error) {
+      console.error('❌ Claim error:', error);
+      alert('Error connecting Strava. Please try again.');
     }
+  }
 
 
 window.connectStrava = function () {
