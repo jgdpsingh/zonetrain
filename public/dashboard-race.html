@@ -505,6 +505,8 @@ body {
             </button>
         </div>
     </div>
+
+
     
     <div class="dashboard-container">
         <div class="dashboard-header">
@@ -515,6 +517,17 @@ body {
                 </div>
                 <span class="plan-badge">RACE COACH PRO</span>
             </div>
+
+            <!-- Plan History Widget -->
+<div class="widget">
+    <div class="widget-header">
+        <h3>Plan History</h3>
+    </div>
+    <div id="planHistoryContainer">
+        <p>Loading history...</p>
+    </div>
+</div>
+
 
             <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
             <div class="card-header">
@@ -1741,9 +1754,14 @@ async function loadRaceGoals() {
     ? (days === 1 ? days + ' day' : days + ' days')
     : '-- days';
 
-    const dateStr = currentRaceGoal.date
-      ? new Date(currentRaceGoal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-      : 'date TBC';
+    let dateStr = 'date TBC';
+if (currentRaceGoal.date) {
+    const dateObj = new Date(currentRaceGoal.date);
+    if (!isNaN(dateObj.getTime())) {
+        dateStr = dateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+}
+
 
     subtitleEl.textContent =
       `${currentRaceGoal.distance || '?'} km • ${dateStr}`;
@@ -1914,7 +1932,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const card = document.getElementById('strava-connection-card');
                     const statusDiv = document.getElementById('strava-status');
                     
+                    if (!card || !statusDiv) return; // extra safety
+
                     if (data.connected) {
+                        const lastSyncText = data.lastSync
+          ? new Date(data.lastSync).toLocaleString()
+          : 'Never';
                         // Show connected state
                         statusDiv.className = 'strava-status strava-connected';
                         statusDiv.innerHTML = `
