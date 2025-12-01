@@ -1759,7 +1759,7 @@ async function loadRaceGoals() {
 async function loadTrainingPlan() {
     try {
         const response = await fetch('/api/race-goals/plan/current', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` }
         });
         const data = await response.json();
         
@@ -1823,7 +1823,7 @@ function openUpdateRaceGoalModal() {
 async function loadPlanHistory() {
     try {
         const response = await fetch('/api/race-goals/plans/history?limit=5', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` }
         });
         const data = await response.json();
         
