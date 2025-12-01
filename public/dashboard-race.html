@@ -1761,20 +1761,48 @@ async function loadTrainingPlan() {
         const response = await fetch('/api/race-goals/plan/current', {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` }
         });
-        const data = await response.json();
-        
-        // Display in existing widget
-        document.getElementById('trainingPlanContainer').innerHTML = `
-            <div class="plan-card">
-                <h4>${data.coachType} Coach Plan</h4>
-                <p>Type: ${data.planType}</p>
-                <p>Created: ${new Date(data.createdAt).toLocaleDateString()}</p>
-                <p>Progress: Week ${data.progress.weeksElapsed} of ${data.progress.totalWeeks}</p>
-            </div>
-        `;
-    } catch (error) {
-        console.error('Error loading training plan:', error);
+
+        if (response.status === 404) {
+      // No active plan yet
+      document.getElementById('training-plan-container').innerHTML =
+        '<p>No active training plan yet. Complete onboarding or set a race.</p>';
+      return;
     }
+
+    if (!response.ok) {
+      console.error('Training plan HTTP error:', response.status);
+      return;
+    }
+        const data = await response.json();
+        if (!data.success || !data.plan) {
+      console.warn('No plan data returned:', data.message || data.error);
+      return;
+    }
+
+    const plan = data.plan;
+    const createdAt = plan.createdAt
+      ? new Date(plan.createdAt).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      : 'Unknown date';
+
+    const progress = plan.progress || {};
+    const weeksElapsed = progress.weeksElapsed ?? '–';
+    const totalWeeks = progress.totalWeeks ?? '–';
+
+    document.getElementById('training-plan-container').innerHTML = `
+      <div class="plan-card">
+        <h4>${plan.coachType} Coach Plan</h4>
+        <p>Type: ${plan.planType}</p>
+        <p>Created: ${createdAt}</p>
+        <p>Progress: Week ${weeksElapsed} of ${totalWeeks}</p>
+      </div>
+    `;
+  } catch (error) {
+    console.error('Error loading training plan:', error);
+  }
 }
 
 function openUpdateRaceGoalModal() {
@@ -1821,23 +1849,40 @@ function openUpdateRaceGoalModal() {
 
 // Fetch plan history
 async function loadPlanHistory() {
-    try {
-        const response = await fetch('/api/race-goals/plans/history?limit=5', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` }
-        });
-        const data = await response.json();
-        
-        // Display list of past plans
-        let html = '<ul>';
-        data.plans.forEach(plan => {
-            html += `<li>${plan.planType} - ${new Date(plan.createdAt).toLocaleDateString()}</li>`;
-        });
-        html += '</ul>';
-        
-        document.getElementById('planHistoryContainer').innerHTML = html;
-    } catch (error) {
-        console.error('Error loading plan history:', error);
+  try {
+    const response = await fetch('/api/race-goals/plans/history?limit=5', {
+      headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` }
+    });
+
+    if (!response.ok) {
+      console.error('Plan history HTTP error:', response.status);
+      return;
     }
+
+    const data = await response.json();
+    if (!data.success || !Array.isArray(data.plans)) {
+      console.warn('No plan history available:', data.message || data.error);
+      document.getElementById('planHistoryContainer').innerHTML =
+        '<p>No previous plans yet.</p>';
+      return;
+    }
+
+    let html = '<ul>';
+    data.plans.forEach(plan => {
+      const created = plan.createdAt
+        ? new Date(plan.createdAt).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          })
+        : 'Unknown date';
+      html += `<li>${plan.planType} – ${created}</li>`;
+    });
+    html += '</ul>';
+    document.getElementById('planHistoryContainer').innerHTML = html;
+  } catch (error) {
+    console.error('Error loading plan history:', error);
+  }
 }
 
 // Load all on page load
