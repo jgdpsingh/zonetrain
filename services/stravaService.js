@@ -172,6 +172,9 @@ class StravaService {
             await batch.commit();
 
             console.log(`✅ Synced ${activities.length} activities`);
+            await this.db.collection('users').doc(userId).update({
+  stravaLastSync: new Date()
+}); 
 
             return {
                 success: true,

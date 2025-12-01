@@ -2006,6 +2006,10 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
     await activityDocRef.set(normalized, { merge: true });
     console.log('✅ Running activity stored for user:', userId, activity.id);
 
+    await db.collection('users').doc(userId).update({
+  stravaLastSync: new Date()
+});
+
     // 5) Optional: trigger analytics / training-plan updates
     try {
       if (typeof WorkoutAnalyticsService === 'function') {
@@ -8903,6 +8907,7 @@ app.post('/api/claim-strava-connection', authenticateToken, async (req, res) => 
             stravaAccessToken: stravaData.accessToken,
             stravaRefreshToken: stravaData.refreshToken,
             stravaAthleteId: stravaData.athleteId,
+            stravaAthleteName: stravaData.athleteName,
             stravaConnected: true,
             stravaConnectedAt: new Date().toISOString()
         });
