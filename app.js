@@ -3228,7 +3228,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             createdAt: new Date(),
             updatedAt: new Date()
         };
-        const plan = await aiService.generateInitialTrainingPlan(aiProfile);
+        //const plan = await aiService.generateInitialTrainingPlan(aiProfile);
         
         // Save AI profile
         await db.collection('aiprofiles').doc(userId).set(aiProfile);
