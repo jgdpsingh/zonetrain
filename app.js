@@ -1783,10 +1783,10 @@ app.get('/api/strava/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
+const verifyToken = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || 'STRAVA';
   console.log('Strava webhook verification request:', req.query);
 
-  if (mode === 'subscribe' && token === STRAVA_WEBHOOK_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && token === verifyToken) {
     console.log('✅ Strava webhook verified successfully');
     return res.json({ 'hub.challenge': challenge });
   }
@@ -8859,7 +8859,7 @@ app.get('/auth/strava/callback', async (req, res) => {
         global.stravaConnections[stravaDataToken] = {
             accessToken: access_token,
             refreshToken: refresh_token,
-            athleteId: athlete.id,
+            athleteId: String(athlete.id),
             athleteName: `${athlete.firstname} ${athlete.lastname}`,
             timestamp: Date.now()
         };

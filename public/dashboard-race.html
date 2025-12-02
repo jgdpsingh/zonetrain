@@ -518,15 +518,7 @@ body {
                 <span class="plan-badge">RACE COACH PRO</span>
             </div>
 
-            <!-- Plan History Widget -->
-<div class="widget">
-    <div class="widget-header">
-        <h3>Plan History</h3>
-    </div>
-    <div id="planHistoryContainer">
-        <p>Loading history...</p>
-    </div>
-</div>
+            
 
 
             <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
@@ -987,6 +979,15 @@ body {
     <div id="progress-chart-container"></div>
     <div id="personal-records-container"></div>
     <div id="training-plan-container"></div>
+    <!-- Plan History Widget -->
+<div class="widget">
+    <div class="widget-header">
+        <h3>Plan History</h3>
+    </div>
+    <div id="planHistoryContainer">
+        <p>Loading history...</p>
+    </div>
+</div>
         </div>
 
         <!-- Weekly Plan -->
@@ -1180,7 +1181,7 @@ body {
         window.dashboardWidgets.renderStravaWorkoutHistory('workout-history-container');
         window.dashboardWidgets.renderProgressChart('progress-chart-container', 'distance');
         window.dashboardWidgets.renderPersonalRecords('personal-records-container');
-        window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
+        //window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
 
         // Load subscription details
         loadSubscriptionDetails();
