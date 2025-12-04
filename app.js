@@ -3717,12 +3717,19 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         
         const profile = profileDoc.data();
         const currentGoals = profile.raceHistory.targetRace;
+
+        // ✅ FIX: Check if date is a Firestore Timestamp and convert it
+        let raceDateStr = currentGoals.raceDate;
+        if (currentGoals.raceDate && typeof currentGoals.raceDate.toDate === 'function') {
+            // It's a Firestore Timestamp, convert to ISO string
+            raceDateStr = currentGoals.raceDate.toDate().toISOString();
+        }
         
         res.json({
             success: true,
             raceGoal: {
                 distance: currentGoals.distance,
-                date: currentGoals.raceDate,
+                date: raceDateStr, // <-- Now safely a string
                 targetTime: currentGoals.targetTime,
                 daysToRace: currentGoals.daysToRace,
                 location: currentGoals.location
@@ -3743,6 +3750,7 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         });
     }
 });
+
 
 /**
  * GET active training plan
@@ -3767,6 +3775,7 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         }
         
         const plan = planDoc.docs[0].data();
+        const createdAt = plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt;
         
         res.json({
   success: true,
@@ -3774,7 +3783,7 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
     id: planDoc.docs[0].id,
     planType: plan.planType,
     coachType: plan.planData?.coachType || 'race',
-    createdAt: plan.createdAt,
+    createdAt: createdAt,
     data: plan.planData,
     progress: {
       weeksElapsed: calculateWeeksElapsed(plan.createdAt),
@@ -3817,14 +3826,23 @@ app.get('/api/race-goals/plans/history', authenticateToken, async (req, res) => 
             });
         }
         
-        const plans = plansSnapshot.docs.map(doc => ({
-            id: doc.id,
-            planType: doc.data().planType,
-            isActive: doc.data().isActive,
-            createdAt: doc.data().createdAt,
-            reason: doc.data().reason || 'Initial plan',
-            goals: doc.data().newGoals || doc.data().previousGoals
-        }));
+        // ✅ FIX: Conversion happens inside the map function for each doc
+        const plans = plansSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Convert Timestamp to ISO String safely
+            const createdAtIso = data.createdAt?.toDate 
+                ? data.createdAt.toDate().toISOString() 
+                : data.createdAt;
+
+            return {
+                id: doc.id,
+                planType: data.planType,
+                isActive: data.isActive,
+                createdAt: createdAtIso, // Use the converted string here
+                reason: data.reason || 'Initial plan',
+                goals: data.newGoals || data.previousGoals
+            };
+        });
         
         res.json({
             success: true,
@@ -3841,6 +3859,7 @@ app.get('/api/race-goals/plans/history', authenticateToken, async (req, res) => 
         });
     }
 });
+
 
 /**
  * GET plan details
