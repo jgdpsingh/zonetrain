@@ -6374,16 +6374,6 @@ app.post('/api/race/create', authenticateToken, async (req, res) => {
     }
 });
 
-// Helper function
-function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - date) / 1000);
-    
-    if (seconds < 60) return 'Just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-    return date.toLocaleDateString();
-}
 
 // Serve notifications page
 app.get('/notifications', (req, res) => {
@@ -13465,6 +13455,17 @@ function sanitizeForLogging(obj) {
   }
   
   return sanitized;
+}
+
+// Helper function
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return date.toLocaleDateString();
 }
 
 // ============================================
