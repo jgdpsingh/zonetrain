@@ -2266,6 +2266,8 @@ const plan = hasPlan ? planSnapshot.docs[0].data() : null;
                 },
                 strava: {
                     connected: stravaConnected,
+                    athleteName: user?.stravaAthleteName || 'Unknown Athlete',
+    lastSync: user?.stravaLastSync ? user.stravaLastSync.toDate().toISOString() : null,
                     connectionDate: user?.stravaConnectedAt || null
                 },
                 latestAnalysis: latestAnalysis,
@@ -3293,6 +3295,48 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         });
         
         console.log('✅ Training plan saved:', planDoc.id);
+
+        if (trainingPlan.weeks && Array.isArray(trainingPlan.weeks)) {
+            console.log('🚀 Exploding plan into individual workouts...');
+            const batch = db.batch();
+            const planStartDate = new Date(); // Start plan from today
+            let workoutCount = 0;
+            
+            trainingPlan.weeks.forEach((week, weekIndex) => {
+                if (week.days && Array.isArray(week.days)) {
+                    week.days.forEach((day, dayIndex) => {
+                        // Calculate date for this specific workout
+                        const workoutDate = new Date(planStartDate);
+                        workoutDate.setDate(workoutDate.getDate() + (weekIndex * 7) + dayIndex);
+                        
+                        // Create workout document ref
+                        const workoutRef = db.collection('workouts').doc();
+                        
+                        batch.set(workoutRef, {
+                            userId: userId,
+                            planId: planDoc.id, // Link back to parent plan
+                            weekNumber: week.weekNumber || (weekIndex + 1),
+                            dayName: day.dayName,
+                            type: day.type || 'rest',
+                            title: day.type || 'Workout', // ensure title exists
+                            description: day.description || '',
+                            distance: day.distanceKm || 0,
+                            duration: day.durationMin || 0,
+                            intensity: day.intensity || 'easy',
+                            scheduledDate: workoutDate,
+                            completed: false,
+                            createdAt: new Date()
+                        });
+                        workoutCount++;
+                    });
+                }
+            });
+
+            await batch.commit();
+            console.log(`✅ Saved ${workoutCount} individual workouts to 'workouts' collection`);
+        } else {
+            console.warn('⚠️ No weeks array found in training plan to explode.');
+        }
 
         // Get the user's fully updated record
 const updatedUser = await userManager.getUserById(userId);

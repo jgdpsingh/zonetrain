@@ -6,49 +6,93 @@ class TrainingPlanService {
     }
 
     // Get current training plan
-    async getCurrentPlan(userId) {
-        try {
-            const snapshot = await this.db.collection('training_plans')
-                .where('userId', '==', userId)
-                .where('active', '==', true)
-                .orderBy('createdAt', 'desc')
-                .limit(1)
-                .get();
+    // services/trainingPlanService.js
 
-            if (snapshot.empty) {
-                return null;
-            }
+async getCurrentPlan(userId) {
+    try {
+        // 1. Fetch the active plan
+        const snapshot = await this.db.collection('trainingplans') // Check if collection name is 'trainingplans' or 'training_plans'
+            .where('userId', '==', userId)
+            .where('isActive', '==', true) // Check if field is 'isActive' or 'active'
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
 
-            const plan = {
-                id: snapshot.docs[0].id,
-                ...snapshot.docs[0].data()
-            };
+        if (snapshot.empty) {
+            return null;
+        }
 
-            // Get this week's workouts
-            const today = new Date();
-            const weekStart = new Date(today);
-            weekStart.setDate(today.getDate() - today.getDay());
-            
-            const workoutsSnapshot = await this.db.collection('workouts')
-                .where('userId', '==', userId)
-                .where('planId', '==', plan.id)
-                .where('scheduledDate', '>=', weekStart)
-                .orderBy('scheduledDate', 'asc')
-                .limit(7)
-                .get();
+        const planDoc = snapshot.docs[0];
+        const plan = {
+            id: planDoc.id,
+            ...planDoc.data()
+        };
 
+        // 2. Try fetching form 'workouts' collection first
+        const today = new Date();
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay()); // Sunday
+
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 7);
+
+        const workoutsSnapshot = await this.db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('planId', '==', plan.id)
+            .where('scheduledDate', '>=', weekStart)
+            .where('scheduledDate', '<', weekEnd)
+            .orderBy('scheduledDate', 'asc')
+            .get();
+
+        // 3. Assign workouts
+        if (!workoutsSnapshot.empty) {
+            // Found individual workout docs
             plan.thisWeekWorkouts = workoutsSnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
                 scheduledDate: doc.data().scheduledDate?.toDate()
             }));
+        } else {
+            // ⚠️ FALLBACK: Workouts not in collection? Extract from plan.planData JSON
+            console.log("⚠️ Workouts collection empty for plan. extracting from planData JSON...");
+            
+            if (plan.planData) {
+                // Calculate current week number (1-based)
+                const planStart = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
+                const diffTime = Math.abs(today - planStart);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                const currentWeekNum = Math.ceil(diffDays / 7) || 1;
+                
+                // Look for week key (week1, week2, etc.)
+                const weekKey = `week${currentWeekNum}`;
+                const weeklyData = plan.planData[weekKey] || plan.planData.schedule?.[weekKey];
 
-            return plan;
-        } catch (error) {
-            console.error('Get current plan error:', error);
-            throw error;
+                if (Array.isArray(weeklyData)) {
+                    plan.thisWeekWorkouts = weeklyData.map((w, index) => {
+                        // Create a fake date for display
+                        const workoutDate = new Date(planStart);
+                        workoutDate.setDate(workoutDate.getDate() + ((currentWeekNum - 1) * 7) + index);
+                        
+                        return {
+                            id: `json-${weekKey}-${index}`,
+                            ...w,
+                            scheduledDate: workoutDate
+                        };
+                    });
+                } else {
+                    plan.thisWeekWorkouts = [];
+                }
+            }
         }
+        
+        return plan;
+
+    } catch (error) {
+        console.error('Get current plan error:', error);
+        throw error;
     }
+}
+
 
     // Get training calendar
     async getTrainingCalendar(userId, days = 30) {
