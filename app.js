@@ -13457,16 +13457,21 @@ function sanitizeForLogging(obj) {
   return sanitized;
 }
 
-// Helper function
+// Helper function for app.js
 function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - date) / 1000);
+    // Handle Firestore Timestamp if needed
+    const validDate = date && date.toDate ? date.toDate() : new Date(date);
+    
+    const seconds = Math.floor((new Date() - validDate) / 1000);
     
     if (seconds < 60) return 'Just now';
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-    return date.toLocaleDateString();
+    
+    return validDate.toLocaleDateString();
 }
+
 
 // ============================================
 // START SERVER
