@@ -10419,28 +10419,34 @@ console.log('🔓 Disconnecting Strava for user:', userId);
 
 // Check if Strava is connected
 app.get('/api/strava/connection-status', authenticateToken, async (req, res) => {
-try {
-const userId = req.user.userId;
-const userDoc = await db.collection('users').doc(userId).get();
-const user = userDoc.data();
-res.json({
-        success: true,
-        connected: !!user.stravaAccessToken,
-        athleteName: user.stravaAthleteName || null,
-        athleteName: userData.firstName || 'Athlete', 
-        lastSync: userData.stravaLastSync ? userData.stravaLastSync.toDate() : null
-    });
-    
-} catch (error) {
-    console.error('Strava status error:', error);
-    res.status(500).json({
-        success: false,
-        message: error.message
-    });
-}
+    try {
+        const userId = req.user.userId;
+        const userDoc = await db.collection('users').doc(userId).get();
+        
+        // FIX 1: Check if user exists
+        if (!userDoc.exists) {
+             return res.json({ success: false, connected: false });
+        }
+
+        // FIX 2: Define as 'userData' to match usage below
+        const userData = userDoc.data(); 
+        
+        res.json({
+            success: true,
+            connected: !!userData.stravaAccessToken,
+            // Combine logic: Use strava name if available, else firstName, else 'Athlete'
+            athleteName: userData.stravaAthleteName || userData.firstName || 'Athlete',
+            lastSync: userData.stravaLastSync ? userData.stravaLastSync.toDate() : null
+        });
+        
+    } catch (error) {
+        console.error('Strava status error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 });
-
-
 
 
 app.use(express.static(path.join(__dirname, 'public')));
