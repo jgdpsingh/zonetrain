@@ -935,7 +935,7 @@ async function startTrial(planType) {
 
         <!-- Add this section after the welcome message in dashboard-free.html -->
 
-<div class="strava-connect-section">
+<div class="strava-connect-section" id="strava-connect-section">
     <div class="strava-card">
         <div class="strava-icon">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="#FC4C02">
@@ -953,7 +953,6 @@ async function startTrial(planType) {
             Connect with Strava
         </button>
 
-        <div id="strava-status" class="strava-status" style="display: none;"></div>
     </div>
 
     <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
@@ -1412,71 +1411,87 @@ function dismissAllNotifications() {
     // ==================== STRAVA CONNECTION STATUS ====================
     
     async function loadStravaStatus() {
-        try {
-            const token = localStorage.getItem('userToken');
-            
-            if (!token) {
-                console.log('No token, skipping Strava status check');
-                return;
-            }
-            
-            const response = await fetch('/api/strava/connection-status', {
-                headers: { 
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                console.error('Strava status API error:', response.status);
-                return;
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.connected) {
-                // Show connection card
-                const card = document.getElementById('strava-connection-card');
-                const statusDiv = document.getElementById('strava-status-display');
-                
-                if (card && statusDiv) {
-                    card.style.display = 'block';
-                    statusDiv.className = 'strava-status strava-connected';
-                    
-                    // Format last sync date
-                    let lastSyncText = 'Never';
-                    if (data.lastSync) {
-                        const lastSync = new Date(data.lastSync);
-                        lastSyncText = lastSync.toLocaleString('en-IN', {
-                            dateStyle: 'medium',
-                            timeStyle: 'short'
-                        });
-                    }
-                    
-                    statusDiv.innerHTML = `
-                        <div class="strava-info">
-                            <h4>✅ Connected to Strava</h4>
-                            <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
-                            <p><strong>Last Sync:</strong> ${lastSyncText}</p>
-                        </div>
-                        <button class="btn-disconnect-strava" onclick="disconnectStrava()">
-                            Disconnect
-                        </button>
-                    `;
-                }
-            } else {
-                // Hide card if not connected
-                const card = document.getElementById('strava-connection-card');
-                if (card) {
-                    card.style.display = 'none';
-                }
-            }
-            
-        } catch (error) {
-            console.error('Load Strava status error:', error);
+    try {
+        const token = localStorage.getItem('userToken');
+        if (!token) {
+            console.log('No token, skipping Strava status check');
+            return;
         }
+        
+        const response = await fetch('/api/strava/connection-status', {
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            console.error('Strava status API error:', response.status);
+            return;
+        }
+        
+        const data = await response.json();
+        
+        // --- NEW: Select both sections ---
+        const statusCard = document.getElementById('strava-connection-card'); // Green connected card
+        const statusDiv = document.getElementById('strava-status'); // Inner div for content (Check your HTML for exact ID)
+        
+        // Select the bottom CTA section. 
+        // If you haven't added an ID, use querySelector to find it by class:
+        const connectSection = document.querySelector('.strava-connect-section'); 
+        
+        if (data.success && data.connected) {
+            // --- CASE: CONNECTED ---
+            
+            // 1. Hide the "Connect" CTA
+            if (connectSection) connectSection.style.display = 'none';
+
+            // 2. Show the "Connected" Card
+            if (statusCard && statusDiv) {
+                statusCard.style.display = 'block';
+                statusDiv.className = 'strava-status strava-connected';
+                
+                let lastSyncText = 'Never';
+                if (data.lastSync) {
+                    const lastSync = new Date(data.lastSync);
+                    lastSyncText = lastSync.toLocaleString('en-IN', {
+                        dateStyle: 'medium',
+                        timeStyle: 'short'
+                    });
+                }
+                
+                statusDiv.innerHTML = `
+                    <div class="strava-info">
+                        <h4>✅ Connected to Strava</h4>
+                        <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
+                        <p><strong>Last Sync:</strong> ${lastSyncText}</p>
+                         <p style="font-size: 12px; margin-top: 6px;">
+                          For details on how ZoneTrain uses your Strava data, see
+                          <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
+                            Strava Integration Help
+                          </a>.
+                        </p>
+                    </div>
+                    <button class="btn-disconnect-strava" onclick="disconnectStrava()">
+                        Disconnect
+                    </button>
+                `;
+            }
+        } else {
+            // --- CASE: NOT CONNECTED ---
+            
+            // 1. Show the "Connect" CTA
+            if (connectSection) connectSection.style.display = 'block';
+
+            // 2. Hide the "Connected" Card
+            if (statusCard) statusCard.style.display = 'none';
+        }
+        
+    } catch (error) {
+        console.error('Load Strava status error:', error);
     }
-    
+}
+
     // ==================== DISCONNECT STRAVA ====================
     
     async function disconnectStrava() {
