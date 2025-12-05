@@ -10427,8 +10427,8 @@ res.json({
         success: true,
         connected: !!user.stravaAccessToken,
         athleteName: user.stravaAthleteName || null,
-        connectedAt: user.stravaConnectedAt || null,
-        lastSync: user.stravaLastSync || null
+        athleteName: userData.firstName || 'Athlete', 
+        lastSync: userData.stravaLastSync ? userData.stravaLastSync.toDate() : null
     });
     
 } catch (error) {

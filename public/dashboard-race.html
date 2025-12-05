@@ -1921,54 +1921,69 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         async function loadStravaStatus() {
-            try {
-                const token = localStorage.getItem('userToken');
-                const response = await fetch('/api/strava/connection-status', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    const card = document.getElementById('strava-connection-card');
-                    const statusDiv = document.getElementById('strava-status');
-                    
-                    if (!card || !statusDiv) return; // extra safety
+    try {
+        const token = localStorage.getItem('userToken');
+        const response = await fetch('/api/strava/connection-status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const statusCard = document.getElementById('strava-connection-card'); // Top widget
+            const statusDiv = document.getElementById('strava-status');
+            const connectWidget = document.getElementById('connect-strava-widget'); // Bottom widget (Check ID!)
+            
+            if (!statusCard || !statusDiv) return;
 
-                    if (data.connected) {
-                        const lastSyncText = data.lastSync
-          ? new Date(data.lastSync).toLocaleString()
-          : 'Never';
-                        // Show connected state
-                        statusDiv.className = 'strava-status strava-connected';
-                        statusDiv.innerHTML = `
-                            <div class="strava-info">
-                                <h4>✅ Connected to Strava</h4>
-                                <p><strong>Athlete:</strong> ${data.athleteName || 'Unknown'}</p>
-                                <p><strong>Last Sync:</strong> ${data.lastSync ? new Date(data.lastSync.toDate()).toLocaleString() : 'Never'}</p>
-                                <p style="font-size: 12px; margin-top: 6px;">
-      For details on how ZoneTrain uses your Strava data, see
-      <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
-        Strava Integration Help
-      </a>.
-    </p>
-                            </div>
-                            <button class="btn-disconnect-strava" onclick="disconnectStrava()">
-                                Disconnect
-                            </button>
-                        `;
-                        card.style.display = 'block';
-                    } else {
-                        // Hide card if not connected
-                        card.style.display = 'none';
-                    }
-                }
+            if (data.connected) {
+                // FIX 1: Handle Date correctly (it's a string from API)
+                const lastSyncText = data.lastSync 
+                    ? new Date(data.lastSync).toLocaleString() 
+                    : 'Never';
+
+                // Show connected state
+                statusDiv.className = 'strava-status strava-connected';
+                statusDiv.innerHTML = `
+                    <div class="strava-info">
+                        <h4>✅ Connected to Strava</h4>
+                        <p><strong>Athlete:</strong> ${data.athleteName || 'Athlete'}</p>
+                        <p><strong>Last Sync:</strong> ${lastSyncText}</p>
+                        <p style="font-size: 12px; margin-top: 6px;">
+                          For details on how ZoneTrain uses your Strava data, see
+                          <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
+                            Strava Integration Help
+                          </a>.
+                        </p>
+                    </div>
+                    <div style="display:flex; gap:10px; flex-direction:column; align-items:flex-end;">
+                        <button class="btn-disconnect-strava" onclick="disconnectStrava()">
+                            Disconnect
+                        </button>
+                        <!-- Optional: Helper to fix permissions -->
+                        <a href="/login" style="font-size:11px; color:#666;">Re-authorize Permissions</a>
+                    </div>
+                `;
                 
-            } catch (error) {
-                console.error('Load Strava status error:', error);
+                statusCard.style.display = 'block';
+                
+                // FIX 2: HIDE the "Connect" widget if already connected
+                if (connectWidget) connectWidget.style.display = 'none';
+
+            } else {
+                // Not connected
+                statusCard.style.display = 'none';
+                
+                // SHOW the "Connect" widget
+                if (connectWidget) connectWidget.style.display = 'block';
             }
         }
         
+    } catch (error) {
+        console.error('Load Strava status error:', error);
+    }
+}
+
         async function disconnectStrava() {
             const confirmed = confirm(
                 '🔓 Disconnect from Strava?\n\n' +
