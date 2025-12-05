@@ -130,6 +130,25 @@ class StravaService {
         }
     }
 
+    async updateActivity(userId, activityId, updateData) {
+        try {
+            const accessToken = await this.getAccessToken(userId);
+            console.log(`📝 Updating Strava activity ${activityId}...`);
+
+            const response = await axios.put(`${this.baseURL}/activities/${activityId}`, 
+                updateData, 
+                { headers: { 'Authorization': `Bearer ${accessToken}` } }
+            );
+
+            return response.data;
+        } catch (error) {
+            // Log specific Strava API error if available
+            const msg = error.response?.data?.message || error.message;
+            console.error(`❌ Failed to update Strava activity: ${msg}`);
+            return null; // Return null so we don't crash the caller
+        }
+    }
+
     // Sync activities to local database (for caching)
     async syncActivities(userId) {
         try {

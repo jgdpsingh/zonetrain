@@ -1767,7 +1767,7 @@ app.get('/strava-connect', (req, res) => {
 
 // Update your existing /login route to also redirect to Strava
 app.get('/login', (req, res) => {
-  const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.STRAVA_REDIRECT_URI}&approval_prompt=force&scope=read,activity:read_all`;
+  const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=${process.env.STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${process.env.STRAVA_REDIRECT_URI}&approval_prompt=force&scope=read,activity:read_all,activity:write`;
   res.redirect(stravaAuthUrl);
 });
 
@@ -7184,7 +7184,7 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Get user document
+    // 1. Get user document (Core Auth Data)
     const userDoc = await db.collection('users').doc(userId).get();
     
     if (!userDoc.exists) {
@@ -7195,27 +7195,39 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
     }
 
     const userData = userDoc.data();
-    
-    // Try to get analytics, but don't fail if unavailable
+
+    // 2. Get AI Profile (Rich Coaching Data)
+    // We need this because race details are often stored here, not on the user doc
+    const aiProfileDoc = await db.collection('aiprofiles').doc(userId).get();
+    const aiProfile = aiProfileDoc.exists ? aiProfileDoc.data() : null;
+
+    // 3. Extract Race Details with Fallbacks
+    // Priority: 1. User Doc (if manually set) -> 2. AI Profile (Target Race) -> 3. Null
+    const raceDate = userData.raceDate || aiProfile?.raceHistory?.targetRace?.raceDate || null;
+    const raceName = userData.raceName || (aiProfile?.raceHistory?.targetRace?.distance ? `${aiProfile.raceHistory.targetRace.distance} Race` : null);
+    const raceDistance = userData.raceDistance || aiProfile?.raceHistory?.targetRace?.distance || null;
+
+    // 4. Try to get analytics
     let analytics = null;
     try {
       analytics = await userManager.getUserAnalytics(userId);
     } catch (analyticsError) {
-      // Log for monitoring, but don't expose to user
-      console.warn(`Analytics unavailable for user ${userId}:`, analyticsError.code || analyticsError.message);
-      // Analytics will be null - that's fine
+      console.warn(`Analytics unavailable for user ${userId}:`, analyticsError.message);
     }
 
-    // Always return success with available data
+    // 5. Return Combined Data
     res.json({
       success: true,
-      data: analytics,  // Will be null if unavailable
+      data: analytics,
       email: userData.email,
-      name: userData.name || userData.email.split('@')[0],
+      name: userData.firstName || userData.name || userData.email.split('@')[0],
       planType: userData.planType || 'free',
-      raceDate: userData.raceDate || null,
-      raceName: userData.raceName || null,
-      raceDistance: userData.raceDistance || null,
+      
+      // Correctly mapped race data for Calendar/Dashboard
+      raceDate: raceDate,
+      raceName: raceName,
+      raceDistance: raceDistance,
+      
       stravaConnected: !!userData.stravaRefreshToken,
       createdAt: userData.createdAt
     });
@@ -7227,6 +7239,7 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
     });
   }
 });
+
 
 
 
