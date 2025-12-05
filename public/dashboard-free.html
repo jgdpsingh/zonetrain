@@ -460,11 +460,14 @@
 
         .promo-input-group {
             flex-direction: column;
+            min-width: 0; /* Crucial: allows it to shrink below 300px */
+        width: 100%;
         }
 
         .promo-input,
         .btn-apply-promo {
             width: 100%;
+            box-sizing: border-box;
         }
 
         .free-features {
@@ -923,14 +926,7 @@ async function startTrial(planType) {
             <p style="color: #6b7280; font-size: 15px;">Connect your Strava account to get started with basic training insights.</p>
         </div>
 
-        <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
-        <div class="card-header">
-            <h3>🚴 Strava Connection</h3>
-        </div>
-        
-        <div class="strava-status" id="strava-status-display">
-            <!-- Populated by JavaScript -->
-        </div>
+    
     </div>
 
         <!-- Add this section after the welcome message in dashboard-free.html -->
