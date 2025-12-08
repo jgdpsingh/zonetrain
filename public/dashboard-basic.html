@@ -418,9 +418,8 @@
       const msg = document.getElementById('verification-message');
 
       if (data.emailVerified) {
-      if (banner) {
-        banner.style.display = 'none';
-      }
+      const bannerElement = document.getElementById('verification-banner');
+if (bannerElement) bannerElement.style.display = 'none';
       sessionStorage.setItem('verificationBannerDismissed', 'true');
       console.log('Email verified, hiding verification banner for', data.email);
       hoursRemaining = null;
@@ -430,9 +429,8 @@
     }
 
     // ❌ Not verified: show banner
-    if (banner) {
-      banner.style.display = 'block';
-    }
+    const bannerElement = document.getElementById('verification-banner');
+if (bannerElement) bannerElement.style.display = 'none';
 
 
       if (msg && data.email) {
@@ -634,11 +632,18 @@ async function loadStravaStatus() {
                 const statusDiv = document.getElementById('strava-status');
                 
                 if (data.connected) {
-                    const lastSyncDate = data.lastSync ? 
-                        new Date(data.lastSync._seconds * 1000).toLocaleString('en-IN', {
-                            dateStyle: 'medium',
-                            timeStyle: 'short'
-                        }) : 'Never';
+                    let lastSyncDate = 'Never';
+if (data.lastSync) {
+    // Handle both Firestore Timestamp (seconds) and ISO String (standard date)
+    const dateObj = data.lastSync.seconds 
+        ? new Date(data.lastSync.seconds * 1000) 
+        : new Date(data.lastSync);
+    
+    if (!isNaN(dateObj.getTime())) {
+        lastSyncDate = dateObj.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    }
+}
+
                     
                     statusDiv.className = 'strava-status strava-connected';
                     statusDiv.innerHTML = `

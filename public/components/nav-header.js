@@ -931,6 +931,12 @@ setTimeout(() => {
                 const response = await fetch('/api/notifications', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+                if (response.status === 401 || response.status === 403) {
+    console.warn('Session expired, redirecting to login...');
+    localStorage.removeItem('userToken'); // Clear the bad token
+    window.location.href = '/login?error=session_expired';
+    return;
+}
                 
                 if (!response.ok) {
                     throw new Error('API request failed');

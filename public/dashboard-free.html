@@ -832,6 +832,15 @@ async function startTrial(planType) {
         // ❌ ERROR CASES
         else {
             console.error('Trial start failed:', data);
+
+            if (data.code === 'TOKEN_EXPIRED' || data.errorType === 'TokenExpiredError' || data.message.includes('expired')) {
+        showNotification('Session expired. Redirecting to login...', 'error');
+        setTimeout(() => {
+            localStorage.clear(); // Clear all data
+            window.location.href = '/login?error=session_expired';
+        }, 2000);
+        return;
+    }
             
             // Handle specific error types
             if (data.trialAlreadyUsed) {
