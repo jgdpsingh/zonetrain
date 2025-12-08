@@ -290,6 +290,21 @@ app.get('/shipping-policy', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'shipping-policy.html'));
 });
 
+// Fix for /api/training/today-workout 500 Error
+app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
+    res.json({ success: true, workout: null, message: "Rest day" });
+});
+
+// Fix for /api/training/weekly-plan 500 Error
+app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
+    res.json({ success: true, weekData: [], message: "No active plan" });
+});
+
+// Fix for /api/training-plan/current 500 Error
+app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
+    res.json({ success: true, plan: null });
+});
+
 
 
 
@@ -13552,20 +13567,6 @@ function getTimeAgo(date) {
     return validDate.toLocaleDateString();
 }
 
-// Fix for /api/training/today-workout 500 Error
-app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
-    res.json({ success: true, workout: null, message: "Rest day" });
-});
-
-// Fix for /api/training/weekly-plan 500 Error
-app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
-    res.json({ success: true, weekData: [], message: "No active plan" });
-});
-
-// Fix for /api/training-plan/current 500 Error
-app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
-    res.json({ success: true, plan: null });
-});
 
 
 
