@@ -70,24 +70,36 @@ class DashboardWidgets {
 
     // Weekly Plan Widget
     async renderWeeklyPlanWidget(containerId) {
-        const container = document.getElementById(containerId);
-        if (!container) return;
+    const container = document.getElementById(containerId);
+    if (!container) return;
 
-        try {
-            const response = await fetch('/api/training/weekly-plan', {
-                headers: { 'Authorization': `Bearer ${this.token}` }
-            });
+    try {
+        const response = await fetch('/api/training/weekly-plan', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
 
-            const data = await response.json();
-            if (data.success) {
-                container.innerHTML = this.weeklyPlanTemplate(data.weeklyPlan);
-                this.attachWeeklyPlanListeners();
-            }
-        } catch (error) {
-            console.error('Weekly plan error:', error);
-            container.innerHTML = this.errorTemplate('Failed to load weekly plan');
+        const data = await response.json();
+
+        // FIX: Added check for data.weeklyPlan to prevent the crash
+        if (data.success && data.weeklyPlan) {
+            container.innerHTML = this.weeklyPlanTemplate(data.weeklyPlan);
+            this.attachWeeklyPlanListeners();
+        } else {
+            // Handle valid response but missing plan (e.g. new user, plan ended)
+            console.warn('Weekly plan missing:', data);
+            container.innerHTML = `
+                <div class="widget-empty-state" style="text-align: center; padding: 30px; color: #6b7280;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">📅</div>
+                    <p>No active weekly plan found.</p>
+                </div>
+            `;
         }
+    } catch (error) {
+        console.error('Weekly plan error:', error);
+        container.innerHTML = this.errorTemplate('Failed to load weekly plan');
     }
+}
+
 
     // Today's Workout Widget
     async renderTodayWorkoutWidget(containerId) {
@@ -218,13 +230,23 @@ weatherTemplate(weather, isMock) {
     }
 
     todayWorkoutTemplate(workout) {
+
+        if (!workout) {
+        return `
+            <div class="empty-state">
+                <div class="empty-icon">🛌</div>
+                <h3>Rest Day</h3>
+                <p>No workout scheduled for today.</p>
+            </div>
+        `;
+    }
         const hrvColors = {
             easy: '#ef4444',
             normal: '#10b981',
             push: '#3b82f6'
         };
 
-        const hrvColor = hrvColors[workout.hrvStatus] || '#10b981';
+        const statusColor = workout.completed ? '#10B981' : '#3B82F6';
 
         return `
             <div class="widget today-workout-widget">

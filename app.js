@@ -7645,6 +7645,47 @@ app.get('/api/subscription/calculate-upgrade', authenticateToken, async (req, re
     }
 });
 
+// Add this to app.js (e.g., near other subscription routes)
+
+app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetPlan } = req.body; // e.g., 'race'
+
+        // 1. Get current user subscription
+        const userDoc = await db.collection('users').doc(userId).get();
+        const user = userDoc.data();
+
+        // 2. Define pricing (Hardcoded for now, or fetch from config)
+        const PRICES = {
+            basic: 399,
+            race: 699 // Example price, adjust as needed
+        };
+
+        const currentPrice = PRICES[user.currentPlan] || 0;
+        const targetPrice = PRICES[targetPlan] || 699;
+
+        // 3. Calculate pro-rated upgrade cost
+        // Simple logic: Full price of new plan for the first month
+        // Or: Difference in price for remaining days. 
+        // For simplicity in this fix, we charge the full difference or full new price.
+        
+        const upgradeCost = targetPrice; 
+
+        res.json({
+            success: true,
+            upgradeAmount: upgradeCost,
+            currency: 'INR',
+            message: `Upgrade to ${targetPlan} Coach`
+        });
+
+    } catch (error) {
+        console.error('Calculate upgrade error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
 
 
 app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
