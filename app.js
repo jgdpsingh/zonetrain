@@ -7650,42 +7650,78 @@ app.get('/api/subscription/calculate-upgrade', authenticateToken, async (req, re
 app.post('/api/subscription/calculate-upgrade', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { targetPlan } = req.body; // e.g., 'race'
+        // payment.js sends parameters in the body as "newPlan", "billingCycle", "promoCode"
+        const { newPlan, billingCycle, promoCode } = req.body; 
 
-        // 1. Get current user subscription
+        // Map "newPlan" to "targetPlan" to match your logic naming
+        const targetPlan = newPlan; 
+
+        console.log('💰 Calculating upgrade (POST):', { userId, targetPlan, billingCycle, promoCode });
+
+        // 1. Validate inputs
+        if (!targetPlan || !billingCycle) {
+            return res.status(400).json({ success: false, message: 'Missing plan or billing cycle' });
+        }
+
+        // 2. Get User
         const userDoc = await db.collection('users').doc(userId).get();
-        const user = userDoc.data();
+        if (!userDoc.exists) return res.status(404).json({ success: false, message: 'User not found' });
+        const user = { id: userDoc.id, ...userDoc.data() };
 
-        // 2. Define pricing (Hardcoded for now, or fetch from config)
-        const PRICES = {
-            basic: 399,
-            race: 699 // Example price, adjust as needed
-        };
-
-        const currentPrice = PRICES[user.currentPlan] || 0;
-        const targetPrice = PRICES[targetPlan] || 699;
-
-        // 3. Calculate pro-rated upgrade cost
-        // Simple logic: Full price of new plan for the first month
-        // Or: Difference in price for remaining days. 
-        // For simplicity in this fix, we charge the full difference or full new price.
+        // 3. Perform Calculation (Using your existing service logic if available, or fallback)
+        let calculation;
         
-        const upgradeCost = targetPrice; 
+        if (typeof subscriptionService !== 'undefined' && subscriptionService.calculateProRataUpgrade) {
+            // Use your service if it exists
+            calculation = subscriptionService.calculateProRataUpgrade(
+                user,
+                targetPlan,
+                billingCycle,
+                promoCode || null
+            );
+        } else {
+            // Fallback logic if service is missing (prevents crash)
+            const PRICES = {
+                monthly: { basic: 199, race: 399 },
+                quarterly: { basic: 537, race: 1077 },
+                annual: { basic: 1912, race: 3830 }
+            };
+            const cyclePrices = PRICES[billingCycle] || PRICES['monthly'];
+            const basePrice = cyclePrices[targetPlan] || 399;
+            
+            // Simple Promo Logic
+            let finalAmount = basePrice;
+            let promoApplied = null;
+            if (promoCode && ['LAUNCH50', 'EARLY50'].includes(promoCode.toUpperCase())) {
+                const discount = Math.floor(basePrice * 0.5);
+                finalAmount = basePrice - discount;
+                promoApplied = { code: promoCode, discountAmount: discount };
+            }
 
+            calculation = {
+                originalAmount: basePrice,
+                amountToPay: finalAmount,
+                promoApplied: promoApplied,
+                currency: 'INR'
+            };
+        }
+
+        console.log('✅ Calculation result:', calculation);
+
+        // 4. Return correct structure for payment.js
+        // payment.js needs: res.data.calculation.promoApplied
         res.json({
             success: true,
-            upgradeAmount: upgradeCost,
-            currency: 'INR',
-            message: `Upgrade to ${targetPlan} Coach`
+            calculation: calculation, // Wrap the result in a "calculation" object
+            targetPlan,
+            billingCycle
         });
 
     } catch (error) {
-        console.error('Calculate upgrade error:', error);
+        console.error('❌ Calculate upgrade error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
-
-
 
 
 app.post('/api/subscription/upgrade', authenticateToken, async (req, res) => {
