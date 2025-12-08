@@ -410,11 +410,11 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.WEB_ORIGIN, process.env.ADMIN_ORIGIN].filter(Boolean)
-    : '*',
-  credentials: true
+    origin: process.env.NODE_ENV === 'production' ? [process.env.WEB_ORIGIN, process.env.ADMIN_ORIGIN].filter(Boolean) : true,
+    credentials: true,
+    exposedHeaders: ['x-rtb-fingerprint-id'] // <--- Add this line
 }));
+
 // Body parsing middleware
 
 

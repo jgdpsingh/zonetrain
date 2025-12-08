@@ -529,7 +529,13 @@ async function upgradeSubscription(newPlan, newBillingCycle = 'monthly', promoCo
 
         const calculation = calcData.calculation;
 
-        const confirmMessage = `Upgrade to ${newPlan.toUpperCase()} (${newBillingCycle})\n\n${calculation.promoApplied ? `Original: ₹${calculation.originalAmount}\nDiscount: -₹${calculation.promoApplied.discountAmount}\n` : ''}Amount to pay: ₹${calculation.amountToPay}\n\nProceed with payment?`;
+        const payAmount = calculation.amountToPay !== null ? calculation.amountToPay : calculation.originalAmount;
+
+const confirmMessage = `Upgrade to ${newPlan.toUpperCase()} (${newBillingCycle})
+${calculation.promoApplied ? `Original: ₹${calculation.originalAmount} - ₹${calculation.promoApplied.discountAmount}\n` : ''}
+Amount to pay: ₹${payAmount}
+
+Proceed with payment?`;
 
         if (!confirm(confirmMessage)) {
             return;

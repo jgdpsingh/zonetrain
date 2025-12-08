@@ -302,11 +302,61 @@ class SubscriptionService {
     }
 
     // Calculate pro-rata upgrade
+       // Calculate pro-rata upgrade
     calculateProRataUpgrade(user, newPlan, billingCycle = 'monthly', promoCode = null) {
+        // FIX: Handle Free plan or invalid dates (Avoids NaN/null)
+        if (!user.currentPlan || user.currentPlan === 'free' || !this.pricing[user.currentPlan]) {
+            console.log('ℹ️ User on free plan, calculating full upgrade price');
+            
+            const newPlanPrice = this.pricing[newPlan][billingCycle];
+            let amountToPay = newPlanPrice;
+            const originalAmount = newPlanPrice;
+            
+            // Apply promo logic for fresh upgrade
+            let promoApplied = null;
+            if (promoCode) {
+                const validation = this.validatePromoCode(promoCode, 'upgrade');
+                if (validation.valid) {
+                    const discountAmount = Math.floor((amountToPay * validation.discount) / 100);
+                    amountToPay = Math.max(0, amountToPay - discountAmount);
+                    
+                    promoApplied = {
+                        code: promoCode.toUpperCase(),
+                        discount: validation.discount,
+                        discountAmount: discountAmount,
+                        description: validation.description
+                    };
+                }
+            }
+
+            // Calculate next billing date (full cycle from today)
+            const nextBillingDate = this.calculateEndDate(new Date(), billingCycle);
+
+            return {
+                currentPlan: 'free',
+                newPlan,
+                billingCycle,
+                daysRemaining: 0,
+                unusedCredit: 0,
+                proRataCharge: originalAmount,
+                originalAmount: originalAmount,
+                amountToPay: amountToPay,
+                nextBillingAmount: this.pricing[newPlan][billingCycle],
+                nextBillingDate: nextBillingDate,
+                promoApplied
+            };
+        }
+
+        // --- Existing logic for Paid-to-Paid upgrades ---
         const currentPlan = user.currentPlan;
         const subscriptionStart = new Date(user.subscriptionStartDate);
         const subscriptionEnd = new Date(user.subscriptionEndDate);
         const today = new Date();
+
+        // Safety check for invalid dates
+        if (isNaN(subscriptionStart.getTime()) || isNaN(subscriptionEnd.getTime())) {
+             return this.calculateProRataUpgrade({ ...user, currentPlan: 'free' }, newPlan, billingCycle, promoCode);
+        }
 
         // Days calculation
         const totalDays = Math.ceil((subscriptionEnd - subscriptionStart) / (1000 * 60 * 60 * 24));
@@ -356,6 +406,7 @@ class SubscriptionService {
             promoApplied
         };
     }
+
 
     // Calculate downgrade with credit
     calculateDowngradeWithCredit(user, newPlan) {
