@@ -538,7 +538,7 @@
             // Clean up the URL so the error doesn't persist on refresh
             window.history.replaceState({}, document.title, window.location.pathname);
         }
-        
+
         let currentStep = 1;
         const totalSteps = 3;
 
@@ -627,6 +627,31 @@
     window.location.href = '/connect-strava'; 
 }
 
+// --- 4. NEW FUNCTION: CHECK STRAVA STATUS ---
+        async function checkStravaStatus() {
+            const token = localStorage.getItem('userToken');
+            if (!token) return;
+
+            try {
+                const response = await fetch('/api/strava/connection-status', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+
+                if (data.connected) {
+                    const btn = document.querySelector('button[onclick="connectStrava()"]');
+                    if (btn) {
+                        btn.innerHTML = '✓ Strava Connected';
+                        btn.style.background = '#059669'; // Green success color
+                        btn.style.cursor = 'default';
+                        btn.onclick = null; // Disable click
+                    }
+                    console.log('✅ Strava is connected');
+                }
+            } catch (error) {
+                console.error('Error checking Strava status:', error);
+            }
+        }
 
         // Location capture
         window.getLocation = function() {
