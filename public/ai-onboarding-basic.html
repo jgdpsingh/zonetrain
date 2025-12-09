@@ -764,17 +764,24 @@
                 }
             });
 
-           if (!formData.runningdays || formData.runningdays.length === 0) {
-        // Try to get from preferreddays
-        if (formData.preferreddays && formData.preferreddays.length > 0) {
-            formData.runningdays = formData.preferreddays;
-        } 
-        // Fallback: If still empty (should be caught by validation, but just in case for API safety)
-        else {
-            console.warn("No running days selected, defaulting to standard schedule.");
-            formData.runningdays = ['tuesday', 'thursday', 'saturday']; 
-            formData.preferreddays = ['tuesday', 'thursday', 'saturday'];
-        }
+           let selectedDays = Array.isArray(formData.preferreddays)
+        ? formData.preferreddays
+        : [];
+
+    if (!selectedDays || selectedDays.length === 0) {
+        console.warn("No running days selected, defaulting to standard schedule.");
+        selectedDays = ['tuesday', 'thursday', 'saturday'];
+        formData.preferreddays = selectedDays;
+    }
+
+    formData.running_days = selectedDays;  // ✅ name backend expects
+
+    // 2) Sleep quality: form uses sleepquality, backend expects sleep_quality
+    if (formData.sleepquality) {
+        formData.sleep_quality = formData.sleepquality;
+    } else if (!formData.sleep_quality) {
+        // default to 7 if somehow missing
+        formData.sleep_quality = 7;
     }
 
     console.log('Final AI onboarding payload:', formData);
