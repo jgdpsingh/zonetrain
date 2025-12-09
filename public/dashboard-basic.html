@@ -861,7 +861,7 @@ async function loadSubscriptionDetailsBasic() {
     try {
         const token = localStorage.getItem('userToken');
         // 1. Check if the user actually has a plan
-        const planRes = await fetch('/api/training/plan/current', {
+        const planRes = await fetch('/api/training-plan/current', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 

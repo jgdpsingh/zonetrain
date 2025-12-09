@@ -754,34 +754,31 @@
             const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
 
             inputs.forEach(input => {
-                if (input.name) {
-                    if (input.type === 'checkbox') {
-                        if (!formData[input.name]) formData[input.name] = [];
-                        if (input.checked) formData[input.name].push(input.value);
-                    } else if (input.value) {
-                        formData[input.name] = input.value;
-                    }
-                }
-            });
+        if (input.name) {
+            if (input.type === 'checkbox') {
+                if (!formData[input.name]) formData[input.name] = [];
+                if (input.checked) formData[input.name].push(input.value);
+            } else if (input.type === 'radio') {
+                if (input.checked) formData[input.name] = input.value;
+            } else if (input.value) {
+                formData[input.name] = input.value;
+            }
+        }
+    });
 
-           let selectedDays = Array.isArray(formData.preferreddays)
-        ? formData.preferreddays
-        : [];
-
-    if (!selectedDays || selectedDays.length === 0) {
+          const days = formData.preferreddays || formData.preferredDays; 
+    
+    if (days && Array.isArray(days) && days.length > 0) {
+        formData.running_days = days;
+    } else {
         console.warn("No running days selected, defaulting to standard schedule.");
-        selectedDays = ['tuesday', 'thursday', 'saturday'];
-        formData.preferreddays = selectedDays;
+        formData.running_days = ['tuesday', 'thursday', 'saturday'];
+        formData.preferreddays = formData.running_days; // Ensure consistency
     }
-
-    formData.running_days = selectedDays;  // ✅ name backend expects
-
-    // 2) Sleep quality: form uses sleepquality, backend expects sleep_quality
+    
+    // Map sleep quality
     if (formData.sleepquality) {
         formData.sleep_quality = formData.sleepquality;
-    } else if (!formData.sleep_quality) {
-        // default to 7 if somehow missing
-        formData.sleep_quality = 7;
     }
 
     console.log('Final AI onboarding payload:', formData);
