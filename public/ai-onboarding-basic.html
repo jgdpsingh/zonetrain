@@ -558,6 +558,12 @@
                 draft[input.name] = input.value;
             }
         });
+        if (!formData.runningdays) {
+                const days = formData.preferreddays || formData.preferredDays;
+                if (Array.isArray(days) && days.length > 0) {
+                    formData.runningdays = days;
+                }
+            }
 
         localStorage.setItem('basicOnboardingDraft', JSON.stringify(draft));
     }
