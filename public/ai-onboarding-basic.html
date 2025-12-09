@@ -544,6 +544,7 @@
 
         function saveBasicOnboardingDraft() {
         const draft = { currentStep };
+        const formData = { planType: 'basic' };
         const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
 
         inputs.forEach(input => {
@@ -564,6 +565,7 @@
                     formData.runningdays = days;
                 }
             }
+            console.log('AI onboarding payload:', formData);
 
         localStorage.setItem('basicOnboardingDraft', JSON.stringify(draft));
     }
