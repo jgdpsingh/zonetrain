@@ -3177,36 +3177,44 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
 }
         
         // Create AI profile document
+                // Create AI profile document
         const aiProfile = {
             userId: userId,
             
             // Personal Profile
             personalProfile: {
-                age: parseInt(onboardingData.age),
-                gender: onboardingData.gender,
-                height: parseFloat(onboardingData.height),
-                weight: parseFloat(onboardingData.weight),
+                age: parseInt(onboardingData.age) || 0,
+                gender: onboardingData.gender || 'other',
+                height: parseFloat(onboardingData.height) || 0,
+                weight: parseFloat(onboardingData.weight) || 0,
                 injuries: onboardingData.injuries || [],
-                bmi: calculateBMI(parseFloat(onboardingData.height), parseFloat(onboardingData.weight))
+                bmi: calculateBMI(parseFloat(onboardingData.height || 0), parseFloat(onboardingData.weight || 0))
             },
             
-            // Race History & Goals
+            // Race History & Goals - FIX: Use NULL for missing Basic fields
             raceHistory: {
                 recentPB: {
-                    distance: onboardingData.pb_distance,
-                    time: onboardingData.pb_time,
+                    distance: onboardingData.pb_distance || null,
+                    time: onboardingData.pb_time || null,
                     date: onboardingData.pb_date || null,
                     location: onboardingData.pb_location || null,
-                    pace: calculatePace(onboardingData.pb_distance, onboardingData.pb_time, 'numeric')
+                    // Only calculate pace if distance/time exist
+                    pace: (onboardingData.pb_distance && onboardingData.pb_time) 
+                          ? calculatePace(onboardingData.pb_distance, onboardingData.pb_time, 'numeric') 
+                          : null
                 },
                 targetRace: {
-                    distance: onboardingData.target_distance,
+                    distance: onboardingData.target_distance || null,
                     targetTime: onboardingData.target_time || null,
-                    raceDate: onboardingData.target_date,
+                    raceDate: onboardingData.target_date || null,
                     location: onboardingData.target_location || null,
-                    daysToRace: calculateDaysToRace(onboardingData.target_date)
+                    daysToRace: onboardingData.target_date 
+                                ? calculateDaysToRace(onboardingData.target_date) 
+                                : null
                 },
-                currentWeeklyMileage: parseFloat(onboardingData.weekly_mileage)
+                currentWeeklyMileage: onboardingData.weekly_mileage 
+                                      ? parseFloat(onboardingData.weekly_mileage) 
+                                      : null
             },
             
             // Recovery Metrics
@@ -3220,7 +3228,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             // Training Structure
             trainingStructure: {
                 preferredDays: onboardingData.running_days || [],
-                intensityPreference: onboardingData.intensity_preference,
+                intensityPreference: onboardingData.intensity_preference || 'balanced', // Default for Basic
                 constraints: onboardingData.constraints || null,
                 daysPerWeek: (onboardingData.running_days || []).length
             },
@@ -3234,19 +3242,20 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             },
             stravaConnected: onboardingData.strava_connected === 'true',
             hrv: {
-        baseline: avgHRV,
-        recentReadings: recentHRV.slice(0, 3).map(r => ({
-          value: r.value,
-          date: r.date,
-          source: r.source
-        })),
-        averageLast7Days: avgHRV,
-        updatedAt: new Date()
-      },
+                baseline: avgHRV,
+                recentReadings: recentHRV.slice(0, 3).map(r => ({
+                    value: r.value,
+                    date: r.date,
+                    source: r.source
+                })),
+                averageLast7Days: avgHRV,
+                updatedAt: new Date()
+            },
 
             createdAt: new Date(),
             updatedAt: new Date()
         };
+
         //const plan = await aiService.generateInitialTrainingPlan(aiProfile);
         
         // Save AI profile
