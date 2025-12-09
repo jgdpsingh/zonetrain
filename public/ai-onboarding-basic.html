@@ -543,32 +543,25 @@
         const totalSteps = 3;
 
         function saveBasicOnboardingDraft() {
-        const draft = { currentStep };
-        const formData = { planType: 'basic' };
-        const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
+    const draft = { currentStep };
+    const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
 
-        inputs.forEach(input => {
-            if (!input.name) return;
+    inputs.forEach(input => {
+        if (!input.name) return;
 
-            if (input.type === 'checkbox') {
-                draft[input.name] = draft[input.name] || [];
-                if (input.checked) draft[input.name].push(input.value);
-            } else if (input.type === 'radio') {
-                if (input.checked) draft[input.name] = input.value;
-            } else if (input.value) {
-                draft[input.name] = input.value;
-            }
-        });
-        if (!formData.runningdays) {
-                const days = formData.preferreddays || formData.preferredDays;
-                if (Array.isArray(days) && days.length > 0) {
-                    formData.runningdays = days;
-                }
-            }
-            console.log('AI onboarding payload:', formData);
+        if (input.type === 'checkbox') {
+            draft[input.name] = draft[input.name] || [];
+            if (input.checked) draft[input.name].push(input.value);
+        } else if (input.type === 'radio') {
+            if (input.checked) draft[input.name] = input.value;
+        } else if (input.value) {
+            draft[input.name] = input.value;
+        }
+    });
 
-        localStorage.setItem('basicOnboardingDraft', JSON.stringify(draft));
-    }
+    localStorage.setItem('basicOnboardingDraft', JSON.stringify(draft));
+}
+
 
     function restoreBasicOnboardingDraft() {
         const raw = localStorage.getItem('basicOnboardingDraft');
@@ -770,6 +763,15 @@
                     }
                 }
             });
+
+            if (!formData.runningdays) {
+        const days = formData.preferreddays || formData.preferredDays;
+        if (Array.isArray(days) && days.length > 0) {
+            formData.runningdays = days;
+        }
+    }
+
+    console.log('Submitting AI onboarding payload:', formData);
 
             const token = localStorage.getItem('userToken');
             if (!token) {
