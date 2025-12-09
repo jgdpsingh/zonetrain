@@ -827,37 +827,69 @@ async function loadSubscriptionDetailsBasic() {
 }
         
     
-    document.addEventListener('DOMContentLoaded', async function() {
-            console.log('Loading Basic Coach dashboard widgets...');
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            const loginMethod = urlParams.get('login');
-            
-            if (loginMethod === 'google') {
-                showNotification('✅ Successfully logged in with Google!', 'success');
-            } else if (loginMethod === 'facebook') {
-                showNotification('✅ Successfully logged in with Facebook!', 'success');
-            }
-            
-            if (loginMethod) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
+   document.addEventListener('DOMContentLoaded', async function() {
+    console.log('Loading Basic Coach dashboard widgets...');
 
-            // ✅ CHECK RACE COACH TRIAL ELIGIBILITY (NEW)
-            await checkRaceTrialEligibility();
+    const urlParams = new URLSearchParams(window.location.search);
+    const loginMethod = urlParams.get('login');
 
-            await loadSubscriptionDetailsBasic();
+    if (loginMethod === 'google') {
+        showNotification('✅ Successfully logged in with Google!', 'success');
+    } else if (loginMethod === 'facebook') {
+        showNotification('✅ Successfully logged in with Facebook!', 'success');
+    }
 
-            await loadStravaStatus();
-            
-            window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
-            window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
-            window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
-            window.dashboardWidgets.renderStravaWorkoutHistory('workout-history-container');
-            window.dashboardWidgets.renderProgressChart('progress-chart-container', 'distance');
-            window.dashboardWidgets.renderPersonalRecords('personal-records-container');
-            //window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
+    if (loginMethod) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    // ✅ CHECK RACE COACH TRIAL ELIGIBILITY (NEW)
+    await checkRaceTrialEligibility();
+
+    await loadSubscriptionDetailsBasic();
+
+    await loadStravaStatus();
+
+    // Render Standard Widgets
+    window.dashboardWidgets.renderWeatherWidget('weather-widget-container');
+    window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
+    window.dashboardWidgets.renderStravaWorkoutHistory('workout-history-container');
+    window.dashboardWidgets.renderProgressChart('progress-chart-container', 'distance');
+    window.dashboardWidgets.renderPersonalRecords('personal-records-container');
+
+    // ✅ NEW: Robust Weekly Plan Rendering with "Create Plan" Fallback
+    try {
+        const token = localStorage.getItem('userToken');
+        // 1. Check if the user actually has a plan
+        const planRes = await fetch('/api/training/plan/current', {
+            headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        if (planRes.status === 404) {
+            // ❌ NO PLAN FOUND -> Show "Create Plan" CTA
+            const container = document.getElementById('weekly-plan-container');
+            if (container) {
+                container.innerHTML = `
+                    <div class="card" style="text-align: center; padding: 40px; border: 2px dashed #e5e7eb; background: #f9fafb;">
+                        <h3 style="color: #374151; margin-bottom: 10px;">Start Your Training Journey</h3>
+                        <p style="color: #6b7280; margin-bottom: 25px;">You haven't set up your Basic Coach plan yet.</p>
+                        <a href="/ai-onboarding-basic.html" style="text-decoration: none; padding: 12px 24px; border-radius: 8px; background: #10b981; color: white; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4); transition: all 0.2s;">
+                            Create My Plan
+                        </a>
+                    </div>
+                `;
+            }
+        } else if (planRes.ok) {
+            // ✅ PLAN EXISTS -> Render the widget normally
+            window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
+        }
+    } catch (e) {
+        console.error("Error checking plan status:", e);
+        // Fallback in case of API error
+        const container = document.getElementById('weekly-plan-container');
+        if (container) container.innerHTML = '<p style="color:red; text-align:center;">Failed to load plan status.</p>';
+    }
+});
 
         async function startRaceCoachTrial() {
             const confirmed = confirm(

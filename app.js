@@ -10034,11 +10034,38 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const plan = await trainingPlanService.getCurrentPlan(userId);
+
+        if (!plan) {
+            return res.json({ success: false, plan: null, message: "No active plan found" });
+        }
+
+        // --- FIX: Correct Week Calculation (Avoids Week 0) ---
+        const now = new Date();
+        // Handle Firestore Timestamp or standard Date string
+        const startDate = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
         
+        const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+        const weeksElapsed = Math.floor((now - startDate) / msPerWeek);
+
+        // Always start at Week 1, and cap at total weeks (default 16 if missing)
+        const totalWeeks = plan.planData?.totalWeeks || 16;
+        const currentWeekDisplay = Math.min(Math.max(1, weeksElapsed + 1), totalWeeks);
+
+        // Fetch workouts for this specific week (e.g., from key "week1")
+        const weekKey = `week${currentWeekDisplay}`;
+        const thisWeekWorkouts = plan.planData?.schedule ? plan.planData.schedule[weekKey] : [];
+
         res.json({
             success: true,
-            plan
+            plan: {
+                ...plan,
+                // Override/Add these fields for the frontend widget
+                currentWeek: currentWeekDisplay,
+                totalWeeks: totalWeeks,
+                thisWeekWorkouts: thisWeekWorkouts
+            }
         });
+
     } catch (error) {
         console.error('Get current plan error:', error);
         res.status(500).json({ 
@@ -10048,6 +10075,7 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
         });
     }
 });
+
 
 // Weekly plan for dashboard widgets (wrapper around TrainingPlanService)
 app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
