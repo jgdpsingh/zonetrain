@@ -764,14 +764,20 @@
                 }
             });
 
-            if (!formData.runningdays) {
-        const days = formData.preferreddays || formData.preferredDays;
-        if (Array.isArray(days) && days.length > 0) {
-            formData.runningdays = days;
+           if (!formData.runningdays || formData.runningdays.length === 0) {
+        // Try to get from preferreddays
+        if (formData.preferreddays && formData.preferreddays.length > 0) {
+            formData.runningdays = formData.preferreddays;
+        } 
+        // Fallback: If still empty (should be caught by validation, but just in case for API safety)
+        else {
+            console.warn("No running days selected, defaulting to standard schedule.");
+            formData.runningdays = ['tuesday', 'thursday', 'saturday']; 
+            formData.preferreddays = ['tuesday', 'thursday', 'saturday'];
         }
     }
 
-    console.log('Submitting AI onboarding payload:', formData);
+    console.log('Final AI onboarding payload:', formData);
 
             const token = localStorage.getItem('userToken');
             if (!token) {
