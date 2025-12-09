@@ -596,6 +596,7 @@
 
     // Restore any saved progress (e.g. after returning from Strava)
     restoreBasicOnboardingDraft();
+     checkStravaStatus();
 
         // Sleep quality slider
         const sleepRange = document.getElementById('sleepRange');
@@ -606,28 +607,6 @@
             });
         }
 
-        // Strava Connect
-        window.connectStrava = function() {
-    const token = localStorage.getItem('userToken');
-    if (!token) {
-        alert('Please login first');
-        return;
-    }
-    
-    // 1. Save wizard state so data isn't lost
-    saveBasicOnboardingDraft();
-    
-    // 2. EXPLICITLY set the return URL to this specific page
-    // This ensures we come back to Basic Coach, not Race Coach
-    const returnUrl = window.location.origin + '/ai-onboarding-basic.html';
-    localStorage.setItem('stravaReturnUrl', returnUrl);
-    
-    // 3. Redirect to your Strava auth endpoint
-    // Ensure this endpoint uses the stored 'stravaReturnUrl' for the final redirect
-    window.location.href = '/connect-strava'; 
-}
-
-// --- 4. NEW FUNCTION: CHECK STRAVA STATUS ---
         async function checkStravaStatus() {
             const token = localStorage.getItem('userToken');
             if (!token) return;
@@ -653,6 +632,31 @@
             }
         }
 
+
+        // Strava Connect
+        window.connectStrava = function() {
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+        alert('Please login first');
+        return;
+    }
+    
+    // 1. Save wizard state so data isn't lost
+    saveBasicOnboardingDraft();
+   
+    
+    // 2. EXPLICITLY set the return URL to this specific page
+    // This ensures we come back to Basic Coach, not Race Coach
+    const returnUrl = window.location.origin + '/ai-onboarding-basic.html';
+    localStorage.setItem('stravaReturnUrl', returnUrl);
+    
+    // 3. Redirect to your Strava auth endpoint
+    // Ensure this endpoint uses the stored 'stravaReturnUrl' for the final redirect
+    window.location.href = '/connect-strava'; 
+}
+
+// --- 4. NEW FUNCTION: CHECK STRAVA STATUS ---
+        
         // Location capture
         window.getLocation = function() {
             const btn = document.getElementById('locationBtn');
