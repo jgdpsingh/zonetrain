@@ -745,20 +745,21 @@
             showStep(currentStep);
         });
 
-        document.getElementById('basicCoachForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
+       document.getElementById('basicCoachForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
 
-            if (!validateStep(currentStep)) return;
+    if (!validateStep(currentStep)) return;
 
-            const formData = { planType: 'basic' };
-            const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
-
-            inputs.forEach(input => {
+    const formData = { planType: 'basic' };
+    
+    // Collect standard inputs
+    const inputs = document.querySelectorAll('#basicCoachForm input, #basicCoachForm select, #basicCoachForm textarea');
+    inputs.forEach(input => {
         if (input.name) {
-            if (input.type === 'checkbox') {
-                if (!formData[input.name]) formData[input.name] = [];
-                if (input.checked) formData[input.name].push(input.value);
-            } else if (input.type === 'radio') {
+            // SKIP checkboxes here to handle them manually below
+            if (input.type === 'checkbox') return; 
+
+            if (input.type === 'radio') {
                 if (input.checked) formData[input.name] = input.value;
             } else if (input.value) {
                 formData[input.name] = input.value;
@@ -766,85 +767,99 @@
         }
     });
 
-          const days = formData.preferreddays || formData.preferredDays; 
+    // --- FIX: Manual Checkbox Collection ---
+    // 1. Preferred Days
+    const preferredDays = [];
+    document.querySelectorAll('input[name="preferreddays"]:checked').forEach(cb => {
+        preferredDays.push(cb.value);
+    });
+    // Fallback if name is camelCase
+    document.querySelectorAll('input[name="preferredDays"]:checked').forEach(cb => {
+        if (!preferredDays.includes(cb.value)) preferredDays.push(cb.value);
+    });
     
-    if (days && Array.isArray(days) && days.length > 0) {
-        formData.running_days = days;
+    // 2. Devices
+    const devices = [];
+    document.querySelectorAll('input[name="devices"]:checked').forEach(cb => {
+        devices.push(cb.value);
+    });
+
+    // Assign arrays to formData
+    formData.preferredDays = preferredDays;
+    formData.devices = devices;
+
+    // --- Validation & Defaults ---
+    if (preferredDays.length > 0) {
+        formData.running_days = preferredDays;
     } else {
-        console.warn("No running days selected, defaulting to standard schedule.");
+        console.warn("⚠️ No running days selected, defaulting to standard schedule.");
         formData.running_days = ['tuesday', 'thursday', 'saturday'];
-        formData.preferreddays = formData.running_days; // Ensure consistency
+        formData.preferredDays = formData.running_days; // Sync both fields
     }
-    
+
     // Map sleep quality
-    if (formData.sleepquality) {
-        formData.sleep_quality = formData.sleepquality;
+    const sleepQuality = document.querySelector('input[name="sleepquality"]')?.value;
+    if (sleepQuality) formData.sleep_quality = sleepQuality;
+
+    console.log('📝 Final AI onboarding payload:', formData);
+
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+        alert('Please login first');
+        window.location.href = '/login';
+        return;
     }
 
-    console.log('Final AI onboarding payload:', formData);
-
-            const token = localStorage.getItem('userToken');
-            if (!token) {
-                alert('Please login first');
-                window.location.href = '/login';
-                return;
-            }
-
-            const submitBtn = document.getElementById('submitBtn');
-            submitBtn.innerHTML = '⏳ Creating Plan...';
-            submitBtn.disabled = true;
-
-            try {
-                const response = await fetch('/api/ai-onboarding', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + token
-                    },
-                    body: JSON.stringify(formData)
-                });
-
-                const result = await response.json();
-
-               if (result.success) {
-    console.log("✅ Plan created successfully!");
-
-    // 1. Update the token in Local Storage (CRITICAL)
-    if (result.token) {
-        localStorage.setItem('userToken', result.token);
-        console.log("✅ Token updated in localStorage");
-        
-        // 2. Update cookie to match (for consistency)
-        document.cookie = `userToken=${result.token}; path=/; max-age=604800; SameSite=Lax`;
-    }
-
-    // 3. Clear the draft data
-    localStorage.removeItem('basicOnboardingDraft');
-
-    // 4. Show success message immediately
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.innerHTML = "✅ Plan Ready! Redirecting...";
-    
-    // 5. WAIT 1.5 SECONDS before redirecting
-    // This gives Firestore time to index the new document so the dashboard can find it.
-    console.log("⏳ Waiting for database indexing...");
-    
-    setTimeout(() => {
-        console.log("🚀 Redirecting to dashboard...");
-        window.location.href = 'dashboard?planCreated=true';
-    }, 1500); // Increased from 100ms to 1500ms
+    submitBtn.innerHTML = '⏳ Creating Plan...';
+    submitBtn.disabled = true;
 
-} else {
-    throw new Error(result.message || 'Failed to create plan');
-}
-
-
-            } catch (error) {
-                alert('Failed to submit: ' + error.message);
-                submitBtn.innerHTML = '🚀 Start My Journey';
-                submitBtn.disabled = false;
-            }
+    try {
+        const response = await fetch('/api/ai-onboarding', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify(formData)
         });
+
+        const result = await response.json();
+
+        if (result.success) {
+            console.log("✅ Plan created successfully!");
+
+            // 1. Update the token in Local Storage
+            if (result.token) {
+                localStorage.setItem('userToken', result.token);
+                console.log("✅ Token updated in localStorage");
+                document.cookie = `userToken=${result.token}; path=/; max-age=604800; SameSite=Lax`;
+            }
+
+            // 2. Clear draft
+            localStorage.removeItem('basicOnboardingDraft');
+
+            // 3. UI Feedback
+            submitBtn.innerHTML = "✅ Plan Ready! Redirecting...";
+
+            // 4. Wait for Firestore Indexing (Crucial Delay)
+            console.log("⏳ Waiting for database indexing...");
+            setTimeout(() => {
+                console.log("🚀 Redirecting to dashboard...");
+                window.location.href = 'dashboard?planCreated=true';
+            }, 2000); // 2 seconds safety buffer
+
+        } else {
+            throw new Error(result.message || 'Failed to create plan');
+        }
+
+    } catch (error) {
+        console.error("Submission Error:", error);
+        alert('Failed to submit: ' + error.message);
+        submitBtn.innerHTML = '🚀 Start My Journey';
+        submitBtn.disabled = false;
+    }
+});
 
         if (currentStep === 1) {
         showStep(1);

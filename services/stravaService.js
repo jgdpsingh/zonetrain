@@ -8,7 +8,9 @@ class StravaService {
     }
 
     // Get user's Strava access token
-    async getAccessToken(userId) {
+    // In services/stravaService.js
+
+async getAccessToken(userId) {
     const userDoc = await this.db.collection('users').doc(userId).get();
     const user = userDoc.data();
 
@@ -16,24 +18,54 @@ class StravaService {
         throw new Error('Strava not connected');
     }
 
-    // 1. Calculate expiration time
-    // Note: Firestore Timestamps need .toDate(), but if you stored it as a number (epoch), just use it directly.
-    // Assuming you store it as a Firestore Timestamp based on your previous code:
-    const expiryDate = user.stravaTokenExpiry.toDate(); 
-    const now = new Date();
-    
-    // 2. Add a 5-minute safety buffer (5 * 60 * 1000 milliseconds)
-    const refreshThreshold = new Date(now.getTime() + 300000);
+    // --- FIX: Robust Expiration Check ---
+    let expiryDate;
+
+    // Check if expiry exists and handle different formats safely
+    if (user.stravaTokenExpiry) {
+        if (typeof user.stravaTokenExpiry.toDate === 'function') {
+            // It's a Firestore Timestamp (Ideal case)
+            expiryDate = user.stravaTokenExpiry.toDate();
+        } else if (user.stravaTokenExpiry instanceof Date) {
+            // It's already a JS Date object
+            expiryDate = user.stravaTokenExpiry;
+        } else if (typeof user.stravaTokenExpiry === 'number') {
+             // It's a timestamp (seconds or milliseconds)
+             // Strava returns seconds (epoch), JS uses milliseconds
+             // Heuristic: if it's small (e.g. 1700000000), it's seconds.
+             const isSeconds = user.stravaTokenExpiry < 10000000000; 
+             expiryDate = new Date(user.stravaTokenExpiry * (isSeconds ? 1000 : 1));
+        } else {
+             // Try parsing as string
+             expiryDate = new Date(user.stravaTokenExpiry);
+        }
+    } else {
+        // Expiry is missing entirely. Force refresh.
+        console.warn(`⚠️ User ${userId} has no stravaTokenExpiry. Forcing refresh.`);
+        expiryDate = new Date(0); // 1970 (definitely expired)
+    }
+
+    // 2. Add a 5-minute safety buffer
+    const refreshThreshold = new Date(Date.now() + 300000);
 
     // 3. Check if we need to refresh (Expires BEFORE "Now + 5 mins")
-    if (expiryDate < refreshThreshold) {
-        console.log(`Token expiring soon (at ${expiryDate.toISOString()}). Refreshing...`);
-        return await this.refreshAccessToken(userId, user.stravaRefreshToken);
+    // Also check for Invalid Date if parsing failed
+    if (isNaN(expiryDate.getTime()) || expiryDate < refreshThreshold) {
+        console.log(`🔄 Token expiring/expired/invalid (at ${expiryDate}). Refreshing...`);
+        try {
+            return await this.refreshAccessToken(userId, user.stravaRefreshToken);
+        } catch (error) {
+            console.error(`❌ Failed to refresh token for user ${userId}:`, error.message);
+            // Fallback: Return existing token and hope it works, or re-throw
+            // throw new Error("Please reconnect Strava"); 
+            return user.stravaAccessToken; 
+        }
     }
 
     // 4. Token is valid, return it
     return user.stravaAccessToken;
 }
+
 
 
     // Refresh Strava token
