@@ -69,7 +69,7 @@ class DashboardWidgets {
     }
 
     // Weekly Plan Widget
-    async renderWeeklyPlanWidget(containerId) {
+   async renderWeeklyPlanWidget(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
@@ -80,17 +80,38 @@ class DashboardWidgets {
 
         const data = await response.json();
 
-        // FIX: Added check for data.weeklyPlan to prevent the crash
-        if (data.success && data.weeklyPlan) {
+        // CHECK: Ensure plan exists AND has data (handle empty arrays if API returns them)
+        if (data.success && data.weeklyPlan && Object.keys(data.weeklyPlan).length > 0) {
             container.innerHTML = this.weeklyPlanTemplate(data.weeklyPlan);
             this.attachWeeklyPlanListeners();
         } else {
-            // Handle valid response but missing plan (e.g. new user, plan ended)
-            console.warn('Weekly plan missing:', data);
+            // Handle valid response but missing plan (Standard "New User" state)
+            console.log('No active plan found - showing setup button'); 
+            
             container.innerHTML = `
-                <div class="widget-empty-state" style="text-align: center; padding: 30px; color: #6b7280;">
-                    <div style="font-size: 24px; margin-bottom: 10px;">📅</div>
-                    <p>No active weekly plan found.</p>
+                <div class="card" style="height: 100%; min-height: 250px; display: flex; align-items: center; justify-content: center;">
+                    <div class="widget-empty-state" style="text-align: center; padding: 30px; color: #6b7280;">
+                        <div style="font-size: 40px; margin-bottom: 15px;">📅</div>
+                        <h3 style="margin: 0 0 8px 0; color: #1f2937; font-size: 18px;">No Active Plan</h3>
+                        <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280;">
+                            You haven't set up a training schedule yet.
+                        </p>
+                        <button onclick="window.location.href='/ai-onboarding-basic'" style="
+                            padding: 10px 24px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-weight: 600;
+                            font-size: 14px;
+                            cursor: pointer;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            transition: transform 0.2s ease;
+                        " onmouseover="this.style.transform='translateY(-2px)'" 
+                          onmouseout="this.style.transform='translateY(0)'">
+                            Create Your Plan
+                        </button>
+                    </div>
                 </div>
             `;
         }
