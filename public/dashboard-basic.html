@@ -858,37 +858,50 @@ async function loadSubscriptionDetailsBasic() {
     window.dashboardWidgets.renderPersonalRecords('personal-records-container');
 
     // ✅ NEW: Robust Weekly Plan Rendering with "Create Plan" Fallback
-    try {
-        const token = localStorage.getItem('userToken');
-        // 1. Check if the user actually has a plan
-        const planRes = await fetch('/api/training-plan/current', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+    // REPLACE THIS SECTION in dashboard-basic.html
 
-        if (planRes.status === 404) {
-            // ❌ NO PLAN FOUND -> Show "Create Plan" CTA
-            const container = document.getElementById('weekly-plan-container');
-            if (container) {
-                container.innerHTML = `
-                    <div class="card" style="text-align: center; padding: 40px; border: 2px dashed #e5e7eb; background: #f9fafb;">
-                        <h3 style="color: #374151; margin-bottom: 10px;">Start Your Training Journey</h3>
-                        <p style="color: #6b7280; margin-bottom: 25px;">You haven't set up your Basic Coach plan yet.</p>
-                        <a href="/ai-onboarding-basic.html" style="text-decoration: none; padding: 12px 24px; border-radius: 8px; background: #10b981; color: white; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4); transition: all 0.2s;">
-                            Create My Plan
-                        </a>
-                    </div>
-                `;
-            }
-        } else if (planRes.ok) {
-            // ✅ PLAN EXISTS -> Render the widget normally
-            window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
-        }
-    } catch (e) {
-        console.error("Error checking plan status:", e);
-        // Fallback in case of API error
+/* ============================================================
+   UPDATED WEEKLY PLAN RENDERING
+   ============================================================ */
+try {
+    const token = localStorage.getItem('userToken');
+    console.log("Checking for active plan...");
+
+    // 1. Check if the user actually has a plan
+    const planRes = await fetch('/api/training-plan/current', {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    const planData = await planRes.json();
+    console.log("Plan API Response:", planData); // DEBUG LOG
+
+    if (!planData.success || !planData.plan) {
+        // NO PLAN FOUND - Show Create Plan CTA
+        console.warn("No active plan found in API response. Showing setup state.");
         const container = document.getElementById('weekly-plan-container');
-        if (container) container.innerHTML = '<p style="color:red; text-align:center;">Failed to load plan status.</p>';
+        if (container) {
+            container.innerHTML = `
+                <div class="card" style="text-align: center; padding: 40px; border: 2px dashed #e5e7eb; background: #f9fafb;">
+                    <h3 style="color: #374151; margin-bottom: 10px;">Start Your Training Journey</h3>
+                    <p style="color: #6b7280; margin-bottom: 25px;">You haven't set up your Basic Coach plan yet.</p>
+                    <a href="ai-onboarding-basic.html" style="text-decoration: none; padding: 12px 24px; border-radius: 8px; background: #10b981; color: white; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4); transition: all 0.2s;">
+                        Create My Plan
+                    </a>
+                </div>
+            `;
+        }
+    } else {
+        // PLAN EXISTS - Render the widget normally
+        console.log("Active plan found! Rendering widget...");
+        window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
     }
+} catch (e) {
+    console.error("Error checking plan status:", e);
+    // Fallback UI
+    const container = document.getElementById('weekly-plan-container');
+    if (container) container.innerHTML = `<p style="color:red; text-align:center">Failed to load plan status.</p>`;
+}
+
 });
 
         async function startRaceCoachTrial() {
