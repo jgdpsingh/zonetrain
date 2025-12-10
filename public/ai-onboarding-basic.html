@@ -807,29 +807,37 @@
                 const result = await response.json();
 
                if (result.success) {
-    console.log("Plan created! Updating token and redirecting...");
-    
+    console.log("✅ Plan created successfully!");
+
+    // 1. Update the token in Local Storage (CRITICAL)
     if (result.token) {
-        // 1. Update the token in Local Storage
         localStorage.setItem('userToken', result.token);
+        console.log("✅ Token updated in localStorage");
         
-        // 2. ALSO update the cookie if your app uses cookies for navigation
+        // 2. Update cookie to match (for consistency)
         document.cookie = `userToken=${result.token}; path=/; max-age=604800; SameSite=Lax`;
     }
 
     // 3. Clear the draft data
     localStorage.removeItem('basicOnboardingDraft');
 
-    alert('Your coaching plan is ready!');
-
-    // 4. Force a hard reload to the dashboard to ensure fresh state
+    // 4. Show success message immediately
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.innerHTML = "✅ Plan Ready! Redirecting...";
+    
+    // 5. WAIT 1.5 SECONDS before redirecting
+    // This gives Firestore time to index the new document so the dashboard can find it.
+    console.log("⏳ Waiting for database indexing...");
+    
     setTimeout(() => {
-        window.location.href = '/dashboard?planCreated=true';
-    }, 100); 
+        console.log("🚀 Redirecting to dashboard...");
+        window.location.href = 'dashboard?planCreated=true';
+    }, 1500); // Increased from 100ms to 1500ms
 
 } else {
     throw new Error(result.message || 'Failed to create plan');
 }
+
 
             } catch (error) {
                 alert('Failed to submit: ' + error.message);

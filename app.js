@@ -3321,6 +3321,39 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         });
         
         console.log('✅ Training plan saved:', planDoc.id);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+// Generate a NEW token with updated plan info
+const updatedUser = await userManager.getUserById(userId);
+const newToken = jwt.sign(
+    { 
+        userId: updatedUser.id, 
+        email: updatedUser.email,
+        plan: updatedUser.currentPlan,
+        status: updatedUser.subscriptionStatus
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+);
+
+// Update the HTTP-only cookie
+res.cookie('userToken', newToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    sameSite: 'lax',
+    path: '/'
+});
+
+res.json({
+    success: true,
+    message: 'AI coaching profile created successfully',
+    userId: userId,
+    trainingPlanId: planDoc.id,
+    planType: planType,
+    token: newToken, // ⭐ Return the new token
+    nextStep: 'trainingplan-generated'
+});
 
         if (trainingPlan.weeks && Array.isArray(trainingPlan.weeks)) {
             console.log('🚀 Exploding plan into individual workouts...');
@@ -3364,20 +3397,7 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             console.warn('⚠️ No weeks array found in training plan to explode.');
         }
 
-        // Get the user's fully updated record
-const updatedUser = await userManager.getUserById(userId);
 
-// Generate a NEW token with the correct plan and status
-const newToken = jwt.sign(
-  {
-    userId: updatedUser.id,
-    email: updatedUser.email,
-    plan: updatedUser.currentPlan, // Should now be 'race'
-    status: updatedUser.subscriptionStatus // Should now be 'trial'
-  },
-  process.env.JWT_SECRET,
-  { expiresIn: '7d' }
-);
 
 // Also update the HttpOnly cookie for session consistency
 res.cookie('userToken', newToken, {
@@ -10042,11 +10062,43 @@ app.post('/api/notifications/preferences/reset', authenticateToken, async (req, 
 app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
+        console.log(`📋 Fetching plan for user: ${userId}`);
+
         const plan = await trainingPlanService.getCurrentPlan(userId);
 
         if (!plan) {
-            return res.json({ success: false, plan: null, message: "No active plan found" });
+            console.warn(`⚠️ No active plan returned by service for user ${userId}`);
+
+            // 🔍 DEBUG: Check if ANY plans exist for this user in Firestore
+            // This helps confirm if the plan was saved but has isActive:false or permission issues
+            let debugInfo = { userId, totalPlans: 'unknown' };
+            try {
+                const allPlans = await db.collection('trainingplans')
+                    .where('userId', '==', userId)
+                    .get();
+                
+                console.log(`🔍 DEBUG: Found ${allPlans.size} total plans (active or inactive) for user ${userId}`);
+                debugInfo.totalPlans = allPlans.size;
+                
+                if (allPlans.size > 0) {
+                    allPlans.forEach(doc => {
+                        console.log(`   - Plan ID: ${doc.id}, isActive: ${doc.data().isActive}, Type: ${doc.data().planType}`);
+                    });
+                }
+            } catch (dbError) {
+                console.error("Failed to run debug query:", dbError);
+            }
+
+            // Return success:true but plan:null so the frontend handles it gracefully
+            return res.json({ 
+                success: true, 
+                plan: null, 
+                message: "No active plan found",
+                debug: debugInfo
+            });
         }
+
+        console.log(`✅ Active Plan found: ${plan.id}`);
 
         // --- FIX: Correct Week Calculation (Avoids Week 0) ---
         const now = new Date();
@@ -10084,7 +10136,6 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
         });
     }
 });
-
 
 // Weekly plan for dashboard widgets (wrapper around TrainingPlanService)
 app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
