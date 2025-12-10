@@ -9,20 +9,32 @@ class StravaService {
 
     // Get user's Strava access token
     async getAccessToken(userId) {
-        const userDoc = await this.db.collection('users').doc(userId).get();
-        const user = userDoc.data();
+    const userDoc = await this.db.collection('users').doc(userId).get();
+    const user = userDoc.data();
 
-        if (!user.stravaAccessToken) {
-            throw new Error('Strava not connected');
-        }
-
-        // Check if token needs refresh
-        if (user.stravaTokenExpiry && user.stravaTokenExpiry.toDate() < new Date()) {
-            return await this.refreshAccessToken(userId, user.stravaRefreshToken);
-        }
-
-        return user.stravaAccessToken;
+    if (!user || !user.stravaAccessToken) {
+        throw new Error('Strava not connected');
     }
+
+    // 1. Calculate expiration time
+    // Note: Firestore Timestamps need .toDate(), but if you stored it as a number (epoch), just use it directly.
+    // Assuming you store it as a Firestore Timestamp based on your previous code:
+    const expiryDate = user.stravaTokenExpiry.toDate(); 
+    const now = new Date();
+    
+    // 2. Add a 5-minute safety buffer (5 * 60 * 1000 milliseconds)
+    const refreshThreshold = new Date(now.getTime() + 300000);
+
+    // 3. Check if we need to refresh (Expires BEFORE "Now + 5 mins")
+    if (expiryDate < refreshThreshold) {
+        console.log(`Token expiring soon (at ${expiryDate.toISOString()}). Refreshing...`);
+        return await this.refreshAccessToken(userId, user.stravaRefreshToken);
+    }
+
+    // 4. Token is valid, return it
+    return user.stravaAccessToken;
+}
+
 
     // Refresh Strava token
     async refreshAccessToken(userId, refreshToken) {
