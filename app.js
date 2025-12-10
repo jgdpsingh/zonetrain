@@ -3103,30 +3103,11 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         // Validate required fields
         let requiredFields;
 
-    if (planType === 'basic') {
-      requiredFields = [
-        'age',
-        'gender',
-        'height',
-        'weight',
-        'sleep_quality',
-        'running_days',      // or target frequency / preferred days, based on your Basic form
-      ];
-    } else {
-      requiredFields = [
-        'age',
-        'gender',
-        'height',
-        'weight',
-        'pb_distance',
-        'pb_time',
-        'target_distance',
-        'target_date',
-        'weekly_mileage',
-        'running_days',
-        'intensity_preference',
-      ];
-    }
+        if (planType === 'basic') {
+            requiredFields = ['age', 'gender', 'height', 'weight', 'sleep_quality', 'running_days'];
+        } else {
+            requiredFields = ['age', 'gender', 'height', 'weight', 'pb_distance', 'pb_time', 'target_distance', 'target_date', 'weekly_mileage', 'running_days', 'intensity_preference'];
+        }
         
         const missingFields = requiredFields.filter(f => !onboardingData[f]);
         
@@ -3137,51 +3118,40 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
             });
         }
 
+        // Get HRV data
         const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    const hrvSnapshot = await db.collection('hrvReadings')
-      .where('userId', '==', userId)
-      .where('timestamp', '>=', sevenDaysAgo)
-      .orderBy('timestamp', 'desc')
-      .limit(7)
-      .get();
-    
-    const recentHRV = hrvSnapshot.docs.map(doc => doc.data());
-    
-    // Calculate average HRV if available
-    let avgHRV = null;
-    if (recentHRV.length > 0) {
-  const sum = recentHRV.reduce((acc, r) => acc + r.value, 0);
-  const recentAvg = sum / recentHRV.length;
-
-  const baselineFromForm =
-    onboardingData.baseline_hrv || onboardingData.hrv_baseline;
-
-  avgHRV = baselineFromForm
-    ? Math.round((recentAvg + parseFloat(baselineFromForm)) / 2)
-    : Math.round(recentAvg);
-
-  console.log(
-    `📊 HRV blended avg for user ${userId}: ${avgHRV} (recent ${recentAvg.toFixed(
-      1
-    )}, baseline ${baselineFromForm || 'none'})`
-  );
-} else {
-  const baselineFromForm =
-    onboardingData.baseline_hrv || onboardingData.hrv_baseline;
-  if (baselineFromForm) {
-    avgHRV = parseInt(baselineFromForm, 10);
-    console.log(`📊 Using baseline HRV from form: ${avgHRV}`);
-  }
-}
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         
-        // Create AI profile document
-                // Create AI profile document
+        const hrvSnapshot = await db.collection('hrvReadings')
+            .where('userId', '==', userId)
+            .where('timestamp', '>=', sevenDaysAgo)
+            .orderBy('timestamp', 'desc')
+            .limit(7)
+            .get();
+        
+        const recentHRV = hrvSnapshot.docs.map(doc => doc.data());
+        
+        // Calculate average HRV
+        let avgHRV = null;
+        if (recentHRV.length > 0) {
+            const sum = recentHRV.reduce((acc, r) => acc + r.value, 0);
+            const recentAvg = sum / recentHRV.length;
+            const baselineFromForm = onboardingData.baseline_hrv || onboardingData.hrv_baseline;
+            avgHRV = baselineFromForm
+                ? Math.round((recentAvg + parseFloat(baselineFromForm)) / 2)
+                : Math.round(recentAvg);
+            console.log(`📊 HRV blended avg: ${avgHRV}`);
+        } else {
+            const baselineFromForm = onboardingData.baseline_hrv || onboardingData.hrv_baseline;
+            if (baselineFromForm) {
+                avgHRV = parseInt(baselineFromForm, 10);
+                console.log(`📊 Using baseline HRV from form: ${avgHRV}`);
+            }
+        }
+        
+        // Create AI profile
         const aiProfile = {
             userId: userId,
-            
-            // Personal Profile
             personalProfile: {
                 age: parseInt(onboardingData.age) || 0,
                 gender: onboardingData.gender || 'other',
@@ -3190,15 +3160,12 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 injuries: onboardingData.injuries || [],
                 bmi: calculateBMI(parseFloat(onboardingData.height || 0), parseFloat(onboardingData.weight || 0))
             },
-            
-            // Race History & Goals - FIX: Use NULL for missing Basic fields
             raceHistory: {
                 recentPB: {
                     distance: onboardingData.pb_distance || null,
                     time: onboardingData.pb_time || null,
                     date: onboardingData.pb_date || null,
                     location: onboardingData.pb_location || null,
-                    // Only calculate pace if distance/time exist
                     pace: (onboardingData.pb_distance && onboardingData.pb_time) 
                           ? calculatePace(onboardingData.pb_distance, onboardingData.pb_time, 'numeric') 
                           : null
@@ -3216,24 +3183,18 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                                       ? parseFloat(onboardingData.weekly_mileage) 
                                       : null
             },
-            
-            // Recovery Metrics
             recoveryBaseline: {
                 restingHeartRate: onboardingData.resting_hr ? parseInt(onboardingData.resting_hr) : null,
                 hrvBaseline: onboardingData.hrv_baseline ? parseFloat(onboardingData.hrv_baseline) : null,
                 sleepQuality: parseInt(onboardingData.sleep_quality || 7),
                 trackingDevices: onboardingData.devices || []
             },
-            
-            // Training Structure
             trainingStructure: {
                 preferredDays: onboardingData.running_days || [],
-                intensityPreference: onboardingData.intensity_preference || 'balanced', // Default for Basic
+                intensityPreference: onboardingData.intensity_preference || 'balanced',
                 constraints: onboardingData.constraints || null,
                 daysPerWeek: (onboardingData.running_days || []).length
             },
-
-            // Location
             location: {
                 usualTemp: onboardingData.usual_temp || null,
                 usualHumidity: onboardingData.usual_humidity || null,
@@ -3251,13 +3212,10 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
                 averageLast7Days: avgHRV,
                 updatedAt: new Date()
             },
-
             createdAt: new Date(),
             updatedAt: new Date()
         };
 
-        //const plan = await aiService.generateInitialTrainingPlan(aiProfile);
-        
         // Save AI profile
         await db.collection('aiprofiles').doc(userId).set(aiProfile);
         console.log('✅ AI profile saved');
@@ -3267,22 +3225,16 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         
         if (!userDoc.data().notificationPreferences) {
             const defaultPreferences = {
-                email: true,
-                workout: true,
-                payment: true,
-                recovery: true,
-                upgrade: true,
-                race: true
+                email: true, workout: true, payment: true,
+                recovery: true, upgrade: true, race: true
             };
-            
             await db.collection('users').doc(userId).update({
                 notificationPreferences: defaultPreferences
             });
-            
             console.log(`✅ Notification preferences initialized`);
         }
 
-        // Update user record (non-critical)
+        // Update user record
         try {
             await userManager.updateUser(userId, {
                 aiOnboardingCompleted: true,
@@ -3321,63 +3273,29 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         });
         
         console.log('✅ Training plan saved:', planDoc.id);
-        await new Promise(resolve => setTimeout(resolve, 1000));
 
-// Generate a NEW token with updated plan info
-const updatedUser = await userManager.getUserById(userId);
-const newToken = jwt.sign(
-    { 
-        userId: updatedUser.id, 
-        email: updatedUser.email,
-        plan: updatedUser.currentPlan,
-        status: updatedUser.subscriptionStatus
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-);
-
-// Update the HTTP-only cookie
-res.cookie('userToken', newToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    sameSite: 'lax',
-    path: '/'
-});
-
-res.json({
-    success: true,
-    message: 'AI coaching profile created successfully',
-    userId: userId,
-    trainingPlanId: planDoc.id,
-    planType: planType,
-    token: newToken, // ⭐ Return the new token
-    nextStep: 'trainingplan-generated'
-});
-
+        // Explode plan into individual workouts (if weeks exist)
         if (trainingPlan.weeks && Array.isArray(trainingPlan.weeks)) {
             console.log('🚀 Exploding plan into individual workouts...');
             const batch = db.batch();
-            const planStartDate = new Date(); // Start plan from today
+            const planStartDate = new Date();
             let workoutCount = 0;
             
             trainingPlan.weeks.forEach((week, weekIndex) => {
                 if (week.days && Array.isArray(week.days)) {
                     week.days.forEach((day, dayIndex) => {
-                        // Calculate date for this specific workout
                         const workoutDate = new Date(planStartDate);
                         workoutDate.setDate(workoutDate.getDate() + (weekIndex * 7) + dayIndex);
                         
-                        // Create workout document ref
                         const workoutRef = db.collection('workouts').doc();
                         
                         batch.set(workoutRef, {
                             userId: userId,
-                            planId: planDoc.id, // Link back to parent plan
+                            planId: planDoc.id,
                             weekNumber: week.weekNumber || (weekIndex + 1),
                             dayName: day.dayName,
                             type: day.type || 'rest',
-                            title: day.type || 'Workout', // ensure title exists
+                            title: day.type || 'Workout',
                             description: day.description || '',
                             distance: day.distanceKm || 0,
                             duration: day.durationMin || 0,
@@ -3392,23 +3310,28 @@ res.json({
             });
 
             await batch.commit();
-            console.log(`✅ Saved ${workoutCount} individual workouts to 'workouts' collection`);
+            console.log(`✅ Saved ${workoutCount} workouts to collection`);
         } else {
             console.warn('⚠️ No weeks array found in training plan to explode.');
         }
 
+        // Wait for Firestore indexing
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
+        // Generate NEW token with updated plan info
+        const updatedUser = await userManager.getUserById(userId);
+        const newToken = jwt.sign(
+            { 
+                userId: updatedUser.id, 
+                email: updatedUser.email,
+                plan: updatedUser.currentPlan,
+                status: updatedUser.subscriptionStatus
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
 
-// Also update the HttpOnly cookie for session consistency
-res.cookie('userToken', newToken, {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-  sameSite: 'lax',
-  path: '/'
-});
-
-        // Track analytics
+        // Track analytics (non-critical)
         try {
             await db.collection('analytics_events').add({
                 event: 'ai_onboarding_completed',
@@ -3416,7 +3339,7 @@ res.cookie('userToken', newToken, {
                 planType: planType,
                 data: {
                     targetDistance: onboardingData.target_distance,
-                    daysToRace: calculateDaysToRace(onboardingData.target_date),
+                    daysToRace: onboardingData.target_date ? calculateDaysToRace(onboardingData.target_date) : null,
                     weeklyMileage: onboardingData.weekly_mileage,
                     intensityPreference: onboardingData.intensity_preference
                 },
@@ -3424,12 +3347,21 @@ res.cookie('userToken', newToken, {
                 source: 'ai_onboarding_system'
             });
         } catch (analyticsError) {
-            console.warn('⚠️ Analytics tracking failed (non-critical):', analyticsError.message);
+            console.warn('⚠️ Analytics failed (non-critical):', analyticsError.message);
         }
         
-        console.log('✅ AI onboarding completed successfully for user:', userId);
+        console.log('✅ AI onboarding completed for user:', userId);
         
-        res.json({
+        // ⭐ SINGLE RESPONSE - Set cookie AND send JSON together
+        res.cookie('userToken', newToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            sameSite: 'lax',
+            path: '/'
+        });
+
+        return res.json({
             success: true,
             message: 'AI coaching profile created successfully',
             userId: userId,
@@ -3441,13 +3373,46 @@ res.cookie('userToken', newToken, {
         
     } catch (error) {
         console.error('❌ AI onboarding error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to complete AI onboarding setup',
-            error: error.message
-        });
+        
+        // Only send error response if headers haven't been sent
+        if (!res.headersSent) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to complete AI onboarding setup',
+                error: error.message
+            });
+        }
     }
 });
+
+app.get('/api/debug/my-plans', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    console.log('🔍 Debug: listing plans for user', userId);
+
+    const snap = await db.collection('trainingplans')
+      .where('userId', '==', userId)
+      .get();
+
+    const plans = snap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId,
+        isActive: data.isActive,
+        planType: data.planType,
+        createdAt: data.createdAt,
+        hasWeeks: !!(data.planData && Array.isArray(data.planData.weeks))
+      };
+    });
+
+    return res.json({ count: plans.length, plans });
+  } catch (e) {
+    console.error('Debug my-plans error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ==================== UPDATE RACE GOALS & REGENERATE PLAN ====================
 
