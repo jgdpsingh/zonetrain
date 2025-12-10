@@ -806,18 +806,31 @@
 
                 const result = await response.json();
 
-                if (result.success) {
-                    if (result.token) {
-    localStorage.setItem('userToken', result.token);
-  }
+               if (result.success) {
+    console.log("Plan created! Updating token and redirecting...");
+    
+    if (result.token) {
+        // 1. Update the token in Local Storage
+        localStorage.setItem('userToken', result.token);
+        
+        // 2. ALSO update the cookie if your app uses cookies for navigation
+        document.cookie = `userToken=${result.token}; path=/; max-age=604800; SameSite=Lax`;
+    }
 
-  // Clear saved Basic draft so it doesn’t re-fill later
-  localStorage.removeItem('basicOnboardingDraft');
-                    alert('🎉 Your coaching plan is ready!');
-                    window.location.href = '/dashboard';
-                } else {
-                    throw new Error(result.message || 'Failed to create plan');
-                }
+    // 3. Clear the draft data
+    localStorage.removeItem('basicOnboardingDraft');
+
+    alert('Your coaching plan is ready!');
+
+    // 4. Force a hard reload to the dashboard to ensure fresh state
+    setTimeout(() => {
+        window.location.href = '/dashboard?planCreated=true';
+    }, 100); 
+
+} else {
+    throw new Error(result.message || 'Failed to create plan');
+}
+
             } catch (error) {
                 alert('Failed to submit: ' + error.message);
                 submitBtn.innerHTML = '🚀 Start My Journey';
