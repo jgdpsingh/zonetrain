@@ -96,7 +96,7 @@ class DashboardWidgets {
                         <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280;">
                             You haven't set up a training schedule yet.
                         </p>
-                        <button onclick="window.location.href='/ai-onboarding-basic'" style="
+                        <button onclick="window.location.href='/ai-onboarding-basic.html'" style="
                             padding: 10px 24px;
                             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                             color: white;
