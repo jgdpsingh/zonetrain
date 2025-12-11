@@ -828,61 +828,47 @@ async function loadSubscriptionDetailsBasic() {
 
 // ⭐ NEW FUNCTION: Handles plan loading with retries
 async function loadWeeklyPlan() {
-    const container = document.getElementById('weekly-plan-container');
-    if (!container) return;
+  const container = document.getElementById('weekly-plan-container');
+  if (!container) return;
 
-    const token = localStorage.getItem('userToken');
-    console.log("🔍 Checking for active plan...");
+  const token = localStorage.getItem('userToken');
+  console.log("🔍 Checking for active BASIC plan...");
 
-    try {
-        // Retry logic: Try 3 times to find the plan (fixes race conditions)
-        let attempts = 0;
-        let planData = null;
+  try {
+    const resCheck = await fetch('/api/training-plan/exists?planType=basic', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const checkData = await resCheck.json();
+    console.log("Plan exists check:", checkData);
 
-        while (attempts < 3) {
-            const planRes = await fetch('/api/training-plan/current', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            planData = await planRes.json();
-            console.log(`Attempt ${attempts + 1} - Plan API Response:`, planData);
-
-            if (planData.success && planData.plan) {
-                break; // ✅ Plan found, exit loop
-            }
-
-            // If no plan yet, wait 1 second and try again
-            if (attempts < 2) {
-                console.log("⏳ Plan not ready yet, retrying in 1s...");
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            attempts++;
-        }
-
-        if (!planData.success || !planData.plan) {
-            // ❌ NO PLAN FOUND - Show "Create My Plan" Button
-            console.warn("No active plan found after retries. Showing setup state.");
-            container.innerHTML = `
-                <div class="card" style="text-align: center; padding: 40px; border: 2px dashed #e5e7eb; background: #f9fafb;">
-                    <h3 style="color: #374151; margin-bottom: 10px;">Start Your Training Journey</h3>
-                    <p style="color: #6b7280; margin-bottom: 25px;">You haven't set up your Basic Coach plan yet.</p>
-                    <a href="ai-onboarding-basic.html" style="text-decoration: none; padding: 12px 24px; border-radius: 8px; background: #10b981; color: white; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4); transition: all 0.2s; display: inline-block;">
-                        Create My Plan
-                    </a>
-                </div>
-            `;
-        } else {
-            // ✅ PLAN EXISTS - Render the widget
-            console.log("Active plan found! Rendering widget...");
-            window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
-        }
-    } catch (e) {
-        console.error("Error loading plan:", e);
-        container.innerHTML = `<p style="color:red; text-align:center">Failed to load plan status. Please refresh.</p>`;
+    if (!checkData.success || !checkData.hasPlan) {
+      console.warn("No active BASIC plan. Showing setup state.");
+      container.innerHTML = `
+        <div class="card" style="text-align: center; padding: 40px; border: 2px dashed #e5e7eb; background: #f9fafb;">
+          <h3 style="color: #374151; margin-bottom: 10px;">Start Your Training Journey</h3>
+          <p style="color: #6b7280; margin-bottom: 25px;">You haven't set up your Basic Coach plan yet.</p>
+          <a href="ai-onboarding-basic.html"
+             style="text-decoration: none; padding: 12px 24px; border-radius: 8px;
+                    background: #10b981; color: white; font-weight: bold;
+                    box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4); transition: all 0.2s;
+                    display: inline-block;">
+            Create My Plan
+          </a>
+        </div>
+      `;
+      return;
     }
-}
 
-        
+    // At least one active BASIC plan exists → let the widget try to render
+    console.log("✅ Active BASIC plan exists. Rendering widget...");
+    window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
+
+  } catch (e) {
+    console.error("Error checking plan existence:", e);
+    container.innerHTML = `<p style="color:red; text-align:center;">Failed to load plan status. Please refresh.</p>`;
+  }
+}
+    
     
   document.addEventListener('DOMContentLoaded', async function() {
     console.log('Loading Basic Coach dashboard widgets...');

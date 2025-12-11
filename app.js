@@ -3385,33 +3385,41 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/debug/my-plans', authenticateToken, async (req, res) => {
+// Simple: does this user have ANY active plan (optionally of a given type)?
+app.get('/api/training-plan/exists', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    console.log('🔍 Debug: listing plans for user', userId);
+    const preferredType = req.query.planType || null; // e.g. ?planType=basic
 
     const snap = await db.collection('trainingplans')
       .where('userId', '==', userId)
       .get();
 
-    const plans = snap.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        isActive: data.isActive,
-        planType: data.planType,
-        createdAt: data.createdAt,
-        hasWeeks: !!(data.planData && Array.isArray(data.planData.weeks))
-      };
-    });
+    const plans = snap.docs.map(doc => doc.data());
 
-    return res.json({ count: plans.length, plans });
+    const activePlans = plans.filter(p => p.isActive === true);
+
+    const hasAnyActive = activePlans.length > 0;
+    const hasBasicActive = activePlans.some(p => p.planType === 'basic');
+    const hasRaceActive = activePlans.some(p => p.planType === 'race');
+
+    let hasPlan = hasAnyActive;
+    if (preferredType === 'basic') hasPlan = hasBasicActive;
+    if (preferredType === 'race') hasPlan = hasRaceActive;
+
+    return res.json({
+      success: true,
+      hasPlan,
+      anyActive: hasAnyActive,
+      basicActive: hasBasicActive,
+      raceActive: hasRaceActive
+    });
   } catch (e) {
-    console.error('Debug my-plans error:', e);
-    return res.status(500).json({ error: e.message });
+    console.error('plan/exists error:', e);
+    return res.status(500).json({ success: false, hasPlan: false, error: e.message });
   }
 });
+
 
 
 // ==================== UPDATE RACE GOALS & REGENERATE PLAN ====================
