@@ -81,6 +81,8 @@ async renderWeeklyPlanWidget(containerId) {
         });
 
         const data = await response.json();
+        console.log('Weekly Plan API Response:', JSON.stringify(data));
+
 
         // Case 1: Plan and weekly workouts both exist (Ideal state)
         if (data.success && data.weeklyPlan && Object.keys(data.weeklyPlan).length > 0) {

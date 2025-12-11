@@ -10111,19 +10111,34 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
 });
 
 // Weekly plan for dashboard widgets (wrapper around TrainingPlanService)
+// In app.js
+
 app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const plan = await trainingPlanService.getCurrentPlan(userId);
 
-    const plan = await trainingPlanService.getCurrentPlan(userId);  // already implemented
-    if (!plan || !Array.isArray(plan.thisWeekWorkouts) || plan.thisWeekWorkouts.length === 0) {
+    // Case 1: Absolutely no plan found
+    if (!plan) {
+       return res.json({
+         success: false,
+         message: 'No active training plan found.',
+         weeklyPlan: null,
+         plan: null 
+       });
+    }
+
+    // Case 2: Plan found, but no workouts (e.g. generating)
+    if (!Array.isArray(plan.thisWeekWorkouts) || plan.thisWeekWorkouts.length === 0) {
       return res.json({
-        success: false,
-        message: 'No active training plan or no workouts scheduled this week',
-        weeklyPlan: { days: [] }
+        success: true, // <--- TRUE because the request succeeded (we found the user's status)
+        message: 'Plan exists but no workouts scheduled this week',
+        plan: { id: plan.id, planType: plan.planType }, // <--- Return the plan metadata!
+        weeklyPlan: {} // Empty plan
       });
     }
 
+    // Case 3: Plan and workouts found
     const days = plan.thisWeekWorkouts.map(w => ({
       date: w.scheduledDate || null,
       label: w.label || w.dayName || '',
@@ -10140,17 +10155,20 @@ app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
+      plan: { id: plan.id, planType: plan.planType }, // Include plan meta here too
       weeklyPlan: { days }
     });
+
   } catch (error) {
     console.error('Weekly plan API error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to load weekly plan',
-      weeklyPlan: { days: [] }
+      weeklyPlan: null
     });
   }
 });
+
 
 // Today's workout for dashboard widget
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
