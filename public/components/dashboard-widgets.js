@@ -94,7 +94,7 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
         // --- THIS IS THE NEW, CRITICAL PART ---
         // Case 2: A plan exists, but it has no workouts for this week yet.
         // This happens because hasWeeks is false.
-        else if (data.success && data.plan) {
+        else if (data.success && data.plan || planKnownToExist) {
             console.log('✅ Plan exists, but no workouts are scheduled for this week yet.');
             container.innerHTML = `
                 <div class="card" style="height: 100%; min-height: 250px; display: flex; align-items: center; justify-content: center;">
