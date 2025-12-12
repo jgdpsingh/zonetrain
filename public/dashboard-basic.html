@@ -861,7 +861,7 @@ async function loadWeeklyPlan() {
 
     // At least one active BASIC plan exists → let the widget try to render
     console.log("✅ Active BASIC plan exists. Rendering widget...");
-    window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container');
+    window.dashboardWidgets.renderWeeklyPlanWidget('weekly-plan-container', true);
 
   } catch (e) {
     console.error("Error checking plan existence:", e);
@@ -900,6 +900,8 @@ async function loadWeeklyPlan() {
     window.dashboardWidgets.renderProgressChart('progress-chart-container', 'distance');
     window.dashboardWidgets.renderPersonalRecords('personal-records-container');
     window.dashboardWidgets.renderTrainingPlanOverview('training-plan-container');
+   
+
 
     // ✅ CALL THE NEW FUNCTION HERE
     await loadWeeklyPlan(); 
