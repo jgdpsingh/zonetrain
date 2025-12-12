@@ -71,7 +71,7 @@ class DashboardWidgets {
     // Weekly Plan Widget
   // In dashboard-widgets.js
 
-async renderWeeklyPlanWidget(containerId) {
+async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
