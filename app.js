@@ -4388,18 +4388,25 @@ Return a valid JSON object with:
       ...trainingPlan,
       coachType: 'race',
       source: 'ai_gemini_race',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      needsRegeneration: false
     };
 
   } catch (error) {
-    console.error('❌ Race coach plan generation failed:', error.message);
+    console.warn('❌ AI Generation failed, using fallback with retry flag:', error.message);
+    
+    // FALLBACK PATH
+    const fallbackPlan = generateRaceFallbackPlan(profile);
+    
     return {
-      type: 'template_fallback',
+      ...fallbackPlan,
       coachType: 'race',
       source: 'fallback_template_race',
-      plan: generateRaceFallbackPlan(profile),
-      fallbackReason: error.message,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      // NEW FIELDS FOR RETRY LOGIC:
+      needsRegeneration: true, 
+      regenerationError: error.message,
+      regenerationAttempts: 0
     };
   }
 }
@@ -4489,18 +4496,25 @@ Return a valid JSON object with:
       ...trainingPlan,
       coachType: 'basic',
       source: 'ai_gemini_basic',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      needsRegeneration: false // <--- Explicitly mark as good
     };
 
   } catch (error) {
-    console.error('❌ Basic coach plan generation failed:', error.message);
+    console.warn('❌ AI Generation failed, using fallback with retry flag:', error.message);
+    
+    // FALLBACK PATH
+    const fallbackPlan = generateBasicFallbackPlan(profile);
+    
     return {
-      type: 'template_fallback',
+      ...fallbackPlan,
       coachType: 'basic',
       source: 'fallback_template_basic',
-      plan: generateBasicFallbackPlan(profile),
-      fallbackReason: error.message,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      // NEW FIELDS FOR RETRY LOGIC:
+      needsRegeneration: true, 
+      regenerationError: error.message,
+      regenerationAttempts: 0
     };
   }
 }
@@ -4696,6 +4710,152 @@ async function generateInitialTrainingPlan(profile, planType = 'race') {
   }
 }
 
+// app.js - Add this new route
+
+/**
+ * CRON JOB: Regenerate failed AI plans
+ * Called automatically by Vercel Cron
+ */
+app.get('/api/admin/regenerate-plans', async (req, res) => {
+    // 1. SECURITY CHECK
+    // Vercel sends the secret in the "Authorization" header as "Bearer <CRON_SECRET>"
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    console.log('🔄 Cron Job: Starting plan regeneration...');
+
+    try {
+        // 2. FIND PLANS NEEDING REGENERATION
+        const snapshot = await db.collection('trainingplans')
+            .where('isActive', '==', true)
+            .where('needsRegeneration', '==', true)
+            .orderBy('createdAt', 'desc')
+            .limit(5) // Process in small batches
+            .get();
+
+        if (snapshot.empty) {
+            console.log('✅ Cron Job: No plans need regeneration.');
+            return res.json({ success: true, message: 'No plans need regeneration.' });
+        }
+
+        const results = [];
+
+        // 3. PROCESS EACH PLAN
+        for (const doc of snapshot.docs) {
+            const planData = doc.data();
+            const userId = planData.userId;
+            const attempts = planData.regenerationAttempts || 0;
+
+            // Stop trying after 5 failed attempts to save resources
+            if (attempts >= 5) {
+                console.warn(`⚠️ Giving up on plan ${doc.id} after 5 attempts`);
+                await doc.ref.update({ needsRegeneration: false, failedPermanent: true });
+                continue;
+            }
+
+            console.log(`⚡ Retrying AI generation for user ${userId} (Attempt ${attempts + 1})...`);
+
+            try {
+                // Fetch fresh profile
+                const aiProfileDoc = await db.collection('aiprofiles').doc(userId).get();
+                if (!aiProfileDoc.exists) continue;
+                
+                // CALL GENERATOR (This attempts Gemini again)
+                const newPlan = await generateInitialTrainingPlan(aiProfileDoc.data(), planData.planType);
+
+                // CHECK RESULT
+                if (newPlan.needsRegeneration) {
+                    // It failed AGAIN. Increment counter.
+                    await doc.ref.update({ 
+                        regenerationAttempts: attempts + 1,
+                        lastAttempt: new Date()
+                    });
+                    results.push({ userId, status: 'failed_again' });
+                } else {
+                    // SUCCESS! 
+                    console.log(`🎉 Success! Upgrading user ${userId} to AI plan.`);
+                    
+                    // 1. Overwrite the plan document
+                    await doc.ref.set({
+                        ...planData,
+                        planData: newPlan,
+                        source: 'ai_gemini_retry',
+                        needsRegeneration: false,
+                        updatedAt: new Date()
+                    });
+
+                    // 2. Explode the new workouts
+                    // (Ensure you have this helper function defined or imported)
+                    await explodeWorkoutsForUser(userId, doc.id, newPlan.weeks);
+                    
+                    results.push({ userId, status: 'upgraded_to_ai' });
+                }
+
+            } catch (err) {
+                console.error(`❌ Retry loop error for ${userId}:`, err.message);
+                await doc.ref.update({ regenerationAttempts: attempts + 1 });
+            }
+        }
+
+        res.json({ success: true, processed: results.length, details: results });
+
+    } catch (error) {
+        console.error('🔥 Cron Job Fatal Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Helper Function for Exploding Workouts (Must be available to the route above)
+async function explodeWorkoutsForUser(userId, planId, weeks) {
+    if (!weeks || !Array.isArray(weeks)) return;
+
+    // 1. Delete future workouts (Clean slate)
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    
+    const oldWorkouts = await db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('scheduledDate', '>=', today)
+        .get();
+        
+    const deleteBatch = db.batch();
+    oldWorkouts.forEach(doc => deleteBatch.delete(doc.ref));
+    await deleteBatch.commit();
+
+    // 2. Batch Create New Workouts
+    const batch = db.batch();
+    const planStartDate = new Date(); // Or fetch plan.createdAt if you want to align perfectly
+    
+    weeks.forEach((week, wIndex) => {
+        if (week.days) {
+            week.days.forEach((day, dIndex) => {
+                const workoutDate = new Date(planStartDate);
+                workoutDate.setDate(workoutDate.getDate() + (wIndex * 7) + dIndex);
+                
+                // Only save if it's today or in the future
+                if (workoutDate >= today) {
+                    const ref = db.collection('workouts').doc();
+                    batch.set(ref, {
+                        userId,
+                        planId,
+                        weekNumber: week.weekNumber,
+                        dayName: day.dayName,
+                        type: day.type,
+                        description: day.description,
+                        distance: day.distanceKm || 0,
+                        duration: day.durationMin || 0,
+                        intensity: day.intensity,
+                        scheduledDate: workoutDate,
+                        createdAt: new Date()
+                    });
+                }
+            });
+        }
+    });
+    await batch.commit();
+}
 
 
 
