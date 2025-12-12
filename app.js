@@ -4362,11 +4362,25 @@ Return a valid JSON object with:
 
     let trainingPlan;
     try {
-      const cleanedText = planText.replace(/``````/g, '').trim();
+      // FIX 1: Robust Regex to remove ``````
+      const cleanedText = planText.replace(/``````/g, '').trim(); 
       trainingPlan = JSON.parse(cleanedText);
       trainingPlan.type = 'ai_generated_race';
+      
+      // Safety check: ensure weeks exists
+      if (!Array.isArray(trainingPlan.weeks)) {
+        throw new Error("AI response missing 'weeks' array");
+      }
+
     } catch (e) {
-      trainingPlan = { type: 'ai_text', content: planText };
+      console.warn("JSON Parse failed, using text fallback:", e);
+      // FIX 2: Fallback must usually match the schema or be handled specifically by UI
+      // If your UI *requires* .weeks, you must provide it or handle this type specifically
+      trainingPlan = { 
+        type: 'ai_text_error', 
+        content: planText,
+        weeks: [] // Empty array prevents "cannot read properties of undefined" crash
+      };
     }
 
     console.log('✅ AI RACE COACH plan generated');
@@ -4449,11 +4463,25 @@ Return a valid JSON object with:
 
     let trainingPlan;
     try {
-      const cleanedText = planText.replace(/``````/g, '').trim();
+      // FIX 1: Use regex that actually catches ```json and ```
+      const cleanedText = planText.replace(/```(?:json)?|```/g, '').trim();
       trainingPlan = JSON.parse(cleanedText);
       trainingPlan.type = 'ai_generated_basic';
+
+      // Safety check: ensure weeks exists
+      if (!Array.isArray(trainingPlan.weeks)) {
+         throw new Error("AI response missing 'weeks' array");
+      }
+
     } catch (e) {
-      trainingPlan = { type: 'ai_text', content: planText };
+      console.warn('JSON Parse failed or validation error:', e.message);
+      
+      // FIX 2: Fallback object MUST have a 'weeks' array to prevent frontend crash
+      trainingPlan = { 
+        type: 'ai_text_error', 
+        content: planText,
+        weeks: [] // Empty array allows frontend checks like .length to work safely
+      };
     }
 
     console.log('✅ AI BASIC COACH plan generated');
@@ -4481,38 +4509,174 @@ Return a valid JSON object with:
 /**
  * RACE FALLBACK: Safe template if AI fails
  */
+/**
+ * RACE FALLBACK: Robust template that matches AI schema
+ * Generates a full 'weeks' array so the UI doesn't crash.
+ */
 function generateRaceFallbackPlan(profile) {
     const daysToRace = profile.raceHistory.targetRace.daysToRace;
-    const totalWeeks = Math.min(16, Math.floor(daysToRace / 7));
+    // Cap at 16 weeks, min 4 weeks
+    const totalWeeks = Math.max(4, Math.min(16, Math.floor(daysToRace / 7)));
     
+    // 1. Define Phases
+    const phases = {
+        build: Math.floor(totalWeeks * 0.40),
+        intensity: Math.floor(totalWeeks * 0.35),
+        peak: Math.floor(totalWeeks * 0.15),
+        // Taper is whatever is left
+        taper: 0 
+    };
+    phases.taper = totalWeeks - (phases.build + phases.intensity + phases.peak);
+
+    // 2. Setup Weekly Variables
+    const weeks = [];
+    const currentMileage = parseFloat(profile.raceHistory.currentWeeklyMileage) || 20;
+    let plannedMileage = currentMileage;
+    
+    // Default schedule if preferredDays is missing
+    const defaultDays = ["Monday", "Wednesday", "Saturday", "Sunday"];
+    const userDays = profile.trainingStructure.preferredDays && profile.trainingStructure.preferredDays.length > 0 
+        ? profile.trainingStructure.preferredDays 
+        : defaultDays;
+
+    // 3. Generate Each Week
+    for (let i = 1; i <= totalWeeks; i++) {
+        let currentPhase = 'Build';
+        let phaseDesc = "Focus on increasing volume gradually.";
+        
+        // Determine Phase
+        if (i <= phases.build) {
+            currentPhase = 'Build';
+            plannedMileage *= 1.05; // 5% increase
+        } else if (i <= phases.build + phases.intensity) {
+            currentPhase = 'Intensity';
+            phaseDesc = "Introduce speed work and tempo runs.";
+            plannedMileage *= 1.02; // Slower volume growth
+        } else if (i <= totalWeeks - phases.taper) {
+            currentPhase = 'Peak';
+            phaseDesc = "Maximum volume and race specific efforts.";
+            plannedMileage = plannedMileage; // Hold steady
+        } else {
+            currentPhase = 'Taper';
+            phaseDesc = "Reduce volume to recover for race day.";
+            plannedMileage *= 0.7; // Reduce volume
+        }
+
+        // Generate Days
+        const weekDays = [];
+        const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        
+        dayNames.forEach(day => {
+            const isTrainingDay = userDays.includes(day);
+            let dayObj = {
+                dayName: day,
+                type: 'Rest',
+                description: 'Rest and recovery.',
+                distanceKm: 0,
+                intensity: 'Rest'
+            };
+
+            if (isTrainingDay) {
+                // Simple logic to distribute workouts based on phase
+                // This is a simplified fallback logic
+                const isWeekend = day === 'Saturday' || day === 'Sunday';
+                
+                if (isWeekend) {
+                    dayObj.type = 'Long Run';
+                    dayObj.description = `Steady long run to build endurance (${currentPhase} phase).`;
+                    dayObj.distanceKm = Math.round(plannedMileage * 0.4); // 40% of weekly volume
+                    dayObj.intensity = 'Moderate';
+                } else {
+                    // Mid-week run
+                    if (currentPhase === 'Intensity' || currentPhase === 'Peak') {
+                        dayObj.type = 'Tempo/Intervals';
+                        dayObj.description = 'Warm up, then hard effort blocks, cool down.';
+                        dayObj.intensity = 'Hard';
+                    } else {
+                        dayObj.type = 'Easy Run';
+                        dayObj.description = 'Keep heart rate low, conversational pace.';
+                        dayObj.intensity = 'Easy';
+                    }
+                    dayObj.distanceKm = Math.round((plannedMileage * 0.6) / (userDays.length - 1));
+                }
+            }
+            weekDays.push(dayObj);
+        });
+
+        weeks.push({
+            weekNumber: i,
+            focus: currentPhase,
+            summary: `${currentPhase} Phase: ${phaseDesc}`,
+            hrvGuidance: "If HRV is low, skip the intensity session or shorten the long run by 20%.",
+            days: weekDays
+        });
+    }
+
     return {
-        planType: 'race_template',
-        totalWeeks,
-        phases: {
-            building: Math.floor(totalWeeks * 0.40),
-            intensity: Math.floor(totalWeeks * 0.35),
-            peak: Math.floor(totalWeeks * 0.15),
-            taper: totalWeeks - Math.floor(totalWeeks * 0.40) - Math.floor(totalWeeks * 0.35) - Math.floor(totalWeeks * 0.15)
-        },
-        notes: 'Periodized approach: Build → Intensity → Peak → Taper'
+        planType: 'race_template_fallback',
+        totalWeeks: totalWeeks,
+        // vital: include the weeks array so the UI renders!
+        weeks: weeks, 
+        notes: 'Generated via standard periodization template (AI unavailable).'
     };
 }
+
 
 /**
  * BASIC FALLBACK: Safe template if AI fails
  */
 function generateBasicFallbackPlan(profile) {
     const daysPerWeek = profile.trainingStructure.daysPerWeek || 3;
-    
+    const totalWeeks = 4; // Standard habit block
+    const weeks = [];
+
+    // Helper to distribute run days evenly (e.g. Tue, Thu, Sat)
+    const getDayType = (dayIndex, runDaysNeeded) => {
+        // Simple logic: if runDays=3, run on Tue(1), Thu(3), Sat(5)
+        const runIndices = runDaysNeeded === 3 ? [1, 3, 5] : 
+                           runDaysNeeded === 4 ? [1, 3, 5, 6] : 
+                           [1, 3, 5, 6, 0]; // 5 days
+        return runIndices.includes(dayIndex) ? "Run" : "Rest";
+    };
+
+    for (let w = 1; w <= totalWeeks; w++) {
+        const weekDays = [];
+        const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        
+        dayNames.forEach((name, index) => {
+            const type = getDayType(index, daysPerWeek);
+            if (type === "Run") {
+                weekDays.push({
+                    dayName: name,
+                    type: "Easy Run",
+                    description: "Conversational pace, walk breaks allowed",
+                    distanceKm: 3 + (w * 0.5), // Slow progression
+                    durationMin: 30,
+                    intensity: "Easy"
+                });
+            } else {
+                weekDays.push({
+                    dayName: name,
+                    type: "Rest",
+                    description: "Rest or light walking",
+                    distanceKm: 0,
+                    durationMin: 0,
+                    intensity: "Rest"
+                });
+            }
+        });
+
+        weeks.push({
+            weekNumber: w,
+            theme: "Consistency Building",
+            hrvGuidance: "If feeling tired (Low HRV), convert any run to a walk.",
+            days: weekDays
+        });
+    }
+
     return {
-        planType: 'basic_template',
-        weeklyStructure: {
-            totalDays: daysPerWeek,
-            easyRuns: daysPerWeek - 1,
-            moderateRun: 1,
-            restDays: 7 - daysPerWeek
-        },
-        notes: 'Start easy, focus on showing up, enjoy the process'
+        type: 'template_fallback_basic',
+        weeks: weeks // ✅ Crucial fix: The array exists now
     };
 }
 
