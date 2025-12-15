@@ -71,6 +71,8 @@ class DashboardWidgets {
     // Weekly Plan Widget
   // In dashboard-widgets.js
 
+// In dashboard-widgets.js
+
 async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -83,18 +85,38 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
         const data = await response.json();
         console.log('Weekly Plan API Response:', JSON.stringify(data));
 
-
-        // Case 1: Plan and weekly workouts both exist (Ideal state)
-        if (data.success && data.weeklyPlan && Object.keys(data.weeklyPlan).length > 0) {
+        // Case 1: Plan and weekly workouts both exist
+        if (data.success && data.weeklyPlan) {
             console.log('✅ Plan and workouts found. Rendering weekly schedule.');
-            container.innerHTML = this.weeklyPlanTemplate(data.weeklyPlan);
-            this.attachWeeklyPlanListeners();
-        } 
+
+            // --- FIX START: Convert Array to Map ---
+            let planMap = {};
+
+            // Check if it's the new format: { days: [ ... ] }
+            if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
+                data.weeklyPlan.days.forEach(day => {
+                    // Use 'label' (e.g. "Monday") as the key
+                    if (day.label) {
+                        planMap[day.label] = day;
+                    }
+                });
+            } 
+            // Check if it's the old format: { "Monday": ... }
+            else if (Object.keys(data.weeklyPlan).length > 0) {
+                planMap = data.weeklyPlan;
+            }
+            // --- FIX END ---
+
+            // Only render if we actually have days to show
+            if (Object.keys(planMap).length > 0) {
+                container.innerHTML = this.weeklyPlanTemplate(planMap);
+                this.attachWeeklyPlanListeners();
+                return; // Exit here, we are done
+            }
+        }
         
-        // --- THIS IS THE NEW, CRITICAL PART ---
         // Case 2: A plan exists, but it has no workouts for this week yet.
-        // This happens because hasWeeks is false.
-        else if (data.success && data.plan || planKnownToExist) {
+        if ((data.success && data.plan) || planKnownToExist) {
             console.log('✅ Plan exists, but no workouts are scheduled for this week yet.');
             container.innerHTML = `
                 <div class="card" style="height: 100%; min-height: 250px; display: flex; align-items: center; justify-content: center;">
@@ -108,8 +130,7 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
                 </div>
             `;
         } 
-
-        // Case 3: No plan exists at all. (Original "else" block)
+        // Case 3: No plan exists at all.
         else {
             console.log('No active plan found from API - showing original setup button.'); 
             container.innerHTML = `
@@ -139,7 +160,6 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
         container.innerHTML = this.errorTemplate('Failed to load weekly plan');
     }
 }
-
 
 
     // Today's Workout Widget
@@ -270,9 +290,12 @@ weatherTemplate(weather, isMock) {
         `;
     }
 
-    todayWorkoutTemplate(workout) {
-
-        if (!workout) {
+todayWorkoutTemplate(data) {
+    // 1. Handle "No Workout" / Rest Day
+    // Note: Checking data.workout (the full object) or data.workout.workout (the inner details)
+    const workoutDetails = data && data.workout ? data.workout : null;
+    
+    if (!workoutDetails || workoutDetails.name === 'Rest' || data.isRestDay) {
         return `
             <div class="empty-state">
                 <div class="empty-icon">🛌</div>
@@ -281,55 +304,76 @@ weatherTemplate(weather, isMock) {
             </div>
         `;
     }
-        const hrvColors = {
-            easy: '#ef4444',
-            normal: '#10b981',
-            push: '#3b82f6'
-        };
 
-        const statusColor = workout.completed ? '#10B981' : '#3B82F6';
+    // 2. Define Colors Map
+    const hrvColors = {
+        low: '#ef4444',     // Red
+        normal: '#10b981',  // Green
+        high: '#3b82f6',    // Blue
+        balanced: '#10b981' // Green alias
+    };
 
-        return `
-            <div class="widget today-workout-widget">
-                <div class="widget-header">
-                    <h3>🏃 Today's Workout</h3>
-                    <div class="hrv-indicator" style="background: ${hrvColor}20; color: ${hrvColor}; border: 2px solid ${hrvColor};">
-                        HRV: ${workout.hrvValue}
-                    </div>
-                </div>
-                <div class="workout-content">
-                    <div class="workout-title">${workout.workout.name}</div>
-                    <div class="workout-meta">
-                        <span class="duration">⏱️ ${workout.workout.duration} min</span>
-                        <span class="intensity">💪 ${workout.workout.intensity}</span>
-                        ${workout.workout.distance ? `<span class="distance">📏 ${workout.workout.distance}</span>` : ''}
-                    </div>
-                    <div class="workout-description">
-                        ${workout.workout.description}
-                    </div>
-                    ${workout.workout.zones.length > 0 ? `
-                        <div class="workout-zones">
-                            <strong>Target Zones:</strong> ${workout.workout.zones.join(', ')}
-                        </div>
-                    ` : ''}
-                    <div class="hrv-recommendation" style="background: ${hrvColor}15; border-left: 4px solid ${hrvColor};">
-                        ${workout.recommendation}
-                    </div>
-                    ${workout.adjustedFromPlanned ? `
-                        <div class="adjustment-notice">
-                            ⚠️ Workout adjusted based on your HRV reading
-                        </div>
-                    ` : ''}
-                    <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()">
-                        Start Workout
-                    </button>
-                    <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()">
-                        Update HRV
-                    </button>
+    // 3. Determine Current Color (The Fix)
+    // We check data.hrvStatus (e.g. 'normal') and map it to a hex code.
+    // Default to 'normal' (Green) if status is missing.
+    const statusKey = data.hrvStatus ? data.hrvStatus.toLowerCase() : 'normal';
+    const hrvColor = hrvColors[statusKey] || hrvColors.normal;
+
+    // 4. Safe variable access
+    const title = workoutDetails.name || workoutDetails.title || 'Workout';
+    const duration = workoutDetails.duration || 0;
+    const intensity = workoutDetails.intensity || 'Normal';
+    const description = workoutDetails.description || '';
+    const distance = workoutDetails.distance || '';
+    const hrvValue = data.hrvValue || '--';
+    const recommendation = data.recommendation || 'Good to go!';
+
+    return `
+        <div class="widget today-workout-widget">
+            <div class="widget-header">
+                <h3>🏃 Today's Workout</h3>
+                <div class="hrv-indicator" style="background: ${hrvColor}20; color: ${hrvColor}; border: 2px solid ${hrvColor};">
+                    HRV: ${hrvValue}
                 </div>
             </div>
-        `;
-    }
+            <div class="workout-content">
+                <div class="workout-title">${title}</div>
+                <div class="workout-meta">
+                    <span class="duration">⏱️ ${duration} min</span>
+                    <span class="intensity">💪 ${intensity}</span>
+                    ${distance ? `<span class="distance">📏 ${distance}</span>` : ''}
+                </div>
+                <div class="workout-description">
+                    ${description}
+                </div>
+                
+                ${workoutDetails.zones && workoutDetails.zones.length > 0 ? `
+                    <div class="workout-zones">
+                        <strong>Target Zones:</strong> ${workoutDetails.zones.join(', ')}
+                    </div>
+                ` : ''}
+
+                <div class="hrv-recommendation" style="background: ${hrvColor}15; border-left: 4px solid ${hrvColor};">
+                    ${recommendation}
+                </div>
+
+                ${data.adjustedFromPlanned ? `
+                    <div class="adjustment-notice">
+                        ⚠️ Workout adjusted based on your HRV reading
+                    </div>
+                ` : ''}
+
+                <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()">
+                    Start Workout
+                </button>
+                <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()">
+                    Update HRV
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 
     getLocationPrompt() {
         return `
