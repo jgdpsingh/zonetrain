@@ -175,7 +175,7 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
 
             const data = await response.json();
             if (data.success) {
-                container.innerHTML = this.todayWorkoutTemplate(data.workout);
+                container.innerHTML = this.todayWorkoutTemplate(data);
                 this.attachWorkoutListeners();
             }
         } catch (error) {
@@ -254,58 +254,98 @@ weatherTemplate(weather, isMock) {
 }
 
 
-    weeklyPlanTemplate(plan) {
-        const daysHTML = plan.days.map(day => `
-            <div class="week-day ${day.isToday ? 'today' : ''} ${day.completed ? 'completed' : ''}" 
-                 data-date="${day.date}">
-                <div class="day-name">${day.dayName}</div>
-                <div class="workout-type">${day.workout.name}</div>
-                <div class="workout-duration">${day.workout.duration}min</div>
-                ${day.isToday ? '<div class="today-badge">Today</div>' : ''}
-            </div>
-        `).join('');
-
+   weeklyPlanTemplate(planMap) {
+    // 1. Define standard week order
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    
+    // 2. Generate HTML by iterating through daysOfWeek
+    const daysHTML = daysOfWeek.map(dayName => {
+        // Safe access: Get the day object if it exists
+        const day = planMap[dayName]; 
+        
+        // Handle missing days (e.g. if map is partial)
+        if (!day) {
+            return `
+                <div class="week-day empty">
+                    <div class="day-name">${dayName.substring(0, 3)}</div>
+                    <div class="workout-type">-</div>
+                </div>
+            `;
+        }
+        
+        // Safe variable access
+        const isToday = day.isToday || false;
+        const isCompleted = day.completed || false;
+        const workoutName = (day.workout && (day.workout.title || day.workout.name)) || 'Rest';
+        const duration = (day.workout && day.workout.duration) ? `${day.workout.duration}m` : '-';
+        
         return `
-            <div class="widget weekly-plan-widget">
-                <div class="widget-header">
-                    <h3>📅 This Week's Plan</h3>
-                    <button class="btn-view-details" onclick="window.dashboardWidgets.showWeeklyDetails()">
-                        View Details →
-                    </button>
-                </div>
-                <div class="weekly-grid">
-                    ${daysHTML}
-                </div>
-            </div>
-
-            <!-- Modal for detailed weekly view -->
-            <div id="weekly-modal" class="modal" style="display: none;">
-                <div class="modal-content">
-                    <span class="modal-close" onclick="window.dashboardWidgets.closeModal()">&times;</span>
-                    <h2>📅 Detailed Weekly Plan</h2>
-                    <p class="modal-subtitle">HRV-adaptive schedule • Adjusts daily based on recovery</p>
-                    <div id="weekly-details-content"></div>
-                </div>
+            <div class="week-day ${isToday ? 'today' : ''} ${isCompleted ? 'completed' : ''}" 
+                 data-date="${day.date || ''}">
+                <div class="day-name">${dayName.substring(0, 3)}</div>
+                <div class="workout-type">${workoutName}</div>
+                <div class="workout-duration">${duration}</div>
+                ${isToday ? '<div class="today-badge">Today</div>' : ''}
             </div>
         `;
-    }
+    }).join('');
+
+    return `
+        <div class="widget weekly-plan-widget">
+            <div class="widget-header">
+                <h3>📅 This Week's Plan</h3>
+                <button class="btn-view-details" onclick="window.dashboardWidgets.showWeeklyDetails()">
+                    View Details →
+                </button>
+            </div>
+            <div class="weekly-grid">
+                ${daysHTML}
+            </div>
+        </div>
+
+        <!-- Modal for detailed weekly view -->
+        <div id="weekly-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="modal-close" onclick="window.dashboardWidgets.closeModal()">&times;</span>
+                <h2>📅 Detailed Weekly Plan</h2>
+                <p class="modal-subtitle">HRV-adaptive schedule • Adjusts daily based on recovery</p>
+                <div id="weekly-details-content"></div>
+            </div>
+        </div>
+    `;
+}
+
 
 todayWorkoutTemplate(data) {
-    // 1. Handle "No Workout" / Rest Day
-    // Note: Checking data.workout (the full object) or data.workout.workout (the inner details)
-    const workoutDetails = data && data.workout ? data.workout : null;
+    // 1. ROBUST DATA PARSING
+    // Handle both { workout: {...} } (API wrapper) and {...} (direct workout object)
+    let workoutDetails = null;
     
-    if (!workoutDetails || workoutDetails.name === 'Rest' || data.isRestDay) {
+    if (data) {
+        if (data.workout && typeof data.workout === 'object') {
+            workoutDetails = data.workout; // Standard case: Nested inside data
+        } else if (data.title || data.intensity) {
+            workoutDetails = data;         // Edge case: Direct workout object
+        }
+    }
+
+    // 2. CHECK FOR REST / EMPTY
+    const isRest = !workoutDetails || 
+                   workoutDetails.title === 'rest' || 
+                   workoutDetails.intensity === 'rest' || 
+                   data.isRestDay;
+
+    if (isRest) {
         return `
-            <div class="empty-state">
-                <div class="empty-icon">🛌</div>
-                <h3>Rest Day</h3>
-                <p>No workout scheduled for today.</p>
+            <div class="empty-state" style="text-align:center; padding:30px; background:#f8f9fa; border-radius:12px;">
+                <div class="empty-icon" style="font-size:40px; margin-bottom:10px;">🛌</div>
+                <h3 style="margin:0; color:#555;">Rest Day</h3>
+                <p style="color:#777; margin:5px 0 0 0;">No workout scheduled for today.</p>
             </div>
         `;
     }
 
-    // 2. Define Colors Map
+    // 3. DEFINE HRV COLORS
     const hrvColors = {
         low: '#ef4444',     // Red
         normal: '#10b981',  // Green
@@ -313,14 +353,11 @@ todayWorkoutTemplate(data) {
         balanced: '#10b981' // Green alias
     };
 
-    // 3. Determine Current Color (The Fix)
-    // We check data.hrvStatus (e.g. 'normal') and map it to a hex code.
-    // Default to 'normal' (Green) if status is missing.
     const statusKey = data.hrvStatus ? data.hrvStatus.toLowerCase() : 'normal';
     const hrvColor = hrvColors[statusKey] || hrvColors.normal;
 
-    // 4. Safe variable access
-    const title = workoutDetails.name || workoutDetails.title || 'Workout';
+    // 4. SAFE VARIABLE ACCESS
+    const title = workoutDetails.title || workoutDetails.name || 'Workout';
     const duration = workoutDetails.duration || 0;
     const intensity = workoutDetails.intensity || 'Normal';
     const description = workoutDetails.description || '';
@@ -328,51 +365,54 @@ todayWorkoutTemplate(data) {
     const hrvValue = data.hrvValue || '--';
     const recommendation = data.recommendation || 'Good to go!';
 
+    // 5. RENDER WIDGET
     return `
         <div class="widget today-workout-widget">
-            <div class="widget-header">
-                <h3>🏃 Today's Workout</h3>
-                <div class="hrv-indicator" style="background: ${hrvColor}20; color: ${hrvColor}; border: 2px solid ${hrvColor};">
+            <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0;">🏃 Today's Workout</h3>
+                <div class="hrv-indicator" style="background: ${hrvColor}20; color: ${hrvColor}; border: 1px solid ${hrvColor}; padding:4px 8px; border-radius:12px; font-size:12px; font-weight:600;">
                     HRV: ${hrvValue}
                 </div>
             </div>
-            <div class="workout-content">
-                <div class="workout-title">${title}</div>
-                <div class="workout-meta">
+            
+            <div class="workout-content" style="background:white; border:1px solid #eee; border-radius:12px; padding:20px;">
+                <div class="workout-title" style="font-size:18px; font-weight:bold; color:#333; margin-bottom:10px;">
+                    ${title}
+                </div>
+                
+                <div class="workout-meta" style="display:flex; gap:15px; font-size:14px; color:#555; margin-bottom:15px;">
                     <span class="duration">⏱️ ${duration} min</span>
                     <span class="intensity">💪 ${intensity}</span>
                     ${distance ? `<span class="distance">📏 ${distance}</span>` : ''}
                 </div>
-                <div class="workout-description">
+
+                <div class="workout-description" style="font-size:14px; color:#666; line-height:1.5; margin-bottom:15px;">
                     ${description}
                 </div>
                 
                 ${workoutDetails.zones && workoutDetails.zones.length > 0 ? `
-                    <div class="workout-zones">
+                    <div class="workout-zones" style="font-size:13px; background:#f0f7ff; color:#0056b3; padding:8px; border-radius:6px; margin-bottom:15px;">
                         <strong>Target Zones:</strong> ${workoutDetails.zones.join(', ')}
                     </div>
                 ` : ''}
 
-                <div class="hrv-recommendation" style="background: ${hrvColor}15; border-left: 4px solid ${hrvColor};">
+                <div class="hrv-recommendation" style="background: ${hrvColor}10; border-left: 4px solid ${hrvColor}; padding:10px; font-size:13px; color:#444; margin-bottom:20px; border-radius:4px;">
                     ${recommendation}
                 </div>
 
-                ${data.adjustedFromPlanned ? `
-                    <div class="adjustment-notice">
-                        ⚠️ Workout adjusted based on your HRV reading
-                    </div>
-                ` : ''}
-
-                <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()">
-                    Start Workout
-                </button>
-                <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()">
-                    Update HRV
-                </button>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()" style="flex:1; background:#007bff; color:white; border:none; padding:10px; border-radius:6px; font-weight:600; cursor:pointer;">
+                        Start Workout
+                    </button>
+                    <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()" style="padding:10px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer;">
+                        Update HRV
+                    </button>
+                </div>
             </div>
         </div>
     `;
 }
+
 
 
     getLocationPrompt() {
