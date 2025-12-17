@@ -2663,7 +2663,7 @@ app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         
-        // Get workouts for current month ± 1 month
+        // ... (Keep your date calculation logic) ...
         const startDate = new Date();
         startDate.setMonth(startDate.getMonth() - 1);
         startDate.setDate(1);
@@ -2672,17 +2672,25 @@ app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
         endDate.setMonth(endDate.getMonth() + 2);
         endDate.setDate(0);
 
+        // FIX: Query 'scheduledDate' instead of 'date'
         const workoutsSnapshot = await db.collection('workouts')
             .where('userId', '==', userId)
-            .where('date', '>=', startDate)
-            .where('date', '<=', endDate)
+            .where('scheduledDate', '>=', startDate) 
+            .where('scheduledDate', '<=', endDate)
             .get();
 
-        const workouts = workoutsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            date: doc.data().date.toDate ? doc.data().date.toDate().toISOString() : doc.data().date
-        }));
+        const workouts = workoutsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // FIX: Handle both field names in response for compatibility
+            const dateObj = data.scheduledDate || data.date;
+            
+            return {
+                id: doc.id,
+                ...data,
+                // Ensure the frontend gets a clean ISO string for date matching
+                date: dateObj && dateObj.toDate ? dateObj.toDate().toISOString() : dateObj
+            };
+        });
 
         res.json({
             success: true,
@@ -2693,6 +2701,20 @@ app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+app.post('/api/workouts/complete', authenticateToken, async (req, res) => {
+    try {
+        const { workoutId } = req.body;
+        await db.collection('workouts').doc(workoutId).update({
+            completed: true,
+            completedAt: new Date()
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false });
+    }
+});
+
 
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {

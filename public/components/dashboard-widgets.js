@@ -315,6 +315,11 @@ weatherTemplate(weather, isMock) {
     `;
 }
 
+closeModal() {
+        const modal = document.getElementById('weekly-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
 
 todayWorkoutTemplate(data) {
     // 1. ROBUST DATA PARSING
@@ -404,6 +409,11 @@ todayWorkoutTemplate(data) {
                     <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()" style="flex:1; background:#007bff; color:white; border:none; padding:10px; border-radius:6px; font-weight:600; cursor:pointer;">
                         Start Workout
                     </button>
+
+                    <button class="btn-complete" onclick="window.dashboardWidgets.markComplete('${workoutDetails.id}')" 
+            style="background:white; border:1px solid #28a745; color:#28a745; margin-left:10px;">
+        ✅ Mark Done
+    </button>
                     <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()" style="padding:10px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer;">
                         Update HRV
                     </button>
@@ -411,6 +421,30 @@ todayWorkoutTemplate(data) {
             </div>
         </div>
     `;
+}
+
+async markComplete(workoutId) {
+    if (!confirm('Mark this workout as completed?')) return;
+    
+    try {
+        const res = await fetch('/api/workouts/complete', {
+            method: 'POST',
+            headers: { 
+                'Authorization': `Bearer ${this.token}`,
+                'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ workoutId })
+        });
+        
+        if (res.ok) {
+            // Re-render to show updated status
+            this.renderTodayWorkoutWidget('today-workout-container');
+            this.renderWeeklyPlanWidget('weekly-plan-container');
+            alert('Great job! Workout marked as complete.');
+        }
+    } catch (e) {
+        alert('Failed to update workout.');
+    }
 }
 
 
@@ -1011,4 +1045,9 @@ async syncStrava() {
 
 
 // Initialize on page load
-window.dashboardWidgets = new DashboardWidgets();
+// At the very bottom of the file
+document.addEventListener('DOMContentLoaded', () => {
+    window.dashboardWidgets = new DashboardWidgets();
+    window.dashboardWidgets.init();
+});
+
