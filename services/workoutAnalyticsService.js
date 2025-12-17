@@ -181,25 +181,56 @@ class WorkoutAnalyticsService {
     }
 
     // Get personal records from Strava stats
-    async getPersonalRecords(userId) {
-        try {
-            const stravaStats = await this.stravaService.getAthleteStats(userId);
+   async getPersonalRecords(userId) {
+    try {
+        // 1. Get totals from Strava Service (These are fine for totals)
+        const stravaStats = await this.stravaService.getAthleteStats(userId);
 
-            return {
-                longestRun: {
-                    distance: (stravaStats.biggest_ride_distance / 1000).toFixed(2),
-                    date: stravaStats.recent_run_totals?.achievement_count || 'N/A'
-                },
-                totalRuns: stravaStats.all_run_totals?.count || 0,
-                totalDistance: (stravaStats.all_run_totals?.distance / 1000).toFixed(2),
-                totalTime: Math.round(stravaStats.all_run_totals?.moving_time / 3600), // hours
-                source: 'strava'
-            };
-        } catch (error) {
-            console.error('Get personal records error:', error);
-            return { error: 'Unable to fetch Strava stats' };
+        // 2. QUERY YOUR DB for the actual Longest Run
+        // We order by distance descending and limit to 1
+        const longestRunSnapshot = await this.db.collection('strava_activities')
+            .where('userId', '==', userId)
+            .where('type', '==', 'Run') // Strict filter
+            .orderBy('distance', 'desc')
+            .limit(1)
+            .get();
+
+        let realLongestRun = 0;
+        let realLongestRunDate = 'N/A';
+
+        if (!longestRunSnapshot.empty) {
+            const runData = longestRunSnapshot.docs[0].data();
+            realLongestRun = (runData.distance / 1000).toFixed(2);
+            // Format date nicely if available
+            realLongestRunDate = runData.start_date 
+                ? new Date(runData.start_date).toLocaleDateString() 
+                : 'N/A';
         }
+
+        return {
+            longestRun: {
+                distance: realLongestRun, // Corrected Value
+                date: realLongestRunDate
+            },
+            // Keep using Strava totals as they are usually accurate
+            totalRuns: stravaStats.all_run_totals?.count || 0,
+            totalDistance: (stravaStats.all_run_totals?.distance / 1000).toFixed(2),
+            totalTime: Math.round(stravaStats.all_run_totals?.moving_time / 3600),
+            source: 'hybrid_strava_db'
+        };
+
+    } catch (error) {
+        console.error('Get personal records error:', error);
+        // Fallback: return zeros instead of crashing
+        return { 
+            longestRun: { distance: 0, date: 'N/A' },
+            totalRuns: 0, 
+            totalDistance: 0, 
+            totalTime: 0
+        };
     }
+}
+
 
     // Get progress chart data
     async getProgressChartData(userId, metric = 'distance', days = 90) {

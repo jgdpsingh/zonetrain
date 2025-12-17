@@ -467,59 +467,153 @@ todayWorkoutTemplate(data) {
     }
 
     async showWeeklyDetails() {
-        const modal = document.getElementById('weekly-modal');
-        const content = document.getElementById('weekly-details-content');
-        
-        try {
-            const response = await fetch('/api/training/weekly-plan', {
-                headers: { 'Authorization': `Bearer ${this.token}` }
-            });
+    const modal = document.getElementById('weekly-modal');
+    const content = document.getElementById('weekly-details-content');
+    
+    try {
+        const response = await fetch('/api/training/weekly-plan', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
 
-            const data = await response.json();
-            if (data.success) {
-                content.innerHTML = this.detailedWeeklyTemplate(data.weeklyPlan);
-                modal.style.display = 'flex';
+        const data = await response.json();
+        if (data.success) {
+            // 1. ROBUST MAP CONVERSION (Use same logic as Widget)
+            let planMap = {};
+            if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
+                data.weeklyPlan.days.forEach(d => { if(d.label) planMap[d.label] = d; });
+            } else {
+                planMap = data.weeklyPlan;
             }
-        } catch (error) {
-            console.error(error);
-        }
-    }
 
-    detailedWeeklyTemplate(plan) {
-        return plan.days.map(day => `
-            <div class="detailed-day ${day.isToday ? 'today' : ''}">
-                <div class="day-header">
-                    <h3>${day.dayName} - ${new Date(day.date).toLocaleDateString()}</h3>
-                    ${day.isToday ? '<span class="today-badge">Today</span>' : ''}
+            // 2. Render using the MAP
+            content.innerHTML = this.detailedWeeklyTemplate(planMap);
+            modal.style.display = 'flex';
+        }
+    } catch (error) {
+        console.error(error);
+        content.innerHTML = '<p class="error">Failed to load details.</p>';
+    }
+}
+
+detailedWeeklyTemplate(planMap) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    const itemsHTML = days.map(dayName => {
+        const day = planMap[dayName];
+        if (!day) return ''; // Skip empty days
+
+        // Safe Accessors
+        const workout = day.workout || {};
+        const title = workout.title || workout.name || 'Rest';
+        const dateStr = day.date ? new Date(day.date).toLocaleDateString() : '';
+        
+        return `
+            <div class="detailed-day ${day.isToday ? 'today' : ''}" style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+                <div class="day-header" style="margin-bottom: 10px;">
+                    <h3 style="margin: 0; font-size: 16px;">${dayName} <span style="font-weight: normal; color: #666; font-size: 14px;">${dateStr}</span></h3>
+                    ${day.isToday ? '<span class="today-badge" style="background: #e0f2fe; color: #0284c7; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;">Today</span>' : ''}
                 </div>
-                <div class="day-workout">
-                    <h4>${day.workout.name}</h4>
-                    <p><strong>Duration:</strong> ${day.workout.duration} minutes</p>
-                    <p><strong>Intensity:</strong> ${day.workout.intensity}</p>
-                    ${day.workout.distance ? `<p><strong>Distance:</strong> ${day.workout.distance}</p>` : ''}
-                    <p class="description">${day.workout.description}</p>
-                    ${day.workout.zones.length > 0 ? `<p><strong>Zones:</strong> ${day.workout.zones.join(', ')}</p>` : ''}
+                <div class="day-workout" style="background: #f9fafb; padding: 15px; border-radius: 8px;">
+                    <h4 style="margin: 0 0 8px 0; color: #111;">${title}</h4>
+                    
+                    <div style="font-size: 14px; color: #444; margin-bottom: 8px;">
+                        <strong>Duration:</strong> ${workout.duration || 0} min 
+                        <span style="margin: 0 8px; color: #ddd;">|</span>
+                        <strong>Intensity:</strong> ${workout.intensity || '-'}
+                    </div>
+
+                    ${workout.distance ? `<p style="margin: 0 0 8px 0; font-size: 14px;"><strong>Distance:</strong> ${workout.distance}</p>` : ''}
+                    
+                    <p class="description" style="margin: 0; font-size: 14px; color: #666; line-height: 1.5;">
+                        ${workout.description || 'No description provided.'}
+                    </p>
+                    
+                    ${workout.zones && workout.zones.length > 0 ? `
+                        <div style="margin-top: 10px; font-size: 13px; color: #0284c7;">
+                            <strong>Zones:</strong> ${workout.zones.join(', ')}
+                        </div>
+                    ` : ''}
                 </div>
             </div>
-        `).join('');
+        `;
+    }).join('');
+
+    // ADD MOBILE CLOSE BUTTON AT THE BOTTOM
+    return itemsHTML + `
+        <button onclick="window.dashboardWidgets.closeModal()" 
+                style="display: block; width: 100%; margin-top: 20px; padding: 12px; background: #f3f4f6; border: none; border-radius: 8px; font-weight: bold; color: #374151; cursor: pointer;">
+            Close
+        </button>
+    `;
+}
+
+
+  // In dashboard-widgets.js class DashboardWidgets { ...
+
+async logHRV() {
+    // 1. Try to find the value in the dedicated input box
+    const input = document.getElementById('hrv-input');
+    const statusEl = document.getElementById('hrv-status'); // Optional status text
+    
+    let hrvValue = input ? input.value.trim() : null;
+
+    // 2. Fallback: If input is empty, ask user via prompt
+    if (!hrvValue) {
+        hrvValue = prompt("Enter your HRV reading for today:");
     }
 
-    closeModal() {
-        document.getElementById('weekly-modal').style.display = 'none';
+    // 3. Validation
+    const numericValue = parseFloat(hrvValue);
+    if (!numericValue || isNaN(numericValue) || numericValue <= 0) {
+        alert('Please enter a valid HRV number.');
+        return;
     }
 
-    startWorkout() {
-        alert('Starting workout tracking... (Feature coming soon)');
+    // 4. Update UI to show "Saving..."
+    if (statusEl) {
+        statusEl.textContent = 'Saving...';
+        statusEl.style.color = '#6b7280';
     }
 
-    logHRV() {
-        const hrv = prompt('Enter your HRV reading:');
-        if (hrv && !isNaN(hrv)) {
-            localStorage.setItem('todayHRV', hrv);
-            this.renderTodayWorkoutWidget('today-workout-container');
-            alert('HRV updated! Workout adjusted based on your reading.');
+    try {
+        // 5. API Call
+        const res = await fetch('/api/hrv/log', { // Ensure this route matches your backend (/api/hrv or /api/hrv/log)
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + this.token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ value: numericValue, source: 'manual-dashboard' })
+        });
+
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+
+        // 6. Success Handling
+        localStorage.setItem('todayHRV', String(numericValue));
+        
+        if (statusEl) {
+            statusEl.textContent = `HRV logged: ${numericValue}`;
+            statusEl.style.color = '#16a34a';
         }
+
+        if (input) input.value = ''; // Clear input
+
+        // 7. CRITICAL: Re-render the widget to apply AI adjustment
+        await this.renderTodayWorkoutWidget('today-workout-container'); // Check this ID matches your HTML
+
+        alert(`HRV updated to ${numericValue}. Workout adjusted!`);
+
+    } catch (err) {
+        console.error('HRV log error:', err);
+        if (statusEl) {
+            statusEl.textContent = 'Failed to save.';
+            statusEl.style.color = '#dc2626';
+        }
+        alert('Failed to save HRV. Check console.');
     }
+}
+
 
     attachWeeklyPlanListeners() {
         // Add any click handlers for week days
@@ -913,60 +1007,6 @@ async syncStrava() {
     }
 }
 
-}
-
-async function logHRVFromDashboard() {
-  const input = document.getElementById('hrv-input');
-  const statusEl = document.getElementById('hrv-status');
-  const raw = input.value.trim();
-
-  const value = parseFloat(raw);
-  if (!value || Number.isNaN(value) || value <= 0) {
-    statusEl.textContent = 'Please enter a valid HRV value.';
-    statusEl.style.color = '#dc2626';
-    return;
-  }
-
-  const token = localStorage.getItem('userToken');
-  if (!token) {
-    alert('Please login again.');
-    window.location.href = '/login';
-    return;
-  }
-
-  try {
-    statusEl.textContent = 'Saving...';
-    statusEl.style.color = '#6b7280';
-
-    const res = await fetch('/api/hrv/log', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ value, source: 'manual-dashboard' })
-    });
-
-    const data = await res.json();
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to log HRV');
-    }
-
-    // Save locally so the Today Workout widget gets it
-    localStorage.setItem('todayHRV', String(value));
-
-    statusEl.textContent = `HRV logged for today: ${value}`;
-    statusEl.style.color = '#16a34a';
-
-    // Optional: refresh Today’s Workout widget to adapt
-    if (window.dashboardWidgets && typeof window.dashboardWidgets.renderTodayWorkoutWidget === 'function') {
-      window.dashboardWidgets.renderTodayWorkoutWidget('today-workout-container');
-    }
-  } catch (err) {
-    console.error('HRV log error:', err);
-    statusEl.textContent = 'Failed to save HRV. Please try again.';
-    statusEl.style.color = '#dc2626';
-  }
 }
 
 
