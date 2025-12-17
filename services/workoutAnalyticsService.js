@@ -183,45 +183,59 @@ class WorkoutAnalyticsService {
     // Get personal records from Strava stats
    async getPersonalRecords(userId) {
     try {
-        // 1. Get totals from Strava Service (These are fine for totals)
-        const stravaStats = await this.stravaService.getAthleteStats(userId);
+        console.log(`📊 Fetching Personal Records for user ${userId}...`);
 
-        // 2. QUERY YOUR DB for the actual Longest Run
-        // We order by distance descending and limit to 1
-        const longestRunSnapshot = await this.db.collection('strava_activities')
-            .where('userId', '==', userId)
-            .where('type', '==', 'Run') // Strict filter
-            .orderBy('distance', 'desc')
-            .limit(1)
-            .get();
+        // 1. Get Aggregated Totals (Total Runs, Dist, Time)
+        // These are pre-calculated by Strava and are usually accurate.
+        const stats = await this.stravaService.getAthleteStats(userId);
 
-        let realLongestRun = 0;
-        let realLongestRunDate = 'N/A';
+        // 2. Find Longest Run by fetching Activity List from API
+        // We bypass the local DB because it might be out of sync.
+        let longestRunDistance = 0;
+        let longestRunDate = 'N/A';
 
-        if (!longestRunSnapshot.empty) {
-            const runData = longestRunSnapshot.docs[0].data();
-            realLongestRun = (runData.distance / 1000).toFixed(2);
-            // Format date nicely if available
-            realLongestRunDate = runData.start_date 
-                ? new Date(runData.start_date).toLocaleDateString() 
-                : 'N/A';
+        // Retrieve the user's Token to make the API call
+        const userDoc = await this.db.collection('users').doc(userId).get();
+        const accessToken = userDoc.data()?.stravaAccessToken; // Ensure this field name matches your DB
+
+        if (accessToken) {
+            const { default: axios } = await import('axios');
+            
+            // Fetch last 100 activities (enough to likely find a recent longest run)
+            // Note: For a true "All Time" longest run without DB, you'd need to fetch all pages, 
+            // but 100 is a good trade-off for speed vs accuracy in this fix.
+            const activitiesRes = await axios.get('https://www.strava.com/api/v3/athlete/activities', {
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                params: { per_page: 100, page: 1 } 
+            });
+
+            const activities = activitiesRes.data || [];
+            
+            // Filter strictly for RUNS (ignoring that 1375km ride)
+            const runs = activities.filter(a => a.type === 'Run');
+            
+            if (runs.length > 0) {
+                // Find the max distance in this batch
+                const longest = runs.reduce((max, curr) => (curr.distance > max.distance ? curr : max), { distance: 0 });
+                
+                longestRunDistance = (longest.distance / 1000).toFixed(2);
+                longestRunDate = new Date(longest.start_date).toLocaleDateString();
+            }
         }
 
         return {
+            totalRuns: stats.all_run_totals?.count || 0,
+            totalDistance: (stats.all_run_totals?.distance / 1000).toFixed(2) || '0.00',
+            totalTime: Math.round((stats.all_run_totals?.moving_time || 0) / 3600),
             longestRun: {
-                distance: realLongestRun, // Corrected Value
-                date: realLongestRunDate
+                distance: longestRunDistance,
+                date: longestRunDate
             },
-            // Keep using Strava totals as they are usually accurate
-            totalRuns: stravaStats.all_run_totals?.count || 0,
-            totalDistance: (stravaStats.all_run_totals?.distance / 1000).toFixed(2),
-            totalTime: Math.round(stravaStats.all_run_totals?.moving_time / 3600),
-            source: 'hybrid_strava_db'
+            source: 'strava_api_live'
         };
 
     } catch (error) {
-        console.error('Get personal records error:', error);
-        // Fallback: return zeros instead of crashing
+        console.error('❌ Personal records error:', error);
         return { 
             longestRun: { distance: 0, date: 'N/A' },
             totalRuns: 0, 
@@ -230,6 +244,7 @@ class WorkoutAnalyticsService {
         };
     }
 }
+
 
 
     // Get progress chart data

@@ -5,6 +5,15 @@ class DashboardWidgets {
         this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
     }
 
+    init() {
+        console.log('Initializing Dashboard Widgets...');
+        // Call your render methods here
+        this.renderWeatherWidget('weather-widget');
+        this.renderTodayWorkoutWidget('today-workout-container');
+        this.renderWeeklyPlanWidget('weekly-plan-container');
+        // Any other startup logic
+    }
+
     static WEATHER_CACHE_KEY = 'zonetrain_weather_cache_v1';
   static WEATHER_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 30 minutes
 
