@@ -178,19 +178,26 @@ async renderWeeklyPlanWidget(containerId, planKnownToExist = false) {
 
         try {
             const hrv = localStorage.getItem('todayHRV') || '';
-            const response = await fetch(`/api/training/today-workout?hrv=${hrv}`, {
-                headers: { 'Authorization': `Bearer ${this.token}` }
-            });
+            console.log(`🔄 Fetching workout with HRV: ${hrv}`); // Debug Log
+
+            const response = await fetch(`/api/training/today-workout?hrv=${hrv}&t=${Date.now()}`, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
 
             const data = await response.json();
+            console.log("✅ Workout Data Received:", data); // Debug Log
             if (data.success) {
-                container.innerHTML = this.todayWorkoutTemplate(data);
-                this.attachWorkoutListeners();
+            // Log if AI adjusted it
+            if (data.adjustedFromPlanned) {
+                console.log("⚠️ AI HAS ADJUSTED THIS WORKOUT");
             }
-        } catch (error) {
-            console.error('Today workout error:', error);
-            container.innerHTML = this.errorTemplate('Failed to load workout');
+            container.innerHTML = this.todayWorkoutTemplate(data);
+            this.attachWorkoutListeners();
         }
+    } catch (error) {
+        console.error('Today workout error:', error);
+        container.innerHTML = `<div style="padding:20px; text-align:center; color:red;">Error loading workout</div>`;
+    }
     }
 
     // Templates
@@ -341,6 +348,19 @@ todayWorkoutTemplate(data) {
         } else if (data.title || data.intensity) {
             workoutDetails = data;         // Edge case: Direct workout object
         }
+    }
+
+    if (workoutDetails && workoutDetails.completed) {
+        return `
+            <div class="widget today-workout-widget completed-state" style="text-align: center; padding: 40px 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border-radius: 12px;">
+                <div style="font-size: 50px; margin-bottom: 10px;">🎉</div>
+                <h3 style="margin: 0; font-size: 24px;">Great Job!</h3>
+                <p style="margin: 5px 0 20px 0; opacity: 0.9;">You crushed today's workout.</p>
+                <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px; display: inline-block;">
+                    <strong>${workoutDetails.title || 'Workout'}</strong> completed
+                </div>
+            </div>
+        `;
     }
 
     // 2. CHECK FOR REST / EMPTY
