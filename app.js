@@ -10373,15 +10373,12 @@ app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const hrv = req.query.hrv || null;  // reserved for future use / logging
+    const hrvParam = req.query.hrv || null; 
 
+    // 1. Get Plan & Workouts (Your existing logic)
     const plan = await trainingPlanService.getCurrentPlan(userId);
     if (!plan || !Array.isArray(plan.thisWeekWorkouts) || plan.thisWeekWorkouts.length === 0) {
-      return res.json({
-        success: false,
-        message: 'No workout scheduled for today',
-        workout: null
-      });
+      return res.json({ success: false, message: 'No workout scheduled for today', workout: null });
     }
 
     const todayStr = new Date().toDateString();
@@ -10389,12 +10386,15 @@ app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
       w.scheduledDate && new Date(w.scheduledDate).toDateString() === todayStr
     );
 
-    // Fallback: if nothing matches exactly today, pick the next upcoming workout
     if (!todayWorkout) {
-      todayWorkout = plan.thisWeekWorkouts[0];
+        // Optional: Return Rest Day instead of "Next" workout to avoid confusion
+        // todayWorkout = { title: 'Rest', intensity: 'Rest', description: 'No workout scheduled today.' };
+        // For now, let's keep your fallback logic or just return null
+        todayWorkout = plan.thisWeekWorkouts.find(w => new Date(w.scheduledDate) > new Date()) || plan.thisWeekWorkouts[0];
     }
 
-    const workoutPayload = {
+    // 2. Prepare Base Payload
+    let workoutPayload = {
       id: todayWorkout.id,
       title: todayWorkout.title || todayWorkout.workoutTitle || 'Workout',
       description: todayWorkout.description || '',
@@ -10402,20 +10402,62 @@ app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
       distance: todayWorkout.distance || null,
       intensity: todayWorkout.intensity || 'easy',
       zones: todayWorkout.zones || [],
-      scheduledDate: todayWorkout.scheduledDate || null
+      scheduledDate: todayWorkout.scheduledDate || null,
+      completed: todayWorkout.completed || false // Ensure completion status is passed
     };
 
+    // 3. APPLY HRV ADJUSTMENT LOGIC
+    let recommendation = "All systems go!";
+    let hrvStatus = "normal";
+    let adjustedFromPlanned = false;
+
+    if (hrvParam) {
+        const currentHRV = parseInt(hrvParam);
+        
+        // Fetch Baseline (You need to fetch the profile to get this)
+        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
+        const profile = profileDoc.data();
+        const baselineHRV = profile?.hrv?.baseline || 50; // Fallback default
+
+        // Logic: Low HRV (< 80% of baseline)
+        if (currentHRV < (baselineHRV * 0.8)) {
+            hrvStatus = "low";
+            
+            // Only adjust if it's NOT already a rest/easy day
+            const isHard = ['Hard', 'Intervals', 'Tempo', 'Threshold'].includes(workoutPayload.intensity);
+            
+            if (isHard) {
+                adjustedFromPlanned = true;
+                workoutPayload.originalTitle = workoutPayload.title;
+                workoutPayload.title = "Recovery Run (Adjusted)";
+                workoutPayload.description = "⚠️ Low HRV detected. We swapped your hard session for an easy recovery run to prevent burnout.";
+                workoutPayload.intensity = "Easy";
+                workoutPayload.duration = Math.max(20, workoutPayload.duration - 15); // Reduce duration
+                recommendation = "Intensity reduced to prioritize recovery.";
+            } else {
+                recommendation = "HRV is low. Keep today's easy session very light.";
+            }
+        } 
+        // Logic: High HRV (> 115% of baseline)
+        else if (currentHRV > (baselineHRV * 1.15)) {
+            hrvStatus = "high";
+            recommendation = "High HRV! You're ready to push hard today.";
+        }
+    }
+
+    // 4. Return Final Response
     res.json({
       success: true,
-      workout: workoutPayload
+      workout: workoutPayload,
+      hrvStatus: hrvStatus,
+      hrvValue: hrvParam || '--',
+      recommendation: recommendation,
+      adjustedFromPlanned: adjustedFromPlanned
     });
+
   } catch (error) {
     console.error('Today workout API error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to load today workout',
-      workout: null
-    });
+    res.status(500).json({ success: false, message: 'Failed to load today workout', workout: null });
   }
 });
 
