@@ -341,7 +341,7 @@ todayWorkoutTemplate(data) {
     // 1. ROBUST DATA PARSING
     // Handle both { workout: {...} } (API wrapper) and {...} (direct workout object)
     let workoutDetails = null;
-    
+
     if (data) {
         if (data.workout && typeof data.workout === 'object') {
             workoutDetails = data.workout; // Standard case: Nested inside data
@@ -350,6 +350,7 @@ todayWorkoutTemplate(data) {
         }
     }
 
+    // Check for completion status
     if (workoutDetails && workoutDetails.completed) {
         return `
             <div class="widget today-workout-widget completed-state" style="text-align: center; padding: 40px 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border-radius: 12px;">
@@ -379,11 +380,12 @@ todayWorkoutTemplate(data) {
         `;
     }
 
-    // 3. DEFINE HRV COLORS
+    // 3. DEFINE HRV COLORS & STATUS
     const hrvColors = {
         low: '#ef4444',     // Red
         normal: '#10b981',  // Green
         high: '#3b82f6',    // Blue
+        push: '#3b82f6',    // Blue alias
         balanced: '#10b981' // Green alias
     };
 
@@ -397,7 +399,14 @@ todayWorkoutTemplate(data) {
     const description = workoutDetails.description || '';
     const distance = workoutDetails.distance || '';
     const hrvValue = data.hrvValue || '--';
-    const recommendation = data.recommendation || 'Good to go!';
+
+    // --- OPTION A LOGIC: Soften message for High HRV ---
+    let recommendation = data.recommendation || 'Good to go!';
+    
+    if (statusKey === 'high' || statusKey === 'push') {
+        recommendation = "High HRV: You may feel fresher today. Stick to the planned session; if everything feels great, optionally add 4–6 relaxed strides (15–20s) with full recovery.";
+    }
+    // ---------------------------------------------------
 
     // 5. RENDER WIDGET
     return `
@@ -439,10 +448,10 @@ todayWorkoutTemplate(data) {
                         Start Workout
                     </button>
 
-                    <button class="btn-complete" onclick="window.dashboardWidgets.markComplete('${workoutDetails.id}')" 
-            style="background:white; border:1px solid #28a745; color:#28a745; margin-left:10px;">
-        ✅ Mark Done
-    </button>
+                    <button class="btn-complete" onclick="window.dashboardWidgets.markComplete('${workoutDetails.id || ''}')" 
+                        style="background:white; border:1px solid #28a745; color:#28a745; margin-left:10px;">
+                        ✅ Mark Done
+                    </button>
                     <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()" style="padding:10px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer;">
                         Update HRV
                     </button>
@@ -451,6 +460,7 @@ todayWorkoutTemplate(data) {
         </div>
     `;
 }
+
 
 async markComplete(workoutId) {
     if (!confirm('Mark this workout as completed?')) return;
