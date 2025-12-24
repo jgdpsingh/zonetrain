@@ -975,28 +975,38 @@ async renderPersonalRecords(containerId) {
 }
 
 // Training Plan Overview Widget
-async renderTrainingPlanOverview(containerId) {
+// In dashboard-widgets.js
+
+async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add planType param
     const container = document.getElementById(containerId);
     if (!container) return;
 
     container.innerHTML = '<div class="loading">Loading training plan...</div>';
 
     try {
-        const response = await fetch('/api/training-plan/current', {
+        // 2. Construct URL with query param if planType is provided
+        const url = planType 
+            ? `/api/training-plan/current?planType=${planType}`
+            : '/api/training-plan/current';
+
+        const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${this.token}` }
         });
 
         const data = await response.json();
 
         if (!data.success || !data.plan) {
+            // Determine correct onboarding link based on missing plan type
+            const onboardingLink = planType === 'race' ? '/ai-onboarding-race' : '/ai-onboarding-basic';
+            
             container.innerHTML = `
                 <div class="widget empty-state-widget">
-                    <p>📅 No active training plan</p>
+                    <p>📅 No active ${planType || ''} training plan</p>
                     <p style="font-size: 14px; color: #666; margin-top: 8px;">
                         Create a personalized plan to reach your goals
                     </p>
-                    <button onclick="window.location.href='/ai-onboarding'" class="btn-primary" style="margin-top: 15px;">
-                        Create Training Plan
+                    <button onclick="window.location.href='${onboardingLink}'" class="btn-primary" style="margin-top: 15px;">
+                        Create ${planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : ''} Plan
                     </button>
                 </div>
             `;
@@ -1047,6 +1057,7 @@ async renderTrainingPlanOverview(containerId) {
         container.innerHTML = '<div class="widget error-widget">Failed to load training plan</div>';
     }
 }
+
 
 // Sync Strava activities
 async syncStrava() {

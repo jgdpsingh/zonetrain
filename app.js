@@ -3820,25 +3820,22 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
 });
 
 
-/**
- * GET active training plan
- * GET /api/race-goals/plan/current
- */
 app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         
-        // Get current active plan
+        // Get current active plan - STRICTLY RACE
         const planDoc = await db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
+            .where('planType', '==', 'race') // <--- CRITICAL FIX
             .limit(1)
             .get();
         
         if (planDoc.empty) {
             return res.status(404).json({
                 success: false,
-                message: 'No active training plan found'
+                message: 'No active race plan found'
             });
         }
         
@@ -3846,21 +3843,20 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         const createdAt = plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt;
         
         res.json({
-  success: true,
-  plan: {
-    id: planDoc.docs[0].id,
-    planType: plan.planType,
-    coachType: plan.planData?.coachType || 'race',
-    createdAt: createdAt,
-    data: plan.planData,
-    progress: {
-      weeksElapsed: calculateWeeksElapsed(plan.createdAt),
-      totalWeeks: getTotalWeeks(plan.planData)
-    }
-  }
-});
+            success: true,
+            plan: {
+                id: planDoc.docs[0].id,
+                planType: plan.planType,
+                coachType: plan.planData?.coachType || 'race',
+                createdAt: createdAt,
+                data: plan.planData,
+                progress: {
+                    weeksElapsed: calculateWeeksElapsed(plan.createdAt),
+                    totalWeeks: getTotalWeeks(plan.planData)
+                }
+            }
+        });
 
-        
     } catch (error) {
         console.error('Error fetching current plan:', error);
         res.status(500).json({
@@ -3870,6 +3866,7 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         });
     }
 });
+
 
 /**
  * GET plan history
@@ -10251,65 +10248,66 @@ app.post('/api/notifications/preferences/reset', authenticateToken, async (req, 
 app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
-        console.log(`📋 Fetching plan for user: ${userId}`);
+        const { planType } = req.query; // <--- Capture query param
 
-        const plan = await trainingPlanService.getCurrentPlan(userId);
+        let plan;
+
+        if (planType) {
+            // OPTION A: Specific Type Requested (e.g., ?planType=race)
+            // Bypass service to ensure we don't get a 'basic' plan by mistake
+            const planDoc = await db.collection('trainingplans')
+                .where('userId', '==', userId)
+                .where('isActive', '==', true)
+                .where('planType', '==', planType)
+                .limit(1)
+                .get();
+
+            if (!planDoc.empty) {
+                const data = planDoc.docs[0].data();
+                // Normalize ID and Dates similar to service
+                plan = {
+                    id: planDoc.docs[0].id,
+                    ...data,
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+                };
+                 // Hydrate workouts if needed, or send empty (Widget will handle 'No workouts' state)
+                 plan.thisWeekWorkouts = []; 
+                 // (Note: To show workouts, you'd need the week logic here too, 
+                 // or just rely on the 'weekly-plan' widget for workouts)
+            }
+        } else {
+            // OPTION B: Default Behavior (Any active plan)
+            plan = await trainingPlanService.getCurrentPlan(userId);
+        }
 
         if (!plan) {
-            console.warn(`⚠️ No active plan returned by service for user ${userId}`);
-
-            // 🔍 DEBUG: Check if ANY plans exist for this user in Firestore
-            // This helps confirm if the plan was saved but has isActive:false or permission issues
-            let debugInfo = { userId, totalPlans: 'unknown' };
-            try {
-                const allPlans = await db.collection('trainingplans')
-                    .where('userId', '==', userId)
-                    .get();
-                
-                console.log(`🔍 DEBUG: Found ${allPlans.size} total plans (active or inactive) for user ${userId}`);
-                debugInfo.totalPlans = allPlans.size;
-                
-                if (allPlans.size > 0) {
-                    allPlans.forEach(doc => {
-                        console.log(`   - Plan ID: ${doc.id}, isActive: ${doc.data().isActive}, Type: ${doc.data().planType}`);
-                    });
-                }
-            } catch (dbError) {
-                console.error("Failed to run debug query:", dbError);
-            }
-
-            // Return success:true but plan:null so the frontend handles it gracefully
-            return res.json({ 
+             return res.json({ 
                 success: true, 
                 plan: null, 
-                message: "No active plan found",
-                debug: debugInfo
+                message: "No active plan found"
             });
         }
 
-        console.log(`✅ Active Plan found: ${plan.id}`);
-
-        // --- FIX: Correct Week Calculation (Avoids Week 0) ---
+        // --- Correct Week Calculation ---
         const now = new Date();
-        // Handle Firestore Timestamp or standard Date string
-        const startDate = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
+        const startDate = plan.createdAt instanceof Date ? plan.createdAt : new Date(plan.createdAt);
         
         const msPerWeek = 7 * 24 * 60 * 60 * 1000;
         const weeksElapsed = Math.floor((now - startDate) / msPerWeek);
 
-        // Always start at Week 1, and cap at total weeks (default 16 if missing)
         const totalWeeks = plan.planData?.totalWeeks || 16;
         const currentWeekDisplay = Math.min(Math.max(1, weeksElapsed + 1), totalWeeks);
 
-        // Fetch workouts for this specific week (e.g., from key "week1")
         const weekKey = `week${currentWeekDisplay}`;
-        const thisWeekWorkouts = plan.planData?.schedule ? plan.planData.schedule[weekKey] : [];
+        // If we bypassed service, we might need to grab workouts from JSON planData
+        const thisWeekWorkouts = plan.thisWeekWorkouts?.length > 0 
+            ? plan.thisWeekWorkouts 
+            : (plan.planData?.schedule ? plan.planData.schedule[weekKey] : []);
 
         res.json({
             success: true,
             plan: {
                 ...plan,
-                // Override/Add these fields for the frontend widget
                 currentWeek: currentWeekDisplay,
                 totalWeeks: totalWeeks,
                 thisWeekWorkouts: thisWeekWorkouts
@@ -10318,13 +10316,10 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('Get current plan error:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: error.message,
-            plan: null
-        });
+        res.status(500).json({ success: false, message: error.message, plan: null });
     }
 });
+
 
 // Weekly plan for dashboard widgets (wrapper around TrainingPlanService)
 // In app.js
