@@ -2033,6 +2033,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotification('❌ Failed to disconnect Strava', 'error');
             }
         }
+
+        // -------------------------------------------------------------------------
+// 🛡️ SUBSCRIPTION ENFORCER: Ensure only RACE users can see this page
+// -------------------------------------------------------------------------
+async function enforceRaceSubscription() {
+    const token = localStorage.getItem('userToken');
+    if (!token) return; // Auth check handles this separately
+
+    try {
+        const response = await fetch('/api/user/access-status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        // If user is BASIC, they don't belong here -> Redirect to Basic Dashboard
+        if (data.user.currentPlan === 'basic') {
+            console.warn('Redirecting Basic user to Basic Dashboard');
+            window.location.replace('/dashboard-basic.html');
+        }
+        // (Optional) If user is FREE/Expired -> Redirect to Pricing
+        else if (data.user.subscriptionStatus !== 'active' && data.user.subscriptionStatus !== 'trial') {
+            window.location.replace('/plans.html');
+        }
+
+    } catch (e) {
+        console.error("Subscription check failed", e);
+    }
+}
+
+// Run immediately on load
+document.addEventListener('DOMContentLoaded', enforceRaceSubscription);
+
     </script>
 
 

@@ -9,54 +9,67 @@ class TrainingPlanService {
     // services/trainingPlanService.js
 
     // Get current training plan
- async getCurrentPlan(userId) {
+ // In trainingPlanService.js
+
+async getCurrentPlan(userId) {
     try {
         console.log(`📋 Fetching plan for user: ${userId}`);
 
-        // 1. Get ALL plans for user
+        // 1. Get ALL active plans for user
+        // Filter by 'isActive' == true at the query level for efficiency
         const snapshot = await this.db.collection('trainingplans')
             .where('userId', '==', userId)
+            .where('isActive', '==', true)
             .get();
 
         if (snapshot.empty) {
-            console.log('❌ No documents found in "trainingplans" for this userId.');
+            console.log('❌ No active plans found for this userId.');
             return null;
         }
 
-        console.log(`🔎 Found ${snapshot.size} plan documents. Checking for active status...`);
+        console.log(`🔎 Found ${snapshot.size} active plan documents.`);
 
-        // 2. Filter & Sort
+        // 2. Sort by creation date (Newest First) to get the LATEST active plan
         const plans = snapshot.docs.map(doc => {
             const data = doc.data();
-            // DEBUG LOG: Print status of each plan
-            // console.log(`- Plan ${doc.id}: isActive=${data.isActive} (${typeof data.isActive}), created=${data.createdAt}`);
             return {
                 id: doc.id,
                 ...data,
+                // Robust date handling: Timestamp -> Date, String -> Date, Date -> Date, or fallback
                 createdAtDate: data.createdAt && typeof data.createdAt.toDate === 'function' 
                     ? data.createdAt.toDate() 
                     : new Date(data.createdAt || 0)
             };
         });
 
-        // Sort newest first
+        // Sort Descending (Newest first)
         plans.sort((a, b) => b.createdAtDate - a.createdAtDate);
 
-        // Find newest ACTIVE plan (Allow 'true' string just in case)
-        const plan = plans.find(p => p.isActive === true || p.isActive === 'true');
+        // The first one is the winner
+        const plan = plans[0];
 
-        if (!plan) {
-            console.log('⚠️ Plans exist, but none have isActive === true.');
-            return null;
+        // OPTIONAL: Auto-deactivate older "active" plans to keep data clean
+        if (plans.length > 1) {
+             console.warn(`User ${userId} has multiple active plans. Deactivating older ones.`);
+             const batch = this.db.batch();
+             for (let i = 1; i < plans.length; i++) { // Skip the first one (index 0)
+                 const ref = this.db.collection('trainingplans').doc(plans[i].id);
+                 batch.update(ref, { 
+                     isActive: false, 
+                     deactivationReason: 'Auto-cleanup: Multiple active plans detected' 
+                 });
+             }
+             await batch.commit().catch(err => console.error("Auto-cleanup failed", err));
         }
 
-        console.log(`✅ Found active plan: ${plan.id}`);
+        console.log(`✅ Found latest active plan: ${plan.id} (${plan.planType})`);
 
-        // 3. Get Workouts (Simplified Logic)
+
+        // 3. Get Workouts Logic (Simplified & Robust)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        // Calculate Monday of current week
+        // Calculate Week Boundaries (Monday to Sunday)
         const currentDay = today.getDay(); // 0=Sun, 1=Mon...
         const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
         const weekStart = new Date(today);
@@ -67,8 +80,7 @@ class TrainingPlanService {
         weekEnd.setDate(weekStart.getDate() + 7);
         weekEnd.setHours(23, 59, 59, 999);
 
-        // Fetch from 'workouts' collection
-        // Note: Using scheduledDate Timestamp for query
+        // Fetch workouts from 'workouts' collection
         const workoutsSnapshot = await this.db.collection('workouts')
             .where('userId', '==', userId)
             .where('scheduledDate', '>=', weekStart)
@@ -77,11 +89,11 @@ class TrainingPlanService {
 
         console.log(`📅 Found ${workoutsSnapshot.size} workouts in collection for this week.`);
 
+        // 3a. Use Workouts from Collection if available
         if (!workoutsSnapshot.empty) {
-             // Filter for this plan specifically
              const relevantWorkouts = workoutsSnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
-                // Optional: loosen check if planId isn't saved consistently
+                // Ensure workout belongs to THIS specific plan (if planId is stored)
                 .filter(w => !w.planId || w.planId === plan.id);
              
              if (relevantWorkouts.length > 0) {
@@ -93,20 +105,16 @@ class TrainingPlanService {
              }
         }
 
-        // ... [Keep your fallback JSON logic here] ...
-        // It looked correct in your snippet
-
-        console.log('⚠️ No workouts found in collection, attempting JSON fallback...');
+        // 3b. Fallback: Extract from JSON Plan Data
+        console.log('⚠️ No workouts in collection, attempting JSON fallback...');
         
-        // Fallback: Extract from JSON
         if (plan.planData && plan.planData.weeks) {
-            // ... (Your existing fallback logic is fine)
-            // Ensure you use plan.createdAtDate for calculating the week index
              const planStart = plan.createdAtDate;
              const diffTime = Math.abs(today - planStart);
              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
              let currentWeekIndex = Math.floor(diffDays / 7);
              
+             // Bounds checking
              if (currentWeekIndex >= plan.planData.weeks.length) currentWeekIndex = plan.planData.weeks.length - 1;
              if (currentWeekIndex < 0) currentWeekIndex = 0;
 
@@ -144,6 +152,7 @@ class TrainingPlanService {
         return null;
     }
 }
+
 
 
     // Get training calendar

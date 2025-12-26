@@ -3436,12 +3436,32 @@ app.get('/api/training-plan/exists', authenticateToken, async (req, res) => {
  * This endpoint allows users to update their race goals and automatically
  * regenerates a new training plan based on the updated information
  */
+// In app.js
+
 app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const { targetDistance, targetDate, targetTime, newGoals, constraints } = req.body;
         
         console.log('🎯 Updating race goals for user:', userId);
+
+        // --- RATE LIMIT CHECK: Max 2 updates per calendar month ---
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of current month
+        
+        const recentUpdates = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('reason', '==', 'Goals updated') // Must match the reason string used below
+            .where('createdAt', '>=', startOfMonth)
+            .get();
+
+        if (recentUpdates.size >= 2) {
+            return res.status(403).json({
+                success: false,
+                message: "Update limit reached. You can only update your race goals twice per month to ensure training consistency."
+            });
+        }
+        // --- END RATE LIMIT CHECK ---
         
         // Validate at least one field is provided
         if (!targetDistance && !targetDate && !targetTime && !newGoals) {
@@ -3490,7 +3510,7 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         // ========== STEP 2: REGENERATE TRAINING PLAN ==========
         console.log('🤖 Regenerating training plan with updated goals...');
         
-        // Get current plan type
+        // Get current plan type (Strictly Newest Active logic is handled by query order, but for type here we assume continuity)
         const currentPlanDoc = await db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
@@ -3532,7 +3552,7 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
             isActive: true,
             createdAt: new Date(),
             version: 'v1',
-            reason: 'Goals updated',
+            reason: 'Goals updated', // Match this string for rate limiting query
             previousGoals: {
                 distance: currentProfile.raceHistory.targetRace.distance,
                 date: currentProfile.raceHistory.targetRace.raceDate,
@@ -3615,6 +3635,7 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         });
     }
 });
+
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -8118,6 +8139,7 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
 
         // --- NEW: DEACTIVATE OLD TRAINING PLANS ---
         // This forces the dashboard to realize "Oh, I have no plan" and prompt for new onboarding
+               // --- NEW: DEACTIVATE OLD TRAINING PLANS ---
         const activePlansSnapshot = await db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
@@ -8128,21 +8150,26 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
 
         activePlansSnapshot.forEach(doc => {
             const planData = doc.data();
-            // If the active plan type doesn't match the new subscription, kill it
-            if (planData.planType !== toPlan) {
-                batch.update(doc.ref, { 
-                    isActive: false, 
-                    deactivatedAt: new Date(), 
-                    deactivationReason: `Upgraded subscription to ${toPlan}` 
-                });
-                oldPlansDeactivated++;
-            }
+            // STRICTER CHECK: Deactivate ALL active plans when switching tiers.
+            // Even if the planType matches (e.g. user re-subscribes to Race after cancelling),
+            // it's safer to deactivate the old stale plan so they get a fresh start.
+            // If you prefer keeping same-type plans, keep your 'if' condition.
+            // But based on "fresh training plan" requirement, unconditional deactivation is better:
+            
+            batch.update(doc.ref, { 
+                isActive: false, 
+                deactivatedAt: new Date(), 
+                deactivationReason: `Subscription change to ${toPlan}` 
+            });
+            oldPlansDeactivated++;
         });
         
         if (oldPlansDeactivated > 0) {
             await batch.commit();
             console.log(`✅ Deactivated ${oldPlansDeactivated} old training plans`);
         }
+        // ------------------------------------------
+
         // ------------------------------------------
 
         // 5. Log Transaction (Keep existing logic)
@@ -8224,11 +8251,33 @@ app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
             updatedAt: new Date()
         });
 
+        // ---------------------------------------------------------
+        // ✅ NEW: HARD RESET - Deactivate Old Training Plans
+        // ---------------------------------------------------------
+        const activePlans = await db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('isActive', '==', true)
+            .get();
+
+        if (!activePlans.empty) {
+            const batch = db.batch();
+            activePlans.forEach(doc => {
+                batch.update(doc.ref, { 
+                    isActive: false, 
+                    deactivatedAt: new Date(),
+                    deactivationReason: `Downgraded to ${newPlan} - Resetting Plan`
+                });
+            });
+            await batch.commit();
+            console.log(`✅ Deactivated ${activePlans.size} old plans due to downgrade.`);
+        }
+        // ---------------------------------------------------------
+
         // Log transaction
         await db.collection('transactions').add({
             userId,
             type: 'downgrade',
-            fromPlan: user.currentPlan,  // ✅ Use actual plan, not calculation.currentPlan
+            fromPlan: user.currentPlan,
             toPlan: newPlan,
             creditAmount: calculation.creditAmount,
             extraDaysGranted: calculation.extraDaysGranted,
@@ -8258,6 +8307,7 @@ app.post('/api/subscription/downgrade', authenticateToken, async (req, res) => {
         });
     }
 });
+
 
 app.post('/api/subscription/cancel', authenticateToken, async (req, res) => {
     try {
