@@ -8104,24 +8104,24 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
 
         console.log('🔍 Verifying upgrade payment:', { userId, paymentId, orderId });
 
-        // 1. Verify signature (Keep existing logic)
+        // 1. Verify signature
         const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
         if (!isValid) {
             return res.status(400).json({ success: false, message: 'Invalid payment signature' });
         }
 
-        // 2. Get order details (Keep existing logic)
+        // 2. Get order details
         const order = await razorpayService.getOrder(orderId);
-        const { toPlan, billingCycle, promoCode, originalAmount, discountAmount } = order.notes;
+        const { toPlan, billingCycle, promoCode, discountAmount } = order.notes;
 
-        // 3. Calculate Date (Keep existing logic)
+        // 3. Calculate Date
         const subscriptionEndDate = new Date();
         const months = billingCycle === 'annual' ? 12 : billingCycle === 'quarterly' ? 3 : 1;
         subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + months);
 
-        // 4. Update User Profile (Keep existing logic)
+        // 4. Update User Profile
         await db.collection('users').doc(userId).update({
-            currentPlan: toPlan, // e.g., 'race'
+            currentPlan: toPlan,
             billingCycle: billingCycle,
             subscriptionStatus: 'active',
             subscriptionStartDate: new Date(),
@@ -8137,62 +8137,41 @@ app.post('/api/subscription/verify-upgrade', authenticateToken, async (req, res)
             updatedAt: new Date()
         });
 
-        // --- NEW: DEACTIVATE OLD TRAINING PLANS ---
-        // This forces the dashboard to realize "Oh, I have no plan" and prompt for new onboarding
-               // --- NEW: DEACTIVATE OLD TRAINING PLANS ---
-        const activePlansSnapshot = await db.collection('trainingplans')
-            .where('userId', '==', userId)
-            .where('isActive', '==', true)
-            .get();
-
-        const batch = db.batch();
-        let oldPlansDeactivated = 0;
-
-        activePlansSnapshot.forEach(doc => {
-            const planData = doc.data();
-            // STRICTER CHECK: Deactivate ALL active plans when switching tiers.
-            // Even if the planType matches (e.g. user re-subscribes to Race after cancelling),
-            // it's safer to deactivate the old stale plan so they get a fresh start.
-            // If you prefer keeping same-type plans, keep your 'if' condition.
-            // But based on "fresh training plan" requirement, unconditional deactivation is better:
-            
-            batch.update(doc.ref, { 
-                isActive: false, 
-                deactivatedAt: new Date(), 
-                deactivationReason: `Subscription change to ${toPlan}` 
-            });
-            oldPlansDeactivated++;
-        });
-        
-        if (oldPlansDeactivated > 0) {
-            await batch.commit();
-            console.log(`✅ Deactivated ${oldPlansDeactivated} old training plans`);
+        // ---------------------------------------------------------
+        // ✅ NEW: CLEAN RESET USING SERVICE
+        // This single line replaces all the manual Firestore code
+        // ---------------------------------------------------------
+        let planWasReset = false;
+        try {
+            planWasReset = await trainingPlanService.archiveCurrentPlan(userId);
+        } catch (err) {
+            console.error("⚠️ Non-critical error archiving old plan:", err);
         }
-        // ------------------------------------------
+        // ---------------------------------------------------------
 
-        // ------------------------------------------
-
-        // 5. Log Transaction (Keep existing logic)
+        // 5. Log Transaction
         await db.collection('transactions').add({
             userId,
             type: 'upgrade',
             fromPlan: order.notes.fromPlan,
             toPlan: toPlan,
             amount: order.amount / 100,
-            // ... (rest of your transaction fields) ...
+            paymentId,
+            orderId,
+            status: 'success',
             createdAt: new Date()
         });
 
         console.log('✅ Upgrade verified and applied');
 
-        // 6. Return response with clear instructions
+        // 6. Return response
         res.json({
             success: true,
             message: 'Upgrade successful!',
             newPlan: toPlan,
             validUntil: subscriptionEndDate,
-            // Flag to tell frontend to redirect
-            requiresOnboarding: oldPlansDeactivated > 0 
+            // If we reset a plan, tell frontend to show onboarding
+            requiresOnboarding: planWasReset 
         });
 
     } catch (error) {

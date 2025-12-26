@@ -351,6 +351,45 @@ async getCurrentPlan(userId) {
             throw error;
         }
     }
+    async archiveCurrentPlan(userId) {
+        console.log(`🧹 Archiving plan and cleaning calendar for user: ${userId}`);
+        const batch = this.db.batch();
+
+        // 1. Deactivate active plans
+        const planSnapshot = await this.db.collection('trainingplans')
+            .where('userId', '==', userId)
+            .where('isActive', '==', true)
+            .get();
+
+        planSnapshot.forEach(doc => {
+            batch.update(doc.ref, { 
+                isActive: false, 
+                deactivatedAt: new Date(),
+                deactivationReason: 'Plan Upgrade/Reset'
+            });
+        });
+
+        // 2. Delete FUTURE workouts (Clean the calendar)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const workoutsSnapshot = await this.db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('scheduledDate', '>=', today)
+            .get();
+
+        workoutsSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+
+        // 3. Commit
+        if (!planSnapshot.empty || !workoutsSnapshot.empty) {
+            await batch.commit();
+            console.log('✅ Plan reset complete.');
+        }
+    }
 }
+
+
 
 module.exports = TrainingPlanService;
