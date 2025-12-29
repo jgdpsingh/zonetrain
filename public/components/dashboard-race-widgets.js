@@ -3,15 +3,234 @@
 class RaceDashboardWidgets {
     constructor() {
         this.token = localStorage.getItem('userToken');
+        this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
     }
 
     init() {
         console.log('🏎️ Initializing RACE Dashboard Widgets...');
-        this.renderRaceCountdown('race-countdown-widget'); // Exclusive to Race
+        
+        // Check for Login Notifications (moved from HTML)
+        this.checkLoginNotifications();
+
+        // Render Widgets
+        this.renderRaceCountdown('race-countdown-widget'); 
         this.renderWeeklyPlanWidget('weekly-plan-container');
-        this.renderPerformanceChart('performance-chart-container'); // Exclusive to Race
+        this.renderPerformanceChart('performance-chart-container');
+        
+        // Subscription & Downgrade Logic
+        this.loadSubscriptionDetails();
         this.setupDowngradeListeners();
+        this.setupPauseResumeListeners(); // Added this since you had pause logic
     }
+
+    checkLoginNotifications() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const loginMethod = urlParams.get('login');
+        
+        if (loginMethod === 'google') {
+            this.showNotification('✅ Successfully logged in with Google! Welcome to Race Coach.', 'success');
+        } else if (loginMethod === 'facebook') {
+            this.showNotification('✅ Successfully logged in with Facebook! Welcome to Race Coach.', 'success');
+        }
+        
+        if (loginMethod) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.2rem;">${type === 'success' ? '✅' : '❌'}</span>
+                <span>${message}</span>
+            </div>
+            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.4rem; cursor: pointer; padding: 0 5px; margin-left: 10px; line-height: 1;">&times;</button>
+        `;
+        
+        // Inject styles if needed (copy your style injection logic here if CSS isn't global)
+        // ...
+        
+        document.body.appendChild(notification);
+        setTimeout(() => {
+            notification.remove();
+        }, 5000);
+    }
+
+    // --- 2. SUBSCRIPTION DETAILS (Moved from HTML) ---
+    async loadSubscriptionDetails() {
+        if (!this.token) return;
+        try {
+            const response = await fetch('/api/user/access-status', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await response.json();
+            
+            if (data.success && data.user) {
+                this.updateSubscriptionUI(data.user);
+            }
+        } catch (error) {
+            console.error('Failed to load subscription:', error);
+        }
+    }
+
+       // --- Paste this method inside your RaceDashboardWidgets class ---
+
+    updateSubscriptionUI(user) {
+        // DOM refs
+        const statusEl        = document.getElementById('sub-status');
+        const nextBillingEl   = document.getElementById('next-billing-date');
+        const billingCycleEl  = document.getElementById('billing-cycle');
+        const amountEl        = document.getElementById('billing-amount');
+        const manageBtn       = document.querySelector('.btn-manage');
+        const subscriptionCard = document.querySelector('.subscription-card');
+        const downgradeBtn = subscriptionCard
+            ? subscriptionCard.querySelector('.btn-action') // Assuming this is downgrade button class
+            : document.getElementById('downgrade-btn');
+        const pauseBtn = subscriptionCard
+            ? subscriptionCard.querySelector('.btn-pause')
+            : null;
+
+        // Helper to safely convert Firestore Timestamp / ISO string
+        const toJsDate = (value) => {
+            if (!value) return null;
+            if (value.toDate) return value.toDate();                  // Firestore Timestamp
+            if (value.seconds) return new Date(value.seconds * 1000); // {seconds, nanoseconds}
+            return new Date(value);                                   // ISO string or ms
+        };
+
+        const isTrial = user.subscriptionStatus === 'trial';
+        const plan    = user.currentPlan || 'free';
+
+        // 🔹 TRIAL STATE (Race trial)
+        if (isTrial && plan === 'race') {
+            console.log('Race trial detected in dashboard:', user);
+
+            // Status
+            if (statusEl) {
+                statusEl.textContent = 'Trial';
+                statusEl.style.color = '#3b82f6';
+            }
+
+            // Show trial end date instead of billing
+            const trialEnd = toJsDate(user.trialEndDate);
+            if (nextBillingEl) {
+                nextBillingEl.textContent = trialEnd
+                    ? trialEnd.toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                      })
+                    : 'Trial in progress';
+            }
+
+            // Billing cycle + amount for trial
+            if (billingCycleEl) {
+                billingCycleEl.textContent = 'Trial (no billing)';
+            }
+            if (amountEl) {
+                amountEl.textContent = '₹0';
+            }
+
+            // Buttons – hide & disable downgrade, turn "Manage" into upgrade CTA
+            if (downgradeBtn) {
+                downgradeBtn.style.display = 'none';
+                downgradeBtn.disabled = true;
+                downgradeBtn.removeAttribute('onclick');
+            }
+            if (pauseBtn) {
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
+            }
+            if (manageBtn) {
+                manageBtn.textContent = 'Upgrade to paid plan';
+                manageBtn.href = '/subscription';   // or '/plans' if you prefer
+            }
+
+            // Done – do NOT run paid logic below
+            return;
+        }
+
+        // 🔹 NON‑TRIAL / PAID / FREE – existing behaviour
+
+        // Status
+        if (user.subscriptionStatus && statusEl) {
+            const status =
+                user.subscriptionStatus.charAt(0).toUpperCase() +
+                user.subscriptionStatus.slice(1);
+            statusEl.textContent = status;
+            statusEl.style.color =
+                user.subscriptionStatus === 'active'   ? '#10b981' :
+                user.subscriptionStatus === 'cancelled'? '#ef4444' :
+                user.subscriptionStatus === 'expired'  ? '#ef4444' :
+                user.subscriptionStatus === 'paused'   ? '#f59e0b' :
+                '#6b7280';
+        }
+
+        // Subscription end date → "Next Billing"
+        if (user.subscriptionEndDate && nextBillingEl) {
+             const endDate = toJsDate(user.subscriptionEndDate);
+             if (endDate && !Number.isNaN(endDate.getTime())) {
+                nextBillingEl.textContent = endDate.toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric'
+                });
+                // 🔴 store raw timestamp so front-end can enforce rules
+                nextBillingEl.dataset.billingTs = endDate.getTime().toString();
+             } else {
+                nextBillingEl.textContent = 'N/A';
+                delete nextBillingEl.dataset.billingTs;
+             }
+        } else if (nextBillingEl && !isTrial) {
+             nextBillingEl.textContent = 'N/A';
+             delete nextBillingEl.dataset.billingTs;
+        }
+
+        // Billing cycle
+        if (user.billingCycle && billingCycleEl) {
+            const cycle =
+                user.billingCycle.charAt(0).toUpperCase() +
+                user.billingCycle.slice(1);
+            billingCycleEl.textContent = cycle;
+        }
+
+        // Amount (from last payment)
+        if (typeof user.lastPaymentAmount === 'number' && amountEl) {
+            amountEl.textContent = `₹${user.lastPaymentAmount}`;
+        }
+
+        // 🔹 Pause / Resume button label & visibility
+        if (pauseBtn) {
+            // Hide for free or non‑coach plans
+            if (plan === 'free' || !['basic', 'race'].includes(plan)) {
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
+            } else if (user.subscriptionStatus === 'active') {
+                // Show "Pause" for active paid plans
+                pauseBtn.style.display = 'inline-block';
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = '⏸️ Pause Subscription';
+                pauseBtn.style.background = '#FBBF24';
+                pauseBtn.style.borderColor = '#F59E0B';
+                pauseBtn.style.color = '#92400E';
+            } else if (user.subscriptionStatus === 'paused') {
+                // Show "Resume" when paused
+                pauseBtn.style.display = 'inline-block';
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = '▶️ Resume Subscription';
+                pauseBtn.style.background = '#10B981';
+                pauseBtn.style.borderColor = '#059669';
+                pauseBtn.style.color = '#FFFFFF';
+            } else {
+                // Cancelled / expired / trial etc.
+                pauseBtn.style.display = 'none';
+                pauseBtn.disabled = true;
+            }
+        }
+    }
+
 
     // ADVANCED Weekly Plan for Race
     async renderWeeklyPlanWidget(containerId) {
@@ -211,7 +430,126 @@ raceWeeklyTemplate(planMap) {
         }
     }
 
-}
+    setupPauseResumeListeners() {
+         const pauseBtn = document.querySelector('.btn-pause');
+         if(pauseBtn) {
+             pauseBtn.addEventListener('click', () => this.handlePauseOrResume());
+         }
+    }
+
+    async handlePauseOrResume() {
+  try {
+    const statusEl = document.getElementById('sub-status');
+    const statusText = statusEl?.textContent?.trim().toLowerCase();
+
+    // Do nothing for trial/free
+    if (statusText === 'trial' || statusText === 'free') {
+      alert('Pause is only available for paid subscriptions.');
+      return;
+    }
+
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+
+    const nextBillingEl = document.getElementById('next-billing-date');
+    const rawTs = nextBillingEl?.dataset?.billingTs;
+
+    if (rawTs) {
+      const billingAt = new Date(parseInt(rawTs, 10));
+      const now = new Date();
+      const hoursUntilBilling =
+        (billingAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursUntilBilling <= 24) {
+        // Use your toast if available
+        if (typeof showNotification === 'function') {
+          showNotification(
+            'Your plan renews in less than 24 hours. Pausing is only allowed earlier in the cycle or after renewal.',
+            'warning'
+          );
+        } else {
+          alert(
+            'Your plan renews in less than 24 hours.\n\n' +
+            'Pausing is only allowed earlier in the cycle or after the next renewal.'
+          );
+        }
+        return;
+      }
+    }
+
+    if (statusText === 'paused') {
+      // Resume
+      const confirmed = confirm('Resume your subscription now?');
+      if (!confirmed) return;
+
+      const res = await fetch('/api/subscription/resume', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Failed to resume');
+
+      alert('Your subscription has been resumed.');
+      loadSubscriptionDetails(); // refresh card
+      return;
+    }
+
+    // Otherwise, status is active → ask for pause duration
+    const input = prompt(
+      'Pause your subscription for how many days? (max 60)\n\n' +
+      'Recommended options:\n' +
+      '7 – Short injury / busy week\n' +
+      '14 – Moderate break\n' +
+      '30 – Longer recovery'
+    );
+    if (!input) return;
+
+    const days = parseInt(input, 10);
+    if (Number.isNaN(days) || days <= 0) {
+      alert('Please enter a valid number of days.');
+      return;
+    }
+
+    const reason = prompt(
+      'Optional: Why are you pausing?\n' +
+      '(e.g., injury, travel, illness)'
+    ) || 'Not specified';
+
+    const res = await fetch('/api/subscription/pause', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ durationDays: days, reason })
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Failed to pause');
+
+    alert(`Your subscription is paused until ${new Date(data.pauseEndDate).toLocaleDateString('en-IN')}.`);
+    loadSubscriptionDetails();
+  } catch (error) {
+  console.error('Pause/resume error:', error);
+  const msg =
+    error?.message ||
+    (error?.responseMessage) ||
+    'Something went wrong while updating your subscription.';
+
+  // Prefer in-app toast if available
+  if (typeof showNotification === 'function') {
+    showNotification(msg, 'error');
+  } else {
+    alert(msg);
+  }
+  }}}
 
 // Auto-init
 document.addEventListener('DOMContentLoaded', () => {
