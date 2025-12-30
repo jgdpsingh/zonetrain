@@ -41,21 +41,77 @@ class RaceDashboardWidgets {
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
+        
+        // Inject styles if missing
+        if (!document.getElementById('notification-styles')) {
+            const style = document.createElement('style');
+            style.id = 'notification-styles';
+            style.textContent = `
+                .notification { position: fixed; top: 100px; right: 20px; padding: 16px 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 10000; background: white; border-left: 4px solid #3B82F6; display: flex; align-items: center; gap: 10px; animation: slideIn 0.4s ease-out; }
+                .notification-success { border-color: #10B981; }
+                .notification-error { border-color: #EF4444; }
+                .notification-warning { border-color: #F59E0B; }
+                @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+                @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+            `;
+            document.head.appendChild(style);
+        }
+
         notification.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 1.2rem;">${type === 'success' ? '✅' : '❌'}</span>
-                <span>${message}</span>
-            </div>
-            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; font-size: 1.4rem; cursor: pointer; padding: 0 5px; margin-left: 10px; line-height: 1;">&times;</button>
+            <span>${message}</span>
+            <button onclick="this.parentElement.remove()" style="margin-left: 10px; border: none; background: none; cursor: pointer;">&times;</button>
         `;
-        
-        // Inject styles if needed (copy your style injection logic here if CSS isn't global)
-        // ...
-        
         document.body.appendChild(notification);
+        
         setTimeout(() => {
-            notification.remove();
+            notification.style.animation = 'slideOut 0.4s ease-in forwards';
+            setTimeout(() => notification.remove(), 400);
         }, 5000);
+    }
+
+    async renderRaceCountdown(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        try {
+            const response = await fetch('/api/race-goals/plan/current', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            
+            // Handle 404 gracefully
+            if (response.status === 404) throw new Error("No active race plan");
+            
+            const data = await response.json();
+
+            if (data.success && data.raceDate) {
+                const raceDate = new Date(data.raceDate);
+                const today = new Date();
+                const diffTime = Math.abs(raceDate - today);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+                container.innerHTML = `
+                    <div class="bg-indigo-600 text-white p-4 rounded-xl shadow-lg text-center">
+                        <div class="text-xs opacity-80 uppercase tracking-wide">Race Day Countdown</div>
+                        <div class="text-3xl font-bold my-1">${diffDays} Days</div>
+                        <div class="text-sm font-medium">${data.raceName || 'Your Target Race'}</div>
+                    </div>
+                `;
+            } else {
+                this.renderRaceEmptyState(container);
+            }
+        } catch (error) {
+            console.warn('Race Countdown unavailable:', error);
+            this.renderRaceEmptyState(container);
+        }
+    }
+
+    renderRaceEmptyState(container) {
+        container.innerHTML = `
+            <div class="bg-gray-50 p-4 rounded-xl border border-dashed border-gray-300 text-center">
+                <p class="text-gray-500 text-sm mb-2">No upcoming race set.</p>
+                <button onclick="window.location.href='/onboarding-race.html'" class="text-indigo-600 font-bold text-xs uppercase tracking-wide">Set Goal &rarr;</button>
+            </div>
+        `;
     }
 
     // --- 2. SUBSCRIPTION DETAILS (Moved from HTML) ---
@@ -71,7 +127,9 @@ class RaceDashboardWidgets {
                 this.updateSubscriptionUI(data.user);
             }
         } catch (error) {
-            console.error('Failed to load subscription:', error);
+           console.error('Failed to load subscription:', error);
+            const nextBillingEl = document.getElementById('next-billing-date');
+            if (nextBillingEl) nextBillingEl.textContent = 'N/A';
         }
     }
 
@@ -233,7 +291,7 @@ class RaceDashboardWidgets {
 
 
     // ADVANCED Weekly Plan for Race
-    async renderWeeklyPlanWidget(containerId) {
+        async renderWeeklyPlanWidget(containerId) {
         const container = document.getElementById(containerId);
         if (!container) return;
 
@@ -244,38 +302,44 @@ class RaceDashboardWidgets {
             const data = await response.json();
 
             if (data.success && data.weeklyPlan) {
-        console.log('✅ Plan found. Rendering RACE weekly schedule.');
+                console.log('✅ Plan found. Rendering RACE weekly schedule.');
 
-        // --- CONVERSION LOGIC START ---
-        let planMap = {};
-        if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
-            data.weeklyPlan.days.forEach(day => {
-                if (day.label) planMap[day.label] = day;
-            });
-        } else if (Object.keys(data.weeklyPlan).length > 0) {
-            planMap = data.weeklyPlan;
-        }
-        // --- CONVERSION LOGIC END ---
+                // --- CONVERSION LOGIC START ---
+                let planMap = {};
+                if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
+                    data.weeklyPlan.days.forEach(day => {
+                        if (day.label) planMap[day.label] = day;
+                    });
+                } else if (Object.keys(data.weeklyPlan).length > 0) {
+                    planMap = data.weeklyPlan;
+                }
+                // --- CONVERSION LOGIC END ---
 
-        if (Object.keys(planMap).length > 0) {
-            // ✅ USE RACE TEMPLATE HERE
-            container.innerHTML = this.raceWeeklyTemplate(planMap);
-            this.attachWeeklyPlanListeners(); // Race plan likely has click-to-expand details
-            return;
-        }
-    } else {
-                // EMPTY STATE FOR RACE
-                container.innerHTML = `
-                    <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-                        <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
-                        <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
-                        <button onclick="window.location.href='/onboarding-race.html'" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-                            Create Race Plan
-                        </button>
-                    </div>`;
-            }
+                if (Object.keys(planMap).length > 0) {
+                    // ✅ USE RACE TEMPLATE HERE
+                    container.innerHTML = this.raceWeeklyTemplate(planMap);
+                    
+                    // REMOVED: this.attachWeeklyPlanListeners(); 
+                    // (Unless you define it, calling it will crash the app)
+                    
+                    return;
+                }
+            } 
+            
+            // EMPTY STATE FOR RACE (Fall-through if no plan data)
+            container.innerHTML = `
+                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+                    <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
+                    <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
+                    <button onclick="window.location.href='/onboarding-race.html'" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+                        Create Race Plan
+                    </button>
+                </div>`;
+
         } catch (error) {
             console.error("Race Plan Error", error);
+            // Optional: Render error state
+            container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
         }
     }
 
@@ -369,6 +433,14 @@ raceWeeklyTemplate(planMap) {
 
     return `<div class="grid grid-cols-7 gap-2">${items}</div>`;
 }
+
+renderPerformanceChart(containerId) {
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.innerHTML = `<div class="h-32 flex items-center justify-center text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed">Performance Chart Loading...</div>`;
+        }
+    }
+
 
         setupDowngradeListeners() {
         const downgradeBtn = document.getElementById('downgrade-btn');

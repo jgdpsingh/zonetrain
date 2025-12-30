@@ -3849,7 +3849,7 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         const planDoc = await db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
-            .where('planType', '==', 'race') // <--- CRITICAL FIX
+            .where('planType', '==', 'race') 
             .limit(1)
             .get();
         
@@ -3861,20 +3861,30 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         }
         
         const plan = planDoc.docs[0].data();
-        const createdAt = plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt;
         
+        // --- CRITICAL FIX: Extract Race Date for the Widget ---
+        // We look in a few common places where your data might be stored
+        const raceDate = plan.raceDate || 
+                         plan.raceHistory?.targetRace?.date || 
+                         plan.planData?.targetRace?.date;
+
+        const raceName = plan.raceName || 
+                         plan.raceHistory?.targetRace?.name || 
+                         plan.planData?.targetRace?.name ||
+                         'Target Race';
+
         res.json({
             success: true,
+            // ✅ Send these at top level so widget can read data.raceDate
+            raceDate: raceDate,
+            raceName: raceName,
+            
+            // Optional: Keep the full plan data if you need it for other things
             plan: {
                 id: planDoc.docs[0].id,
                 planType: plan.planType,
                 coachType: plan.planData?.coachType || 'race',
-                createdAt: createdAt,
-                data: plan.planData,
-                progress: {
-                    weeksElapsed: calculateWeeksElapsed(plan.createdAt),
-                    totalWeeks: getTotalWeeks(plan.planData)
-                }
+                createdAt: plan.createdAt
             }
         });
 
@@ -3887,7 +3897,6 @@ app.get('/api/race-goals/plan/current', authenticateToken, async (req, res) => {
         });
     }
 });
-
 
 /**
  * GET plan history
