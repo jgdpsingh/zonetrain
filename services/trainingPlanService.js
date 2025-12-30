@@ -47,6 +47,10 @@ async getCurrentPlan(userId) {
 
         // The first one is the winner
         const plan = plans[0];
+        if (plan.isActive === false) {
+             console.log('⚠️ Latest plan is inactive. Returning null.');
+             return null;
+        }
 
         // OPTIONAL: Auto-deactivate older "active" plans to keep data clean
         if (plans.length > 1) {
@@ -351,21 +355,25 @@ async getCurrentPlan(userId) {
             throw error;
         }
     }
-    async archiveCurrentPlan(userId) {
+   async archiveCurrentPlan(userId) {
         console.log(`🧹 Archiving plan and cleaning calendar for user: ${userId}`);
         const batch = this.db.batch();
 
-        // 1. Deactivate active plans
+        // 1. Deactivate active plans AND WIPE DATA
         const planSnapshot = await this.db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
             .get();
 
         planSnapshot.forEach(doc => {
-            batch.update(doc.ref, { 
+            const planRef = this.db.collection('trainingplans').doc(doc.id);
+            batch.update(planRef, { 
                 isActive: false, 
                 deactivatedAt: new Date(),
-                deactivationReason: 'Plan Upgrade/Reset'
+                deactivationReason: 'Plan Upgrade/Reset',
+                // ➤ CRITICAL ADDITION: Destroy the data so it can't be reused
+                planData: {}, 
+                'planData.weeks': [] 
             });
         });
 
@@ -385,7 +393,7 @@ async getCurrentPlan(userId) {
         // 3. Commit
         if (!planSnapshot.empty || !workoutsSnapshot.empty) {
             await batch.commit();
-            console.log('✅ Plan reset complete.');
+            console.log('✅ Plan reset complete. Data wiped.');
         }
     }
 }
