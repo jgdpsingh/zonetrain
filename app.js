@@ -10418,6 +10418,94 @@ app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
   }
 });
 
+// RACE-only weekly plan endpoint (prevents Basic plan from leaking into Race dashboard)
+app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // STRICT: Only active race plan
+    const planDoc = await db.collection('trainingplans')
+      .where('userId', '==', userId)
+      .where('isActive', '==', true)
+      .where('planType', '==', 'race')
+      .limit(1)
+      .get();
+
+    if (planDoc.empty) {
+      return res.json({
+        success: false,
+        message: 'No active race plan found.',
+        weeklyPlan: null,
+        plan: null
+      });
+    }
+
+    const planId = planDoc.docs[0].id;
+    const plan = planDoc.docs[0].data();
+
+    // Compute this week (Mon-Sun)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentDay = today.getDay(); // 0=Sun
+    const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
+
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() + diffToMon);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // Pull workouts for this plan/week
+    const workoutsSnap = await db.collection('workouts')
+      .where('userId', '==', userId)
+      .where('planId', '==', planId)
+      .where('scheduledDate', '>=', weekStart)
+      .where('scheduledDate', '<=', weekEnd)
+      .get();
+
+    const days = workoutsSnap.docs.map(doc => {
+      const w = doc.data();
+      const dateObj = w.scheduledDate?.toDate ? w.scheduledDate.toDate() : (w.scheduledDate ? new Date(w.scheduledDate) : null);
+
+      return {
+        date: dateObj ? dateObj.toISOString() : null,
+        label: w.dayName || null,
+        workout: {
+          id: doc.id,
+          title: w.title || w.workoutTitle || 'Workout',
+          description: w.description || '',
+          duration: w.duration || 0,
+          distance: w.distance ?? null,
+          intensity: w.intensity || 'easy',
+          zones: w.zones || null
+        }
+      };
+    });
+
+    return res.json({
+      success: true,
+      plan: {
+        id: planId,
+        planType: plan.planType,
+        coachType: plan.planData?.coachType || 'race',
+        createdAt: plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt
+      },
+      weeklyPlan: { days }
+    });
+
+  } catch (error) {
+    console.error('Race weekly plan API error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load race weekly plan.',
+      error: error.message
+    });
+  }
+});
+
+
 
 // Today's workout for dashboard widget
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {

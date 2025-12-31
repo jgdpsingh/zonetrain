@@ -109,7 +109,7 @@ class RaceDashboardWidgets {
         container.innerHTML = `
             <div class="bg-gray-50 p-4 rounded-xl border border-dashed border-gray-300 text-center">
                 <p class="text-gray-500 text-sm mb-2">No upcoming race set.</p>
-                <button onclick="window.location.href='/onboarding-race.html'" class="text-indigo-600 font-bold text-xs uppercase tracking-wide">Set Goal &rarr;</button>
+                <button onclick="window.location.href='/ai-onboarding.html'" class="text-indigo-600 font-bold text-xs uppercase tracking-wide">Set Goal &rarr;</button>
             </div>
         `;
     }
@@ -296,7 +296,7 @@ class RaceDashboardWidgets {
         if (!container) return;
 
         try {
-            const response = await fetch('/api/training/weekly-plan', {
+            const response = await fetch('/api/race/weekly-plan', {
                 headers: { 'Authorization': `Bearer ${this.token}` }
             });
             const data = await response.json();
@@ -331,7 +331,7 @@ class RaceDashboardWidgets {
                 <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
                     <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
                     <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
-                    <button onclick="window.location.href='/onboarding-race.html'" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+                    <button onclick="window.location.href='/ai-onboarding.html'" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
                         Create Race Plan
                     </button>
                 </div>`;
