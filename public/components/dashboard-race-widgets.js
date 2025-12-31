@@ -12,6 +12,13 @@ class RaceDashboardWidgets {
         // Check for Login Notifications (moved from HTML)
         this.checkLoginNotifications();
 
+        this.renderWeatherWidget('weather-widget-container');
+  this.renderTodayWorkoutWidget('today-workout-container');
+  this.renderStravaWorkoutHistory('workout-history-container');
+  this.renderProgressChart('progress-chart-container', 'distance');
+  this.renderPersonalRecords('personal-records-container');
+  this.renderTrainingPlanOverview('training-plan-container', 'race');
+
         // Render Widgets
         this.renderRaceCountdown('race-countdown-widget'); 
         this.renderWeeklyPlanWidget('weekly-plan-container');
@@ -22,6 +29,806 @@ class RaceDashboardWidgets {
         this.setupDowngradeListeners();
         this.setupPauseResumeListeners(); // Added this since you had pause logic
     }
+
+    static WEATHER_CACHE_KEY = 'zonetrain_weather_cache_v1';
+  static WEATHER_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 30 minutes
+
+    // Weather Widget
+    async renderWeatherWidget(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        try {
+            const { latitude, longitude } = this.userLocation;
+            
+            if (!latitude || !longitude) {
+                container.innerHTML = this.getLocationPrompt();
+                return;
+            }
+
+            const lat = Number(latitude).toFixed(3);
+      const lon = Number(longitude).toFixed(3);
+
+      // 1) Try cache first
+      const cacheRaw = localStorage.getItem(DashboardWidgets.WEATHER_CACHE_KEY);
+      const now = Date.now();
+
+      if (cacheRaw) {
+        try {
+          const cache = JSON.parse(cacheRaw);
+          const sameLocation = cache.lat === lat && cache.lon === lon;
+          const fresh = now - cache.ts < DashboardWidgets.WEATHER_MAX_AGE_MS;
+
+          if (sameLocation && fresh && cache.weather) {
+            container.innerHTML = this.weatherTemplate(cache.weather, cache.mock);
+            return; // No network call
+          }
+        } catch (e) {
+          console.warn('Weather cache parse error, ignoring', e);
+        }
+      }
+
+            const response = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}`, {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                localStorage.setItem(
+          DashboardWidgets.WEATHER_CACHE_KEY,
+          JSON.stringify({
+            ts: now,
+            lat,
+            lon,
+            weather: data.weather,
+            mock: data.mock
+          })
+        );
+
+                container.innerHTML = this.weatherTemplate(data.weather, data.mock);
+            }
+        } catch (error) {
+            console.error('Weather widget error:', error);
+            container.innerHTML = this.weatherErrorTemplate();
+        }
+    }
+
+    weatherTemplate(weather, isMock) {
+    // Extended icon map for Google Weather API conditions
+    const weatherIcons = {
+        'clear': '☀️',
+        'sunny': '☀️',
+        'partly_cloudy': '⛅',
+        'partly-cloudy': '⛅',
+        'cloudy': '☁️',
+        'overcast': '☁️',
+        'rainy': '🌧️',
+        'rain': '🌧️',
+        'snowy': '❄️',
+        'snow': '❄️',
+        'stormy': '⛈️',
+        'thunderstorm': '⛈️',
+        'foggy': '🌫️',
+        'fog': '🌫️',
+        'windy': '💨'
+    };
+    
+    // Try to match by icon first, then by condition text
+    const icon = weatherIcons[weather.icon] || 
+                 weatherIcons[weather.condition?.toLowerCase()] || 
+                 '🌤️';
+    
+    return `
+        <div class="widget weather-widget">
+            <div class="widget-header">
+                <h3>☁️ Weather</h3>
+                ${isMock ? '<span class="mock-badge">Demo</span>' : ''}
+            </div>
+            <div class="weather-content">
+                <div class="weather-main">
+                    <div class="weather-icon" style="font-size: 64px;">${icon}</div>
+                    <div>
+                        <div class="weather-temp" style="font-size: 48px; font-weight: 700; color: #1f2937;">
+                            ${weather.temperature}°C
+                        </div>
+                        <div class="weather-condition" style="font-size: 16px; color: #6b7280; text-transform: capitalize; margin-top: 4px;">
+                            ${weather.condition}
+                        </div>
+                        ${weather.feelsLike ? `<div style="font-size: 13px; color: #9ca3af; margin-top: 4px;">Feels like ${weather.feelsLike}°C</div>` : ''}
+                    </div>
+                </div>
+                <div class="weather-details" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px;">
+                    <div class="weather-item">
+                        <span class="label">💧 Humidity</span>
+                        <span class="value">${weather.humidity}%</span>
+                    </div>
+                    <div class="weather-item">
+                        <span class="label">💨 Wind</span>
+                        <span class="value">${weather.windSpeed} km/h</span>
+                    </div>
+                    ${weather.uvIndex !== undefined ? `
+                    <div class="weather-item">
+                        <span class="label">☀️ UV Index</span>
+                        <span class="value">${weather.uvIndex}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="weather-advice" style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 14px; color: #4b5563;">
+                    ${this.getWeatherAdvice(weather)}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+ getLocationPrompt() {
+        return `
+            <div class="widget weather-widget">
+                <div class="widget-header">
+                    <h3>🌤️ Weather</h3>
+                </div>
+                <div class="location-prompt">
+                    <p>📍 Enable location to see weather updates</p>
+                    <button onclick="window.dashboardWidgets.requestLocation()" class="btn-enable-location">
+                        Enable Location
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    getWeatherAdvice(weather) {
+        if (weather.temperature > 30) {
+            return '🔥 Hot day! Hydrate well and consider early morning or evening runs.';
+        } else if (weather.temperature < 10) {
+            return '❄️ Cold weather. Warm up properly and dress in layers.';
+        } else if (weather.condition.includes('rain')) {
+            return '🌧️ Rainy conditions. Be cautious of slippery surfaces.';
+        } else {
+            return '✅ Perfect weather for running!';
+        }
+    }
+
+    // Event Handlers
+    async requestLocation() {
+        if (!navigator.geolocation) {
+            alert('Geolocation not supported by your browser');
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const location = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
+                };
+                localStorage.setItem('userLocation', JSON.stringify(location));
+                this.userLocation = location;
+                this.renderWeatherWidget('weather-widget-container');
+            },
+            (error) => {
+                alert('Unable to get location: ' + error.message);
+            }
+        );
+    }
+
+    async renderTodayWorkoutWidget(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        try {
+            const hrv = localStorage.getItem('todayHRV') || '';
+            console.log(`🔄 Fetching workout with HRV: ${hrv}`); // Debug Log
+
+            const response = await fetch(`/api/training/today-workout?hrv=${hrv}&t=${Date.now()}`, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+            const data = await response.json();
+            console.log("✅ Workout Data Received:", data); // Debug Log
+            if (data.success) {
+            // Log if AI adjusted it
+            if (data.adjustedFromPlanned) {
+                console.log("⚠️ AI HAS ADJUSTED THIS WORKOUT");
+            }
+            container.innerHTML = this.todayWorkoutTemplate(data);
+            this.attachWorkoutListeners();
+        }
+    } catch (error) {
+        console.error('Today workout error:', error);
+        container.innerHTML = `<div style="padding:20px; text-align:center; color:red;">Error loading workout</div>`;
+    }
+    }
+
+    todayWorkoutTemplate(data) {
+    // 1. ROBUST DATA PARSING
+    // Handle both { workout: {...} } (API wrapper) and {...} (direct workout object)
+    let workoutDetails = null;
+
+    if (data) {
+        if (data.workout && typeof data.workout === 'object') {
+            workoutDetails = data.workout; // Standard case: Nested inside data
+        } else if (data.title || data.intensity) {
+            workoutDetails = data;         // Edge case: Direct workout object
+        }
+    }
+
+    // Check for completion status
+    if (workoutDetails && workoutDetails.completed) {
+        return `
+            <div class="widget today-workout-widget completed-state" style="text-align: center; padding: 40px 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border-radius: 12px;">
+                <div style="font-size: 50px; margin-bottom: 10px;">🎉</div>
+                <h3 style="margin: 0; font-size: 24px;">Great Job!</h3>
+                <p style="margin: 5px 0 20px 0; opacity: 0.9;">You crushed today's workout.</p>
+                <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px; display: inline-block;">
+                    <strong>${workoutDetails.title || 'Workout'}</strong> completed
+                </div>
+            </div>
+        `;
+    }
+
+    // 2. CHECK FOR REST / EMPTY
+    const isRest = !workoutDetails || 
+                   workoutDetails.title === 'rest' || 
+                   workoutDetails.intensity === 'rest' || 
+                   data.isRestDay;
+
+    if (isRest) {
+        return `
+            <div class="empty-state" style="text-align:center; padding:30px; background:#f8f9fa; border-radius:12px;">
+                <div class="empty-icon" style="font-size:40px; margin-bottom:10px;">🛌</div>
+                <h3 style="margin:0; color:#555;">Rest Day</h3>
+                <p style="color:#777; margin:5px 0 0 0;">No workout scheduled for today.</p>
+            </div>
+        `;
+    }
+
+    // 3. DEFINE HRV COLORS & STATUS
+    const hrvColors = {
+        low: '#ef4444',     // Red
+        normal: '#10b981',  // Green
+        high: '#3b82f6',    // Blue
+        push: '#3b82f6',    // Blue alias
+        balanced: '#10b981' // Green alias
+    };
+
+    const statusKey = data.hrvStatus ? data.hrvStatus.toLowerCase() : 'normal';
+    const hrvColor = hrvColors[statusKey] || hrvColors.normal;
+
+    // 4. SAFE VARIABLE ACCESS
+    const title = workoutDetails.title || workoutDetails.name || 'Workout';
+    const duration = workoutDetails.duration || 0;
+    const intensity = workoutDetails.intensity || 'Normal';
+    const description = workoutDetails.description || '';
+    const distance = workoutDetails.distance || '';
+    const hrvValue = data.hrvValue || '--';
+
+    // --- OPTION A LOGIC: Soften message for High HRV ---
+    let recommendation = data.recommendation || 'Good to go!';
+    
+    if (statusKey === 'high' || statusKey === 'push') {
+        recommendation = "High HRV: You may feel fresher today. Stick to the planned session; if everything feels great, optionally add 4–6 relaxed strides (15–20s) with full recovery.";
+    }
+    // ---------------------------------------------------
+
+    // 5. RENDER WIDGET
+    return `
+        <div class="widget today-workout-widget">
+            <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0;">🏃 Today's Workout</h3>
+                <div class="hrv-indicator" style="background: ${hrvColor}20; color: ${hrvColor}; border: 1px solid ${hrvColor}; padding:4px 8px; border-radius:12px; font-size:12px; font-weight:600;">
+                    HRV: ${hrvValue}
+                </div>
+            </div>
+            
+            <div class="workout-content" style="background:white; border:1px solid #eee; border-radius:12px; padding:20px;">
+                <div class="workout-title" style="font-size:18px; font-weight:bold; color:#333; margin-bottom:10px;">
+                    ${title}
+                </div>
+                
+                <div class="workout-meta" style="display:flex; gap:15px; font-size:14px; color:#555; margin-bottom:15px;">
+                    <span class="duration">⏱️ ${duration} min</span>
+                    <span class="intensity">💪 ${intensity}</span>
+                    ${distance ? `<span class="distance">📏 ${distance}</span>` : ''}
+                </div>
+
+                <div class="workout-description" style="font-size:14px; color:#666; line-height:1.5; margin-bottom:15px;">
+                    ${description}
+                </div>
+                
+                ${workoutDetails.zones && workoutDetails.zones.length > 0 ? `
+                    <div class="workout-zones" style="font-size:13px; background:#f0f7ff; color:#0056b3; padding:8px; border-radius:6px; margin-bottom:15px;">
+                        <strong>Target Zones:</strong> ${workoutDetails.zones.join(', ')}
+                    </div>
+                ` : ''}
+
+                <div class="hrv-recommendation" style="background: ${hrvColor}10; border-left: 4px solid ${hrvColor}; padding:10px; font-size:13px; color:#444; margin-bottom:20px; border-radius:4px;">
+                    ${recommendation}
+                </div>
+
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-start-workout" onclick="window.dashboardWidgets.startWorkout()" style="flex:1; background:#007bff; color:white; border:none; padding:10px; border-radius:6px; font-weight:600; cursor:pointer;">
+                        Start Workout
+                    </button>
+
+                    <button class="btn-complete" onclick="window.dashboardWidgets.markComplete('${workoutDetails.id || ''}')" 
+                        style="background:white; border:1px solid #28a745; color:#28a745; margin-left:10px;">
+                        ✅ Mark Done
+                    </button>
+                    <button class="btn-log-hrv" onclick="window.dashboardWidgets.logHRV()" style="padding:10px; background:white; border:1px solid #ddd; border-radius:6px; cursor:pointer;">
+                        Update HRV
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+
+async markComplete(workoutId) {
+    if (!confirm('Mark this workout as completed?')) return;
+    
+    try {
+        const res = await fetch('/api/workouts/complete', {
+            method: 'POST',
+            headers: { 
+                'Authorization': `Bearer ${this.token}`,
+                'Content-Type': 'application/json' 
+            },
+            body: JSON.stringify({ workoutId })
+        });
+        
+        if (res.ok) {
+            // Re-render to show updated status
+            this.renderTodayWorkoutWidget('today-workout-container');
+            this.renderWeeklyPlanWidget('weekly-plan-container');
+            alert('Great job! Workout marked as complete.');
+        }
+    } catch (e) {
+        alert('Failed to update workout.');
+    }
+}
+
+async logHRV() {
+    // 1. Try to find the value in the dedicated input box
+    const input = document.getElementById('hrv-input');
+    const statusEl = document.getElementById('hrv-status'); // Optional status text
+    
+    let hrvValue = input ? input.value.trim() : null;
+
+    // 2. Fallback: If input is empty, ask user via prompt
+    if (!hrvValue) {
+        hrvValue = prompt("Enter your HRV reading for today:");
+    }
+
+    // 3. Validation
+    const numericValue = parseFloat(hrvValue);
+    if (!numericValue || isNaN(numericValue) || numericValue <= 0) {
+        alert('Please enter a valid HRV number.');
+        return;
+    }
+
+    // 4. Update UI to show "Saving..."
+    if (statusEl) {
+        statusEl.textContent = 'Saving...';
+        statusEl.style.color = '#6b7280';
+    }
+
+    try {
+        // 5. API Call
+        const res = await fetch('/api/hrv/log', { // Ensure this route matches your backend (/api/hrv or /api/hrv/log)
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + this.token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ value: numericValue, source: 'manual-dashboard' })
+        });
+
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+
+        // 6. Success Handling
+        localStorage.setItem('todayHRV', String(numericValue));
+        
+        if (statusEl) {
+            statusEl.textContent = `HRV logged: ${numericValue}`;
+            statusEl.style.color = '#16a34a';
+        }
+
+        if (input) input.value = ''; // Clear input
+
+        // 7. CRITICAL: Re-render the widget to apply AI adjustment
+        await this.renderTodayWorkoutWidget('today-workout-container'); // Check this ID matches your HTML
+
+        alert(`HRV updated to ${numericValue}. Workout adjusted!`);
+
+    } catch (err) {
+        console.error('HRV log error:', err);
+        if (statusEl) {
+            statusEl.textContent = 'Failed to save.';
+            statusEl.style.color = '#dc2626';
+        }
+        alert('Failed to save HRV. Check console.');
+    }
+}
+
+
+async renderStravaWorkoutHistory(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading workout history...</div>';
+
+    try {
+        const response = await fetch('/api/analytics/workout-history?days=30', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || data.workouts.length === 0) {
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>🏃‍♂️ No workouts found</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        ${data.source === 'strava' ? 'Connect Strava to see your workout history' : 'Sync your Strava activities'}
+                    </p>
+                    <button onclick="window.location.href='/auth/strava'" class="btn-primary" style="margin-top: 15px;">
+                        Connect Strava
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const { workouts, stats } = data;
+
+        container.innerHTML = `
+            <div class="widget workout-history-widget">
+                <div class="widget-header">
+                    <h3>📊 Workout History (Last 30 Days)</h3>
+                    <button onclick="window.dashboardWidgets.syncStrava()" class="btn-sync" title="Sync Strava">
+                        🔄
+                    </button>
+                </div>
+                
+                <div class="stats-summary">
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalWorkouts}</div>
+                        <div class="stat-label">Workouts</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalDistance.toFixed(1)}</div>
+                        <div class="stat-label">km</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${Math.round(stats.totalDuration)}</div>
+                        <div class="stat-label">minutes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.averagePace || 'N/A'}</div>
+                        <div class="stat-label">min/km</div>
+                    </div>
+                </div>
+
+                <div class="trend-indicator trend-${stats.progressTrend}">
+                    ${stats.progressTrend === 'improving' ? '📈 Improving trend' : 
+                      stats.progressTrend === 'declining' ? '📉 Volume decreasing' : 
+                      '➡️ Maintaining consistency'}
+                </div>
+
+                <div class="workout-list">
+                    ${workouts.slice(0, 5).map(w => `
+                        <div class="workout-item">
+                            <div class="workout-icon">${this.getWorkoutIcon(w.type)}</div>
+                            <div class="workout-info">
+                                <div class="workout-name">${w.name || w.type}</div>
+                                <div class="workout-meta">
+                                    ${new Date(w.startDate).toLocaleDateString()} • 
+                                    ${w.distance.toFixed(2)} km • 
+                                    ${Math.round(w.movingTime)} min
+                                </div>
+                            </div>
+                            ${w.averageHeartrate ? `
+                                <div class="workout-hr">
+                                    <span title="Average Heart Rate">❤️ ${Math.round(w.averageHeartrate)}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="widget-footer">
+                    <small>Data from Strava • Last synced: ${data.lastSync ? new Date(data.lastSync).toLocaleTimeString() : 'Just now'}</small>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render workout history error:', error);
+        container.innerHTML = `
+            <div class="widget error-widget">
+                <p style="color: #ef4444;">❌ Failed to load workout history</p>
+                <button onclick="window.dashboardWidgets.renderStravaWorkoutHistory('${containerId}')" class="btn-secondary">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+getWorkoutIcon(type) {
+    const icons = {
+        'Run': '🏃',
+        'LongRun': '🏃‍♂️',
+        'Workout': '💪',
+        'Race': '🏁',
+        'TrailRun': '⛰️',
+        'VirtualRun': '💻'
+    };
+    return icons[type] || '🏃';
+}
+
+async syncStrava() {
+    try {
+        const button = event.target;
+        button.innerHTML = '⏳';
+        button.disabled = true;
+
+        const response = await fetch('/api/strava/sync', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert(`✅ Synced ${data.count} activities from Strava!`);
+            // Refresh the workout history widget
+            this.renderStravaWorkoutHistory('workout-history-container');
+        } else {
+            alert('❌ Failed to sync Strava: ' + data.message);
+        }
+
+        button.innerHTML = '🔄';
+        button.disabled = false;
+    } catch (error) {
+        console.error('Sync error:', error);
+        alert('❌ Failed to sync Strava');
+        event.target.innerHTML = '🔄';
+        event.target.disabled = false;
+    }
+}
+
+
+async renderProgressChart(containerId, metric = 'distance') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading progress chart...</div>';
+
+    try {
+        const response = await fetch(`/api/analytics/progress-chart?metric=${metric}&days=90`, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || data.data.length === 0) {
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>📈 No data available for chart</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        Complete more workouts to see your progress
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.renderSimpleBarChart(data.data, metric);
+    } catch (error) {
+        console.error('Render chart error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load chart</div>';
+    }
+}
+
+renderSimpleBarChart(data, metric) {
+    const maxValue = Math.max(...data.map(d => d.value));
+    const chartHeight = 200;
+
+    let html = `
+        <div class="widget progress-chart-widget">
+            <div class="widget-header">
+                <h3>📈 Progress - ${metric.charAt(0).toUpperCase() + metric.slice(1)}</h3>
+            </div>
+            <div class="chart-container" style="height: ${chartHeight}px; position: relative; padding: 10px;">
+                <svg width="100%" height="${chartHeight}" style="position: absolute; top: 0; left: 0;">
+    `;
+
+    const barWidth = 100 / data.length;
+    data.forEach((point, index) => {
+        const barHeight = maxValue > 0 ? (point.value / maxValue) * (chartHeight - 40) : 0;
+        const x = index * barWidth;
+        const y = chartHeight - barHeight - 25;
+
+        html += `
+            <rect 
+                x="${x}%" 
+                y="${y}" 
+                width="${barWidth * 0.7}%" 
+                height="${barHeight}" 
+                fill="#667eea" 
+                opacity="0.8"
+                rx="3"
+            />
+            <text 
+                x="${x + (barWidth * 0.35)}%" 
+                y="${chartHeight - 8}" 
+                text-anchor="middle" 
+                font-size="10" 
+                fill="#666"
+            >
+                W${point.week.split('-W')[1]}
+            </text>
+        `;
+    });
+
+    html += `
+                </svg>
+            </div>
+            <div class="chart-legend" style="text-align: center; font-size: 12px; color: #666; margin-top: 10px;">
+                Weekly ${metric} over last 90 days
+            </div>
+        </div>
+    `;
+
+    return html;
+}
+
+async renderPersonalRecords(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading personal records...</div>';
+
+    try {
+        const response = await fetch('/api/analytics/personal-records', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            container.innerHTML = '<div class="widget empty-state-widget">No personal records available</div>';
+            return;
+        }
+
+        const { records } = data;
+
+        container.innerHTML = `
+            <div class="widget personal-records-widget">
+                <div class="widget-header">
+                    <h3>🏆 Personal Records</h3>
+                </div>
+                
+                <div class="records-grid">
+                    <div class="record-card">
+                        <div class="record-icon">🏃</div>
+                        <div class="record-value">${records.totalRuns || 0}</div>
+                        <div class="record-label">Total Runs</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">📏</div>
+                        <div class="record-value">${records.longestRun?.distance || '0'} km</div>
+                        <div class="record-label">Longest Run</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">🌍</div>
+                        <div class="record-value">${records.totalDistance || '0'} km</div>
+                        <div class="record-label">Total Distance</div>
+                    </div>
+                    
+                    <div class="record-card">
+                        <div class="record-icon">⏱️</div>
+                        <div class="record-value">${records.totalTime || '0'} hrs</div>
+                        <div class="record-label">Total Time</div>
+                    </div>
+                </div>
+
+                <div class="widget-footer">
+                    <small>All-time statistics from Strava</small>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render personal records error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load personal records</div>';
+    }
+}
+
+async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add planType param
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">Loading training plan...</div>';
+
+    try {
+        // 2. Construct URL with query param if planType is provided
+        const url = planType 
+            ? `/api/training-plan/current?planType=${planType}`
+            : '/api/training-plan/current';
+
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || !data.plan) {
+            // Determine correct onboarding link based on missing plan type
+            const onboardingLink = planType === 'race' ? '/ai-onboarding-race' : '/ai-onboarding-basic';
+            
+            container.innerHTML = `
+                <div class="widget empty-state-widget">
+                    <p>📅 No active ${planType || ''} training plan</p>
+                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                        Create a personalized plan to reach your goals
+                    </p>
+                    <button onclick="window.location.href='${onboardingLink}'" class="btn-primary" style="margin-top: 15px;">
+                        Create ${planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : ''} Plan
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const { plan } = data;
+
+        container.innerHTML = `
+            <div class="widget training-plan-widget">
+                <div class="widget-header">
+                    <h3>📅 This Week's Training</h3>
+                </div>
+                
+                <div class="plan-summary">
+                    <div class="plan-info">
+                        <span class="plan-week">Week ${plan.currentWeek || 1} of ${plan.totalWeeks || 12}</span>
+                        <span class="plan-phase">${plan.phase || 'Base Building'}</span>
+                    </div>
+                </div>
+
+                <div class="week-workouts-list">
+                    ${(plan.thisWeekWorkouts || []).map(w => `
+                        <div class="workout-row ${w.completed ? 'completed' : ''}">
+                            <div class="workout-day">
+                                ${new Date(w.scheduledDate).toLocaleDateString('en-US', { weekday: 'short' })}
+                            </div>
+                            <div class="workout-detail">
+                                <div class="workout-type">${w.type || 'Easy Run'}</div>
+                                <div class="workout-desc">${w.distance || '5'} km • ${w.duration || '30'} min</div>
+                            </div>
+                            <div class="workout-status">
+                                ${w.completed ? '✅' : '⏳'}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="widget-footer">
+                    <button onclick="window.location.href='/calendar'" class="btn-secondary">
+                        View Full Calendar
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Render training plan error:', error);
+        container.innerHTML = '<div class="widget error-widget">Failed to load training plan</div>';
+    }
+}
 
     checkLoginNotifications() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -625,6 +1432,7 @@ renderPerformanceChart(containerId) {
 
 // Auto-init
 document.addEventListener('DOMContentLoaded', () => {
-    const widgets = new RaceDashboardWidgets();
-    widgets.init();
+  window.dashboardWidgets = new RaceDashboardWidgets();
+  window.dashboardWidgets.init();
 });
+
