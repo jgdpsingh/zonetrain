@@ -38,14 +38,25 @@
 
     try {
         // Load workouts (required)
-        const workoutsRes = await fetch('/api/workouts/calendar', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (workoutsRes.ok) {
-            const data = await workoutsRes.json();
-            calendarData.workouts = data.workouts || [];
-        }
+        // Load workouts (required)
+const planType =
+  window.CALENDAR_PLAN_TYPE ||
+  calendarData.userProfile?.planType ||
+  null;
+
+const workoutsUrl = planType
+  ? `/api/workouts/calendar?planType=${encodeURIComponent(planType)}`
+  : '/api/workouts/calendar';
+
+const workoutsRes = await fetch(workoutsUrl, {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+
+if (workoutsRes.ok) {
+  const data = await workoutsRes.json();
+  calendarData.workouts = data.workouts || [];
+}
+
 
         // Load profile (optional - for race date)
         try {

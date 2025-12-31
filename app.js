@@ -2660,47 +2660,65 @@ function generateGuestAnalysisHTML(analysisData) {
 
 // Get calendar workouts
 app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        
-        // ... (Keep your date calculation logic) ...
-        const startDate = new Date();
-        startDate.setMonth(startDate.getMonth() - 1);
-        startDate.setDate(1);
-        
-        const endDate = new Date();
-        endDate.setMonth(endDate.getMonth() + 2);
-        endDate.setDate(0);
+  try {
+    const userId = req.user.userId;
+    const planType = req.query.planType; // 'race' | 'basic' | undefined
 
-        // FIX: Query 'scheduledDate' instead of 'date'
-        const workoutsSnapshot = await db.collection('workouts')
-            .where('userId', '==', userId)
-            .where('scheduledDate', '>=', startDate) 
-            .where('scheduledDate', '<=', endDate)
-            .get();
+    // Date window (same as your current logic)
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 1);
+    startDate.setDate(1);
 
-        const workouts = workoutsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            // FIX: Handle both field names in response for compatibility
-            const dateObj = data.scheduledDate || data.date;
-            
-            return {
-                id: doc.id,
-                ...data,
-                // Ensure the frontend gets a clean ISO string for date matching
-                date: dateObj && dateObj.toDate ? dateObj.toDate().toISOString() : dateObj
-            };
-        });
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + 2);
+    endDate.setDate(0);
 
-        res.json({
-            success: true,
-            workouts
-        });
-    } catch (error) {
-        console.error('Calendar error:', error);
-        res.status(500).json({ success: false, error: error.message });
+    // Optional: resolve active planId for requested planType
+    let planId = null;
+    if (planType) {
+      const planSnap = await db.collection('trainingplans')
+        .where('userId', '==', userId)
+        .where('isActive', '==', true)
+        .where('planType', '==', planType)
+        .limit(1)
+        .get();
+
+      if (planSnap.empty) {
+        return res.json({ success: true, workouts: [] });
+      }
+
+      planId = planSnap.docs[0].id;
     }
+
+    // Query workouts in range (+ optional planId)
+    let q = db.collection('workouts')
+      .where('userId', '==', userId)
+      .where('scheduledDate', '>=', startDate)
+      .where('scheduledDate', '<=', endDate);
+
+    if (planId) q = q.where('planId', '==', planId);
+
+    const workoutsSnapshot = await q.get();
+
+    const workouts = workoutsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      const dateObj = data.scheduledDate || data.date;
+
+      return {
+        id: doc.id,
+        ...data,
+        date: dateObj && dateObj.toDate ? dateObj.toDate().toISOString() : dateObj
+      };
+    });
+
+    return res.json({ success: true, workouts });
+
+  } catch (error) {
+    console.error('Calendar error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
+
 
 app.post('/api/workouts/complete', authenticateToken, async (req, res) => {
     try {
@@ -10471,7 +10489,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
 
       return {
         date: dateObj ? dateObj.toISOString() : null,
-        label: w.dayName || null,
+        label: w.dayName ? (w.dayName.charAt(0).toUpperCase() + w.dayName.slice(1).toLowerCase()) : null,
         workout: {
           id: doc.id,
           title: w.title || w.workoutTitle || 'Workout',
