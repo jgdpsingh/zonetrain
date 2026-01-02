@@ -1020,8 +1020,18 @@ window.connectStrava = function () {
         }
 
         const submitBtn = document.getElementById('submitBtn');
-        submitBtn.innerHTML = '⏳ Generating Plan...';
+        submitBtn.innerHTML = '<span class="spinner"></span> Building your plan...'; // Add a CSS spinner
         submitBtn.disabled = true;
+
+        // Add a safety timeout to reset the button if the server hangs
+const safetyTimeout = setTimeout(() => {
+    if (submitBtn.disabled) {
+        submitBtn.innerHTML = 'Generate My Race Plan';
+        submitBtn.disabled = false;
+        alert("The plan is taking longer than expected. Please check your dashboard in a moment.");
+        window.location.href = '/dashboard-race.html'; // Optimistic redirect
+    }
+}, 15000); // 15 seconds max wait
 
         try {
     // IMPORTANT: absolute path with leading slash
@@ -1033,6 +1043,7 @@ window.connectStrava = function () {
       },
       body: JSON.stringify(formData)
     });
+    clearTimeout(safetyTimeout);
 
             const result = await response.json();
             console.log('📡 Response:', result);
@@ -1049,10 +1060,11 @@ window.connectStrava = function () {
                 throw new Error(result.message || 'Failed to create plan');
             }
         } catch (error) {
-            console.error('❌ Error:', error);
-            alert('Failed to submit: ' + error.message);
-            submitBtn.innerHTML = '🚀 Generate My Race Plan';
-            submitBtn.disabled = false;
+            clearTimeout(safetyTimeout);
+    console.error(error);
+    alert("Error creating plan. Please try again.");
+    submitBtn.innerHTML = 'Generate My Race Plan';
+    submitBtn.disabled = false;
         }
     });
 

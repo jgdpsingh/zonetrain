@@ -10441,7 +10441,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    // STRICT: Only active race plan
+    // 1. STRICT: Only active race plan
     const planDoc = await db.collection('trainingplans')
       .where('userId', '==', userId)
       .where('isActive', '==', true)
@@ -10449,11 +10449,12 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       .limit(1)
       .get();
 
+    // Handle No Active Plan
     if (planDoc.empty) {
       return res.json({
         success: false,
         message: 'No active race plan found.',
-        weeklyPlan: null,
+        weeklyPlan: null, // Frontend will show "Create Race Plan"
         plan: null
       });
     }
@@ -10461,10 +10462,11 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     const planId = planDoc.docs[0].id;
     const plan = planDoc.docs[0].data();
 
-    // Compute this week (Mon-Sun)
+    // 2. Compute this week (Mon-Sun)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const currentDay = today.getDay(); // 0=Sun
+    const currentDay = today.getDay(); // 0=Sun, 1=Mon
+    // Calculate Monday of current week
     const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
 
     const weekStart = new Date(today);
@@ -10475,7 +10477,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
-    // Pull workouts for this plan/week
+    // 3. Pull workouts for this plan/week
     const workoutsSnap = await db.collection('workouts')
       .where('userId', '==', userId)
       .where('planId', '==', planId)
@@ -10483,25 +10485,102 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       .where('scheduledDate', '<=', weekEnd)
       .get();
 
-    const days = workoutsSnap.docs.map(doc => {
-      const w = doc.data();
-      const dateObj = w.scheduledDate?.toDate ? w.scheduledDate.toDate() : (w.scheduledDate ? new Date(w.scheduledDate) : null);
+    let days = [];
 
-      return {
-        date: dateObj ? dateObj.toISOString() : null,
-        label: w.dayName ? (w.dayName.charAt(0).toUpperCase() + w.dayName.slice(1).toLowerCase()) : null,
-        workout: {
-          id: doc.id,
-          title: w.title || w.workoutTitle || 'Workout',
-          description: w.description || '',
-          duration: w.duration || 0,
-          distance: w.distance ?? null,
-          intensity: w.intensity || 'easy',
-          zones: w.zones || null
+    // =========================================================
+    // OPTION A: Workouts exist in DB (Happy Path)
+    // =========================================================
+    if (!workoutsSnap.empty) {
+        days = workoutsSnap.docs.map(doc => {
+            const w = doc.data();
+            const dateObj = w.scheduledDate?.toDate ? w.scheduledDate.toDate() : (w.scheduledDate ? new Date(w.scheduledDate) : null);
+
+            return {
+                date: dateObj ? dateObj.toISOString() : null,
+                label: w.dayName ? (w.dayName.charAt(0).toUpperCase() + w.dayName.slice(1).toLowerCase()) : null,
+                workout: {
+                    id: doc.id,
+                    title: w.title || w.workoutTitle || 'Workout',
+                    description: w.description || '',
+                    duration: w.duration || 0,
+                    distance: w.distance ?? null,
+                    intensity: w.intensity || 'easy',
+                    zones: w.zones || null,
+                    completed: w.completed || false,
+                    type: w.type || 'run'
+                }
+            };
+        });
+    } 
+    // =========================================================
+    // OPTION B: "Lazy Repair" - JSON Exists but DB is empty
+    // =========================================================
+    else if (plan.planData && plan.planData.weeks) {
+        
+        console.log(`⚠️ Workouts missing in DB for user ${userId}. Repairing database from JSON...`);
+
+        // 1. Calculate which week index we are in
+        const planStartDate = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
+        const diffTime = Math.abs(today - planStartDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        let currentWeekIndex = Math.floor(diffDays / 7);
+        
+        // Bounds Check
+        if (currentWeekIndex < 0) currentWeekIndex = 0;
+        if (currentWeekIndex >= plan.planData.weeks.length) currentWeekIndex = plan.planData.weeks.length - 1;
+
+        const weekData = plan.planData.weeks[currentWeekIndex];
+
+        if (weekData && Array.isArray(weekData.days)) {
+            const batch = db.batch(); // Prepare batch write
+            
+            days = weekData.days.map((day, idx) => {
+                const wDate = new Date(weekStart);
+                wDate.setDate(weekStart.getDate() + idx);
+                
+                // Create the workout data object
+                const workoutData = {
+                    userId: userId,
+                    planId: planId,
+                    title: day.type || 'Workout',
+                    description: day.description || '',
+                    distance: day.distanceKm || 0,
+                    duration: day.durationMin || 0,
+                    intensity: day.intensity || 'easy',
+                    type: day.type || 'run',
+                    dayName: day.dayName || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][idx],
+                    scheduledDate: wDate, // Store as Date object
+                    completed: false,
+                    createdAt: new Date(),
+                    isRepaired: true // Flag for debugging
+                };
+
+                // Create a new Document Reference
+                const newDocRef = db.collection('workouts').doc();
+                
+                // Queue the write
+                batch.set(newDocRef, workoutData);
+
+                // Return the object for the immediate API response
+                return {
+                    date: wDate.toISOString(),
+                    label: workoutData.dayName,
+                    workout: {
+                        id: newDocRef.id, // REAL ID
+                        ...workoutData,
+                        zones: null
+                    }
+                };
+            });
+
+            // Commit the batch to DB (Fire and forget, or await if critical)
+            batch.commit()
+                .then(() => console.log(`✅ Repaired week ${currentWeekIndex + 1} for user ${userId}`))
+                .catch(err => console.error("❌ Database repair failed", err));
         }
-      };
-    });
+    }
 
+    // 4. Return Final Response
     return res.json({
       success: true,
       plan: {
@@ -10522,8 +10601,6 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     });
   }
 });
-
-
 
 // Today's workout for dashboard widget
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {

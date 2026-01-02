@@ -818,9 +818,11 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                 </div>
 
                 <div class="widget-footer">
-                    <button onclick="window.location.href='/calendar'" class="btn-secondary">
-                        View Full Calendar
-                    </button>
+                    // replace inside the widget footer template
+<button onclick="window.toggleCalendar(event)" class="btn-secondary">
+  View Full Calendar
+</button>
+
                 </div>
             </div>
         `;
@@ -1132,26 +1134,49 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                     return;
                 }
             } 
-            
-            // EMPTY STATE FOR RACE (Fall-through if no plan data)
-            container.innerHTML = `
-                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-                    <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
-                    <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
-                    <button onclick="window.location.href='/ai-onboarding.html'" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-                        Create Race Plan
-                    </button>
-                </div>`;
 
-        } catch (error) {
-            console.error("Race Plan Error", error);
-            // Optional: Render error state
-            container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
+            try {
+      const planRes = await fetch('/api/race-goals/plan/current', {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      });
+
+      if (planRes.ok) {
+        const planData = await planRes.json();
+        if (planData.success && planData.plan) {
+          // Plan exists, so DON'T show Create Race Plan
+          container.innerHTML = `
+            <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+              <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
+              <p class="text-sm text-gray-500 mb-4">
+                Your race plan exists, but this week's layout couldn't be loaded right now.
+              </p>
+              <button onclick="window.dashboardWidgets.renderWeeklyPlanWidget('${containerId}')"
+                class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+                Retry
+              </button>
+            </div>`;
+          return;
         }
+      }
+    } catch (e) {
+      // ignore and fall through to empty state
     }
 
-    // Advanced Template: Includes specific workout types (Intervals, Tempo) and intensity
-    // Add this inside your RaceDashboardWidgets class in dashboard-race-widgets.js
+    // EMPTY STATE FOR RACE (only if no plan exists)
+    container.innerHTML = `
+      <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+        <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
+        <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
+        <button onclick="window.location.href='/ai-onboarding.html'"
+          class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+          Create Race Plan
+        </button>
+      </div>`;
+  } catch (error) {
+    console.error("Race Plan Error", error);
+    container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
+  }
+}
 
 raceWeeklyTemplate(planMap) {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
