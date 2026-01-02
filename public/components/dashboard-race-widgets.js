@@ -1428,7 +1428,16 @@ renderPerformanceChart(containerId) {
   } else {
     alert(msg);
   }
-  }}}
+  }}
+
+attachWorkoutListeners() {
+  // Optional: add event listeners if you move away from inline onclick handlers.
+  // Safe no-op for now to prevent "is not a function" crashes.
+}
+
+
+
+}
 
 // Auto-init
 document.addEventListener('DOMContentLoaded', () => {
