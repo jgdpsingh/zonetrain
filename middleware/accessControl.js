@@ -155,7 +155,10 @@ function authenticateToken(req, res, next) {
         //console.log('   Issued at:', new Date(decoded.iat * 1000).toLocaleString());
         //console.log('   Expires at:', decoded.exp ? new Date(decoded.exp * 1000).toLocaleString() : 'Never');
         
-        req.user = decoded; // Contains { userId, email, plan, etc. }
+        req.user = decoded;
+req.user.currentPlan = decoded.currentPlan || decoded.plan;
+req.user.subscriptionStatus = decoded.subscriptionStatus || decoded.status;
+
         next();
     });
 }
