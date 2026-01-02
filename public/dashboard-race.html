@@ -1211,8 +1211,14 @@ async function loadTrainingPlan() {
 
         if (response.status === 404) {
       // No active plan yet
-      document.getElementById('training-plan-container').innerHTML =
-        '<p>No active training plan yet. Complete onboarding or set a race.</p>';
+      document.getElementById('training-plan-container').innerHTML = `
+  <div class="widget" style="background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
+    <h3 style="margin:0 0 6px 0;color:#111827;font-weight:800;">No active training plan yet</h3>
+    <p style="margin:0;color:#374151;font-size:14px;">
+      Complete onboarding or set a race to generate your plan.
+    </p>
+  </div>`;
+
       return;
     }
 
@@ -1335,7 +1341,7 @@ async function loadPlanHistory() {
 // Load all on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadRaceGoals();
-    loadTrainingPlan();
+    //loadTrainingPlan();
     loadPlanHistory();
 });
 </script>
