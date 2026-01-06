@@ -818,7 +818,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                 </div>
 
                 <div class="widget-footer">
-                    // replace inside the widget footer template
+                   
 <button onclick="window.toggleCalendar(event)" class="btn-secondary">
   View Full Calendar
 </button>

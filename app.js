@@ -3275,6 +3275,9 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         
         try {
             trainingPlan = await generateInitialTrainingPlan(aiProfile, planType);
+
+trainingPlan = normalizePlanFromContent(trainingPlan);
+
         } catch (planError) {
             console.error('⚠️ Plan generation failed, using fallback');
             trainingPlan = {
@@ -14197,7 +14200,43 @@ function getTimeAgo(date) {
     return validDate.toLocaleDateString();
 }
 
+function normalizePlanFromContent(plan) {
+    if (!plan) return plan;
 
+    // Check if weeks are missing OR if it's the "fallback_error" type which might still have content
+    const weeksMissing = !Array.isArray(plan.weeks) || plan.weeks.length === 0;
+    const hasContent = typeof plan.content === 'string' && plan.content.trim().length > 0;
+
+    if (weeksMissing && hasContent) {
+        try {
+            console.log("Attempting to normalize plan from content string...");
+            // Remove ```json ... ``` fences
+            const cleaned = plan.content
+                .replace(/```json/gi, '')
+                .replace(/```/g, '')
+                .trim();
+
+            // Try to isolate the JSON object just in case extra text exists
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            
+            if (start !== -1 && end !== -1) {
+                const jsonStr = cleaned.slice(start, end + 1);
+                const parsed = JSON.parse(jsonStr);
+                
+                if (Array.isArray(parsed.weeks) && parsed.weeks.length > 0) {
+                     console.log("✅ Successfully extracted weeks from AI content!");
+                    // Merge parsed plan into existing plan
+                    return { ...plan, ...parsed, weeks: parsed.weeks, normalizedFromContent: true };
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ Failed to normalize plan from content:', e.message);
+        }
+    }
+
+    return plan;
+}
 
 
 // ============================================
