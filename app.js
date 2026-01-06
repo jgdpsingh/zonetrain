@@ -3587,6 +3587,71 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         });
         
         console.log('✅ New training plan generated:', newPlanDoc.id);
+
+                // --- FIX START: Parse AI content if it's trapped in a string (COPIED FROM ONBOARDING) ---
+        if ((!newTrainingPlan.weeks || newTrainingPlan.weeks.length === 0) && newTrainingPlan.content) {
+            try {
+                console.log("Attempting to parse trapped JSON content in UPDATE...");
+                // 1. Remove Markdown code blocks (```json ... ```)
+                let cleanJson = newTrainingPlan.content.replace(/```json\s?|```/g, '').trim();
+                
+                // 2. Parse the cleaned string
+                const parsedPlan = JSON.parse(cleanJson);
+                
+                // 3. Assign the weeks to the main object
+                if (parsedPlan.weeks) {
+                    newTrainingPlan.weeks = parsedPlan.weeks; // Update the local object
+                    console.log("Successfully extracted weeks from content string in UPDATE!");
+                    
+                    // OPTIONAL: Update the saved doc with the parsed structure for future reference
+                    await newPlanDoc.update({ planData: newTrainingPlan });
+                }
+            } catch (e) {
+                console.error("Failed to parse trapped plan content in UPDATE:", e.message);
+            }
+        }
+        // --- FIX END ---
+
+        // --- EXPLOSION LOGIC: Create Workouts ---
+        if (newTrainingPlan.weeks && Array.isArray(newTrainingPlan.weeks)) {
+            console.log('🚀 Exploding UPDATED plan into individual workouts...');
+            const batch = db.batch();
+            const planStartDate = new Date(); 
+            let workoutCount = 0;
+            
+            newTrainingPlan.weeks.forEach((week, weekIndex) => {
+                if (week.days && Array.isArray(week.days)) {
+                    week.days.forEach((day, dayIndex) => {
+                        const workoutDate = new Date(planStartDate);
+                        workoutDate.setDate(workoutDate.getDate() + (weekIndex * 7) + dayIndex);
+                        
+                        const workoutRef = db.collection('workouts').doc();
+                        batch.set(workoutRef, {
+                            userId: userId,
+                            planId: newPlanDoc.id,
+                            weekNumber: week.weekNumber || (weekIndex + 1),
+                            dayName: day.dayName,
+                            type: day.type || 'rest',
+                            title: day.type || 'Workout',
+                            description: day.description || '',
+                            distance: day.distanceKm || 0,
+                            duration: day.durationMin || 0,
+                            intensity: day.intensity || 'easy',
+                            scheduledDate: workoutDate,
+                            completed: false,
+                            createdAt: new Date()
+                        });
+                        workoutCount++;
+                    });
+                }
+            });
+
+            await batch.commit();
+            console.log(`✅ Saved ${workoutCount} updated workouts to collection`);
+        } else {
+             console.warn('⚠️ No weeks array found in UPDATED training plan to explode.');
+        }
+
         
         // ========== STEP 5: SEND NOTIFICATION ==========
         try {

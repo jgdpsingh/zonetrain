@@ -851,82 +851,105 @@ body {
         });
 
         // ✅ Handle new race form submission
-        document.getElementById('new-race-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
-
-  const token = localStorage.getItem('userToken');
-  if (!token) {
-    alert('Please login first');
-    return;
-  }
-
-  const modal = document.getElementById('new-race-modal');
-  const mode = modal.dataset.mode || 'create';
-
-  const submitBtn = e.target.querySelector('button[type="submit"]');
-  const originalText = submitBtn.textContent;
-  submitBtn.disabled = true;
-  submitBtn.textContent = mode === 'update' ? 'Updating goal...' : 'Creating plan...';
-
-  const distanceVal = document.getElementById('new-race-distance').value;
-  const actualDistance = distanceVal === 'custom'
-    ? document.getElementById('custom-race-distance').value
-    : distanceVal;
-
-  const payload = {
-    targetDistance: parseFloat(actualDistance),
-    targetDate: document.getElementById('new-race-date').value || null,
-    targetTime: document.getElementById('new-race-goal-time').value || null
-  };
-
-  try {
-    let url, body;
-
-    if (mode === 'update') {
-      // Use your existing goals‑update endpoint
-      url = '/api/race-goals/update';
-      body = JSON.stringify(payload);
-    } else {
-      // Existing “new race” flow
-      url = '/api/race/create'; // also fix missing leading slash
-      body = JSON.stringify({
-        name: document.getElementById('new-race-name').value,
-        date: payload.targetDate,
-        distance: payload.targetDistance,
-        goalTime: payload.targetTime
-      });
+      // Handle new race form submission
+document.getElementById('new-race-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const token = localStorage.getItem('userToken');
+    if (!token) {
+        alert("Please login first");
+        return;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body
-    });
+    const modal = document.getElementById('new-race-modal');
+    const mode = modal.dataset.mode || 'create';
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const closeBtn = modal.querySelector('span[onclick="closeNewRaceModal()"]'); // Find the close X
+    
+    // Store original text to restore later if needed
+    const originalText = submitBtn.textContent;
+    
+    // --- UI UX IMPROVEMENT: Show Loading State ---
+    submitBtn.disabled = true;
+    if (closeBtn) closeBtn.style.pointerEvents = 'none'; // Prevent closing
+    if (closeBtn) closeBtn.style.opacity = '0.3';
+    
+    // Add a simple loading spinner and text
+    submitBtn.innerHTML = `
+        <span style="display: inline-block; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top-color: transparent; animation: spin 1s linear infinite; margin-right: 8px; vertical-align: middle;"></span>
+        ${mode === 'update' ? 'Optimizing Plan (~10s)...' : 'Creating Plan (~10s)...'}
+    `;
 
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to update race goal');
+    // Add spinner animation style if not present
+    if (!document.getElementById('spinner-style')) {
+        const style = document.createElement('style');
+        style.id = 'spinner-style';
+        style.innerHTML = `@keyframes spin { to { transform: rotate(360deg); } }`;
+        document.head.appendChild(style);
     }
+    // ---------------------------------------------
 
-    closeNewRaceModal();
+    const distanceVal = document.getElementById('new-race-distance').value;
+    const actualDistance = distanceVal === 'custom' ? document.getElementById('custom-race-distance').value : distanceVal;
 
-    alert(
-      mode === 'update'
-        ? 'Your race goal has been updated and a new training plan generated.'
-        : 'Success! A new race plan has been created.'
-    );
+    const payload = {
+        targetDistance: parseFloat(actualDistance),
+        targetDate: document.getElementById('new-race-date').value || null,
+        targetTime: document.getElementById('new-race-goal-time').value || null
+    };
 
-    // reload dashboard to pick up new goals/plan
-    window.location.reload();
-  } catch (error) {
-    console.error('Race goal form error:', error);
-    alert('Failed: ' + error.message);
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
-  }
+    try {
+        let url, body;
+
+        if (mode === 'update') {
+            url = '/api/race-goals/update';
+            body = JSON.stringify(payload);
+        } else {
+            url = '/api/race/create';
+            body = JSON.stringify({
+                name: document.getElementById('new-race-name').value,
+                date: payload.targetDate,
+                distance: payload.targetDistance,
+                goalTime: payload.targetTime
+            });
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: body
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.message || 'Failed to update race goal');
+        }
+
+        closeNewRaceModal();
+        
+        // --- UX IMPROVEMENT: Better Success Message ---
+        if (mode === 'update') {
+            alert("Success! Your race goal has been updated and a new training plan is ready.");
+        } else {
+            alert("Success! Your new race plan has been created.");
+        }
+        
+        window.location.reload();
+
+    } catch (error) {
+        console.error('Race goal form error:', error);
+        alert(`Failed: ${error.message}`);
+        
+        // Restore button state on error
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        if (closeBtn) closeBtn.style.pointerEvents = 'auto';
+        if (closeBtn) closeBtn.style.opacity = '0.8';
+    }
 });
 
         // ✅ Close modal on outside click
