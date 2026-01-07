@@ -11,6 +11,7 @@ class RaceDashboardWidgets {
         
         // Check for Login Notifications (moved from HTML)
         this.checkLoginNotifications();
+        this.updateDashboardStats(); 
 
         this.renderWeatherWidget('weather-widget-container');
   this.renderTodayWorkoutWidget('today-workout-container');
@@ -160,6 +161,63 @@ class RaceDashboardWidgets {
         </div>
     `;
 }
+
+    // --- NEW METHOD: POPULATE TOP STATS ---
+    async updateDashboardStats() {
+        console.log("📊 Updating Top Dashboard Stats...");
+        
+        try {
+            // 1. Fetch last 7 days of data
+            const response = await fetch('/api/analytics/workout-history?days=7', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await response.json();
+            
+            if (data.success && data.stats) {
+                // UPDATE WEEKLY VOLUME
+                const volEl = document.getElementById('weekly-volume');
+                if (volEl) {
+                    // Round to 1 decimal (e.g., "32.5 km")
+                    volEl.textContent = `${data.stats.totalDistance.toFixed(1)} km`;
+                }
+
+                // UPDATE TRAINING LOAD (Estimate)
+                // If backend doesn't provide explicit 'load', we calculate a simple TRIMP score
+                // Load = Duration (mins) * RPE (1-10)
+                const loadEl = document.getElementById('training-load');
+                if (loadEl) {
+                    let totalLoad = 0;
+                    if (data.workouts && Array.isArray(data.workouts)) {
+                        data.workouts.forEach(w => {
+                            // Estimate RPE based on intensity label
+                            let rpe = 3; // Default easy
+                            const i = (w.intensity || '').toLowerCase();
+                            if (i === 'moderate' || i === 'tempo') rpe = 5;
+                            if (i === 'hard' || i === 'threshold') rpe = 7;
+                            if (i === 'interval' || i === 'vo2max') rpe = 9;
+                            
+                            // Use moving time or duration
+                            const mins = w.movingTime || w.duration || 0;
+                            totalLoad += mins * rpe;
+                        });
+                    }
+                    loadEl.textContent = Math.round(totalLoad).toString();
+                }
+            }
+        } catch (e) {
+            console.error("Failed to update volume/load stats:", e);
+        }
+
+        // 2. AVG HRV (Fallback to local storage if API doesn't return history)
+        const hrvEl = document.getElementById('avg-hrv');
+        if (hrvEl) {
+            const todayHRV = localStorage.getItem('todayHRV');
+            // If you have a real backend endpoint for HRV history, fetch it here.
+            // For now, we show the latest logged value or '--'
+            hrvEl.textContent = todayHRV ? todayHRV : '--';
+        }
+    }
+
 
  getLocationPrompt() {
         return `
