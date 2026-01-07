@@ -3528,10 +3528,11 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         await db.collection('aiprofiles').doc(userId).update(updatedProfile);
         console.log('✅ Race goals updated');
         
-        // ========== STEP 2: REGENERATE TRAINING PLAN ==========
+  
+               // ========== STEP 2: REGENERATE TRAINING PLAN ==========
         console.log('🤖 Regenerating training plan with updated goals...');
         
-        // Get current plan type (Strictly Newest Active logic is handled by query order, but for type here we assume continuity)
+        // Get current plan type
         const currentPlanDoc = await db.collection('trainingplans')
             .where('userId', '==', userId)
             .where('isActive', '==', true)
@@ -3542,15 +3543,21 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         
         let newTrainingPlan;
         try {
+            // This function now has internal retries (as per previous fix).
+            // If it throws here, it means the AI is truly down after multiple attempts.
             newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, planType);
         } catch (planError) {
-            console.error('⚠️ Plan regeneration failed:', planError.message);
-            newTrainingPlan = {
-                type: 'fallback_error',
-                error: planError.message,
-                generatedAt: new Date().toISOString()
-            };
+            console.error('❌ Plan regeneration failed (Max Retries Exceeded):', planError.message);
+            
+            // STOP HERE! Do not save a fallback plan.
+            // Return a 503 Service Unavailable error to the client.
+            return res.status(503).json({
+                success: false,
+                message: "AI Training Plan Generator is currently overloaded. Please try again in 1-2 minutes.",
+                error: planError.message
+            });
         }
+
         
         // ========== STEP 3: DEACTIVATE OLD PLAN ==========
         if (!currentPlanDoc.empty) {
@@ -4437,7 +4444,6 @@ app.post('/api/hrv/log', authenticateToken, async (req, res) => {
  * Optimized for periodization, peak performance, race strategy
  */
 async function generateRaceCoachPlan(profile) {
-  try {
     console.log('🤖 Generating RACE COACH plan for:', profile.personalProfile.email);
 
     const daysToRace = profile.raceHistory.targetRace.daysToRace;
@@ -4446,9 +4452,9 @@ async function generateRaceCoachPlan(profile) {
     // Build an HRV summary line if data is available
     let hrvLine = '';
     if (profile.hrv?.baseline || profile.hrv?.averageLast7Days) {
-      const baseline = profile.hrv.baseline || profile.hrv.averageLast7Days;
-      const recent = profile.hrv.averageLast7Days || baseline;
-      hrvLine = `
+        const baseline = profile.hrv.baseline || profile.hrv.averageLast7Days;
+        const recent = profile.hrv.averageLast7Days || baseline;
+        hrvLine = `
 - Baseline HRV: ${baseline}
 - Recent 7‑day HRV average: ${recent}
 - Use HRV to down‑shift intensity on low HRV days and slightly up‑shift on high HRV days, without changing total weekly mileage too aggressively.`;
@@ -4489,63 +4495,68 @@ Return a valid JSON object with:
 - Do not include any text outside the JSON.`;
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Use 1.5-flash for better stability; 2.5 is beta and prone to 503s
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const planText = response.text();
+    // --- RETRY LOGIC START ---
+    let retries = 0;
+    const MAX_RETRIES = 10; // Try up to 10 times (approx 2 mins total wait)
+    const BASE_DELAY = 2000; // Start with 2 seconds
 
-    let trainingPlan;
-    try {
-      // FIX 1: Robust Regex to remove ``````
-      const cleanedText = planText.replace(/``````/g, '').trim(); 
-      trainingPlan = JSON.parse(cleanedText);
-      trainingPlan.type = 'ai_generated_race';
-      
-      // Safety check: ensure weeks exists
-      if (!Array.isArray(trainingPlan.weeks)) {
-        throw new Error("AI response missing 'weeks' array");
-      }
+    while (retries < MAX_RETRIES) {
+        try {
+            console.log(`🚀 AI Generation Attempt ${retries + 1}/${MAX_RETRIES}...`);
+            
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const planText = response.text();
 
-    } catch (e) {
-      console.warn("JSON Parse failed, using text fallback:", e);
-      // FIX 2: Fallback must usually match the schema or be handled specifically by UI
-      // If your UI *requires* .weeks, you must provide it or handle this type specifically
-      trainingPlan = { 
-        type: 'ai_text_error', 
-        content: planText,
-        weeks: [] // Empty array prevents "cannot read properties of undefined" crash
-      };
+            // FIX: Robust Regex to remove Markdown code blocks
+            const cleanedText = planText.replace(/```json\s?|```/g, '').trim();
+            
+            let trainingPlan;
+            try {
+                trainingPlan = JSON.parse(cleanedText);
+            } catch (jsonError) {
+                console.warn(`⚠️ JSON Parse failed on attempt ${retries + 1}. Content was:`, cleanedText.substring(0, 50) + "...");
+                throw new Error("Invalid JSON received from AI"); // Throw to trigger retry
+            }
+
+            // Safety check: ensure weeks exists
+            if (!Array.isArray(trainingPlan.weeks) || trainingPlan.weeks.length === 0) {
+                throw new Error("AI response missing 'weeks' array"); // Throw to trigger retry
+            }
+
+            // If we get here, SUCCESS!
+            console.log('✅ AI RACE COACH plan generated successfully');
+            
+            return {
+                ...trainingPlan,
+                type: 'ai_generated_race',
+                coachType: 'race',
+                source: 'ai_gemini_race',
+                generatedAt: new Date().toISOString(),
+                needsRegeneration: false
+            };
+
+        } catch (error) {
+            console.warn(`⚠️ Attempt ${retries + 1} failed: ${error.message}`);
+            
+            retries++;
+            
+            if (retries >= MAX_RETRIES) {
+                console.error("❌ All AI attempts exhausted.");
+                // THROW FINAL ERROR to user - do NOT return fallback
+                throw new Error("AI Service is currently overloaded. Please try again in a few minutes.");
+            }
+
+            // Exponential backoff with a cap of 15 seconds
+            const delay = Math.min(BASE_DELAY * Math.pow(2, retries - 1), 15000);
+            console.log(`⏳ Waiting ${delay/1000}s before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
-
-    console.log('✅ AI RACE COACH plan generated');
-    return {
-      ...trainingPlan,
-      coachType: 'race',
-      source: 'ai_gemini_race',
-      generatedAt: new Date().toISOString(),
-      needsRegeneration: false
-    };
-
-  } catch (error) {
-    console.warn('❌ AI Generation failed, using fallback with retry flag:', error.message);
-    
-    // FALLBACK PATH
-    const fallbackPlan = generateRaceFallbackPlan(profile);
-    
-    return {
-      ...fallbackPlan,
-      coachType: 'race',
-      source: 'fallback_template_race',
-      generatedAt: new Date().toISOString(),
-      // NEW FIELDS FOR RETRY LOGIC:
-      needsRegeneration: true, 
-      regenerationError: error.message,
-      regenerationAttempts: 0
-    };
-  }
 }
-
 
 /**
  * BASIC COACH PLAN GENERATOR
