@@ -934,8 +934,10 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
         // --- UX IMPROVEMENT: Better Success Message ---
         if (mode === 'update') {
             alert("Success! Your race goal has been updated and a new training plan is ready.");
+            sessionStorage.setItem('isGeneratingPlan', 'true');
         } else {
             alert("Success! Your new race plan has been created.");
+            sessionStorage.setItem('isGeneratingPlan', 'true');
         }
         
         window.location.reload();

@@ -811,6 +811,8 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
     const container = document.getElementById(containerId);
     if (!container) return;
 
+    const isGenerating = sessionStorage.getItem('isGeneratingPlan');
+
     container.innerHTML = '<div class="loading">Loading training plan...</div>';
 
     try {
@@ -824,6 +826,27 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
         });
 
         const data = await response.json();
+
+        if ((!data.success || !data.plan) && isGenerating) {
+                 container.innerHTML = `
+                    <div class="widget" style="text-align:center; padding: 40px;">
+                        <div style="font-size: 40px; margin-bottom: 15px; animation: pulse 2s infinite;">🤖</div>
+                        <h3>Building Your Plan...</h3>
+                        <p style="color:#666; margin-bottom: 20px;">AI is crafting your personalized schedule. This usually takes 10-20 seconds.</p>
+                        <button onclick="window.location.reload()" class="btn-primary" style="background:#6d28d9;">
+                           ⟳ Refresh Status
+                        </button>
+                    </div>`;
+                 
+                 // Auto-refresh after 10s if they don't click
+                 setTimeout(() => {
+                     // Clear flag only if we find a plan next time
+                     // For now, just reload
+                     window.location.reload(); 
+                 }, 10000);
+                 
+                 return;
+            }
 
         if (!data.success || !data.plan) {
             // Determine correct onboarding link based on missing plan type
@@ -840,8 +863,10 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                     </button>
                 </div>
             `;
+            sessionStorage.removeItem('isGeneratingPlan');
             return;
         }
+        sessionStorage.removeItem('isGeneratingPlan');
 
         const { plan } = data;
 
@@ -1158,83 +1183,107 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
 
     // ADVANCED Weekly Plan for Race
-        async renderWeeklyPlanWidget(containerId) {
-        const container = document.getElementById(containerId);
-        if (!container) return;
+       async renderWeeklyPlanWidget(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    // Check flag
+    const isGenerating = sessionStorage.getItem('isGeneratingPlan');
 
-        try {
-            const response = await fetch('/api/race/weekly-plan', {
-                headers: { 'Authorization': `Bearer ${this.token}` }
-            });
-            const data = await response.json();
+    try {
+        const response = await fetch('/api/race/weekly-plan', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await response.json();
 
-            if (data.success && data.weeklyPlan) {
-                console.log('✅ Plan found. Rendering RACE weekly schedule.');
-
-                // --- CONVERSION LOGIC START ---
-                let planMap = {};
-                if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
-                    data.weeklyPlan.days.forEach(day => {
-                        if (day.label) planMap[day.label] = day;
-                    });
-                } else if (Object.keys(data.weeklyPlan).length > 0) {
-                    planMap = data.weeklyPlan;
-                }
-                // --- CONVERSION LOGIC END ---
-
-                if (Object.keys(planMap).length > 0) {
-                    // ✅ USE RACE TEMPLATE HERE
-                    container.innerHTML = this.raceWeeklyTemplate(planMap);
-                    
-                    // REMOVED: this.attachWeeklyPlanListeners(); 
-                    // (Unless you define it, calling it will crash the app)
-                    
-                    return;
-                }
-            } 
-
-            try {
-      const planRes = await fetch('/api/race-goals/plan/current', {
-        headers: { 'Authorization': `Bearer ${this.token}` }
-      });
-
-      if (planRes.ok) {
-        const planData = await planRes.json();
-        if (planData.success && planData.plan) {
-          // Plan exists, so DON'T show Create Race Plan
-          container.innerHTML = `
-            <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-              <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
-              <p class="text-sm text-gray-500 mb-4">
-                Your race plan exists, but this week's layout couldn't be loaded right now.
-              </p>
-              <button onclick="window.dashboardWidgets.renderWeeklyPlanWidget('${containerId}')"
-                class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-                Retry
-              </button>
-            </div>`;
-          return;
+        // --- FIX: HANDLE GENERATING STATE FIRST ---
+        if ((!data.success || !data.weeklyPlan) && isGenerating) {
+             container.innerHTML = `
+                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+                    <h3 class="text-lg font-bold text-gray-700 animate-pulse">Generating Schedule...</h3>
+                    <p class="text-sm text-gray-500 mb-4">Please wait while we finalize your weekly workouts.</p>
+                </div>`;
+             return;
         }
-      }
-    } catch (e) {
-      // ignore and fall through to empty state
-    }
+        // ------------------------------------------
 
-    // EMPTY STATE FOR RACE (only if no plan exists)
-    container.innerHTML = `
-      <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-        <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
-        <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
-        <button onclick="window.location.href='/ai-onboarding.html'"
-          class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-          Create Race Plan
-        </button>
-      </div>`;
-  } catch (error) {
-    console.error("Race Plan Error", error);
-    container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
-  }
+        if (data.success && data.weeklyPlan) {
+            console.log('✅ Plan found. Rendering RACE weekly schedule.');
+
+            // --- CONVERSION LOGIC START ---
+            let planMap = {};
+            if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
+                data.weeklyPlan.days.forEach(day => {
+                    if (day.label) planMap[day.label] = day;
+                });
+            } else if (Object.keys(data.weeklyPlan).length > 0) {
+                planMap = data.weeklyPlan;
+            }
+            // --- CONVERSION LOGIC END ---
+
+            if (Object.keys(planMap).length > 0) {
+                // --- FIX: CLEAR FLAG ON SUCCESS ---
+                sessionStorage.removeItem('isGeneratingPlan');
+                // ----------------------------------
+
+                // ✅ USE RACE TEMPLATE HERE
+                container.innerHTML = this.raceWeeklyTemplate(planMap);
+                return;
+            }
+        } 
+
+        // If we reach here, we found no weekly plan data.
+        // Check if a plan exists at all (maybe the weekly breakdown failed but the plan is valid)
+        try {
+          const planRes = await fetch('/api/race-goals/plan/current', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+          });
+
+          if (planRes.ok) {
+            const planData = await planRes.json();
+            if (planData.success && planData.plan) {
+              // Plan exists, so DON'T show Create Race Plan
+              // Clear flag here too just in case
+              sessionStorage.removeItem('isGeneratingPlan');
+
+              container.innerHTML = `
+                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+                  <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
+                  <p class="text-sm text-gray-500 mb-4">
+                    Your race plan exists, but this week's layout couldn't be loaded right now.
+                  </p>
+                  <button onclick="window.dashboardWidgets.renderWeeklyPlanWidget('${containerId}')"
+                    class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+                    Retry
+                  </button>
+                </div>`;
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore and fall through to empty state
+        }
+
+        // EMPTY STATE FOR RACE (only if no plan exists and not generating)
+        container.innerHTML = `
+          <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+            <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
+            <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
+            <button onclick="window.location.href='/ai-onboarding.html'"
+              class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+              Create Race Plan
+            </button>
+          </div>`;
+          
+          // Clear flag if we truly have no plan (safety cleanup)
+          sessionStorage.removeItem('isGeneratingPlan');
+
+    } catch (error) {
+        console.error("Race Plan Error", error);
+        container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
+    }
 }
+
 
 raceWeeklyTemplate(planMap) {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
