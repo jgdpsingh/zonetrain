@@ -6,6 +6,7 @@ class RaceDashboardWidgets {
         this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
     }
 
+
     init() {
         console.log('🏎️ Initializing RACE Dashboard Widgets...');
         
@@ -30,6 +31,19 @@ class RaceDashboardWidgets {
         this.setupDowngradeListeners();
         this.setupPauseResumeListeners(); // Added this since you had pause logic
     }
+
+    isPlanGenerating() {
+  const flag = sessionStorage.getItem('isGeneratingPlan') === 'true';
+  const startedAt = parseInt(sessionStorage.getItem('planGenerationStartedAt') || '0', 10);
+  const within2Min = startedAt && (Date.now() - startedAt) < 2 * 60 * 1000;
+  return flag || within2Min;
+}
+
+clearPlanGenerating() {
+  sessionStorage.removeItem('isGeneratingPlan');
+  sessionStorage.removeItem('planGenerationStartedAt');
+}
+
 
     static WEATHER_CACHE_KEY = 'zonetrain_weather_cache_v1';
   static WEATHER_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 30 minutes
@@ -811,7 +825,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const isGenerating = sessionStorage.getItem('isGeneratingPlan');
+    const isGenerating = this.isPlanGenerating();
 
     container.innerHTML = '<div class="loading">Loading training plan...</div>';
 
@@ -863,10 +877,10 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                     </button>
                 </div>
             `;
-            sessionStorage.removeItem('isGeneratingPlan');
+            clearPlanGenerating();
             return;
         }
-        sessionStorage.removeItem('isGeneratingPlan');
+        clearPlanGenerating();
 
         const { plan } = data;
 
@@ -1188,7 +1202,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
     if (!container) return;
     
     // Check flag
-    const isGenerating = sessionStorage.getItem('isGeneratingPlan');
+    const isGenerating = this.isPlanGenerating();
 
     try {
         const response = await fetch('/api/race/weekly-plan', {
@@ -1223,7 +1237,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
             if (Object.keys(planMap).length > 0) {
                 // --- FIX: CLEAR FLAG ON SUCCESS ---
-                sessionStorage.removeItem('isGeneratingPlan');
+                clearPlanGenerating();
                 // ----------------------------------
 
                 // ✅ USE RACE TEMPLATE HERE
@@ -1244,7 +1258,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
             if (planData.success && planData.plan) {
               // Plan exists, so DON'T show Create Race Plan
               // Clear flag here too just in case
-              sessionStorage.removeItem('isGeneratingPlan');
+              clearPlanGenerating();
 
               container.innerHTML = `
                 <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
@@ -1276,13 +1290,14 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
           </div>`;
           
           // Clear flag if we truly have no plan (safety cleanup)
-          sessionStorage.removeItem('isGeneratingPlan');
+         clearPlanGenerating();
 
     } catch (error) {
         console.error("Race Plan Error", error);
         container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
     }
 }
+
 
 
 raceWeeklyTemplate(planMap) {

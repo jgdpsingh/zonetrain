@@ -934,11 +934,11 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
         // --- UX IMPROVEMENT: Better Success Message ---
         if (mode === 'update') {
             alert("Success! Your race goal has been updated and a new training plan is ready.");
-            sessionStorage.setItem('isGeneratingPlan', 'true');
         } else {
             alert("Success! Your new race plan has been created.");
-            sessionStorage.setItem('isGeneratingPlan', 'true');
         }
+        sessionStorage.setItem('isGeneratingPlan', 'true');
+        sessionStorage.setItem('planGenerationStartedAt', Date.now().toString());
         
         window.location.reload();
 
@@ -1227,61 +1227,6 @@ if (currentRaceGoal.date) {
     }
 }
 
-// Fetch current training plan
-async function loadTrainingPlan() {
-    try {
-        const response = await fetch('/api/race-goals/plan/current', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('userToken')}` }
-        });
-
-        if (response.status === 404) {
-      // No active plan yet
-      document.getElementById('training-plan-container').innerHTML = `
-  <div class="widget" style="background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
-    <h3 style="margin:0 0 6px 0;color:#111827;font-weight:800;">No active training plan yet</h3>
-    <p style="margin:0;color:#374151;font-size:14px;">
-      Complete onboarding or set a race to generate your plan.
-    </p>
-  </div>`;
-
-      return;
-    }
-
-    if (!response.ok) {
-      console.error('Training plan HTTP error:', response.status);
-      return;
-    }
-        const data = await response.json();
-        if (!data.success || !data.plan) {
-      console.warn('No plan data returned:', data.message || data.error);
-      return;
-    }
-
-    const plan = data.plan;
-    const createdAt = plan.createdAt
-      ? new Date(plan.createdAt).toLocaleDateString('en-IN', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })
-      : 'Unknown date';
-
-    const progress = plan.progress || {};
-    const weeksElapsed = progress.weeksElapsed ?? '–';
-    const totalWeeks = progress.totalWeeks ?? '–';
-
-    document.getElementById('training-plan-container').innerHTML = `
-      <div class="plan-card">
-        <h4>${plan.coachType} Coach Plan</h4>
-        <p>Type: ${plan.planType}</p>
-        <p>Created: ${createdAt}</p>
-        <p>Progress: Week ${weeksElapsed} of ${totalWeeks}</p>
-      </div>
-    `;
-  } catch (error) {
-    console.error('Error loading training plan:', error);
-  }
-}
 
 function openUpdateRaceGoalModal() {
   if (!currentRaceGoal) {
