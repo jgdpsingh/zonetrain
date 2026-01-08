@@ -877,10 +877,10 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                     </button>
                 </div>
             `;
-            clearPlanGenerating();
+            this.clearPlanGenerating();
             return;
         }
-        clearPlanGenerating();
+        this.clearPlanGenerating();
 
         const { plan } = data;
 
@@ -1237,7 +1237,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
             if (Object.keys(planMap).length > 0) {
                 // --- FIX: CLEAR FLAG ON SUCCESS ---
-                clearPlanGenerating();
+                this.clearPlanGenerating();
                 // ----------------------------------
 
                 // ✅ USE RACE TEMPLATE HERE
@@ -1258,7 +1258,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
             if (planData.success && planData.plan) {
               // Plan exists, so DON'T show Create Race Plan
               // Clear flag here too just in case
-              clearPlanGenerating();
+              this.clearPlanGenerating();
 
               container.innerHTML = `
                 <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
@@ -1290,7 +1290,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
           </div>`;
           
           // Clear flag if we truly have no plan (safety cleanup)
-         clearPlanGenerating();
+         this.clearPlanGenerating();
 
     } catch (error) {
         console.error("Race Plan Error", error);
