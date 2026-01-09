@@ -4496,7 +4496,7 @@ Return a valid JSON object with:
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     // Use 1.5-flash for better stability; 2.5 is beta and prone to 503s
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
     // --- RETRY LOGIC START ---
     let retries = 0;
