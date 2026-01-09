@@ -1307,40 +1307,23 @@ raceWeeklyTemplate(planMap) {
         const data = planMap[day] || {};
         const workout = data.workout || {};
         
-        // --- 1. Determine Workout Type & Intensity ---
+        // 1. Determine Type
         const title = workout.title ? workout.title.toLowerCase() : 'rest';
         const type = workout.type ? workout.type.toLowerCase() : '';
         const isRest = title.includes('rest');
         
-        // --- 2. Color Coding Logic ---
-        let cardStyle = '';
-        let typeLabel = '';
-        let badgeColor = '';
-
+        // 2. Assign CSS Class based on logic
+        let typeClass = 'type-easy'; // Default
+        
         if (isRest) {
-            // GREY for Rest
-            cardStyle = 'bg-gray-50 border-gray-200 opacity-75';
-            typeLabel = 'Rest';
-            badgeColor = 'bg-gray-200 text-gray-500';
+            typeClass = 'type-rest';
         } else if (title.includes('long') || type === 'long_run') {
-            // PURPLE for Long Runs (Key workout)
-            cardStyle = 'bg-purple-50 border-purple-200 shadow-sm';
-            typeLabel = 'Long Run';
-            badgeColor = 'bg-purple-100 text-purple-700';
+            typeClass = 'type-long';
         } else if (title.includes('interval') || title.includes('tempo') || title.includes('speed')) {
-            // RED/ORANGE for Quality/Speed Sessions
-            cardStyle = 'bg-orange-50 border-orange-200 shadow-sm';
-            typeLabel = 'Quality';
-            badgeColor = 'bg-orange-100 text-orange-700';
-        } else {
-            // BLUE/GREEN for Easy/Recovery Runs
-            cardStyle = 'bg-white border-blue-100 shadow-sm';
-            typeLabel = 'Easy';
-            badgeColor = 'bg-blue-100 text-blue-600';
+            typeClass = 'type-quality';
         }
-
-        // --- 3. Format Duration/Distance ---
-        // Race plans often care about distance (km) as much as duration
+        
+        // 3. Format Volume
         let volumeDisplay = '-';
         if (workout.distance) {
             volumeDisplay = `${workout.distance} km`;
@@ -1348,27 +1331,22 @@ raceWeeklyTemplate(planMap) {
             volumeDisplay = `${workout.duration} min`;
         }
 
-        // --- 4. Render Card ---
-        // Note: Added cursor-pointer and onclick to hint at interactivity
+        // 4. Render with custom CSS classes
         return `
             <div 
                 onclick="window.openWorkoutDetails('${day}', '${workout.id || ''}')" 
-                class="${cardStyle} p-2 rounded-lg border text-center flex flex-col justify-between h-24 cursor-pointer hover:shadow-md transition-shadow duration-200 group relative overflow-hidden"
+                class="race-card ${typeClass}"
             >
-                <!-- Intensity Strip (Left Border visual) -->
-                <div class="absolute left-0 top-0 bottom-0 w-1 ${badgeColor.split(' ')[0]}"></div>
-
-                <!-- Day Label -->
-                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">${day.substring(0, 3)}</div>
+                <div class="race-strip"></div>
                 
-                <!-- Workout Title -->
-                <div class="font-semibold text-gray-800 text-xs leading-tight line-clamp-2 px-1">
+                <div class="race-day-label">${day.substring(0, 3)}</div>
+                
+                <div class="race-title">
                     ${workout.title || 'Rest'}
                 </div>
                 
-                <!-- Volume / Stats -->
-                <div class="mt-2 flex justify-center items-center gap-1">
-                    <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeColor}">
+                <div class="race-stats">
+                    <span class="race-badge">
                         ${volumeDisplay}
                     </span>
                 </div>
@@ -1376,17 +1354,16 @@ raceWeeklyTemplate(planMap) {
         `;
     }).join('');
 
-    // Attach the global handler if not already present (prevents 'function not defined' error)
+    // Ensure global handler exists
     if (!window.openWorkoutDetails) {
         window.openWorkoutDetails = (day, id) => {
-            // You can replace this with your actual modal open logic later
             console.log(`Open details for ${day}, ID: ${id}`);
-            // e.g., document.getElementById('workout-modal').classList.remove('hidden');
         };
     }
 
-    return `<div class="grid grid-cols-7 gap-2">${items}</div>`;
+    return `<div class="race-weekly-grid">${items}</div>`;
 }
+
 
 renderPerformanceChart(containerId) {
         const container = document.getElementById(containerId);

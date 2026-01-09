@@ -10444,30 +10444,111 @@ app.get('/api/training-plan/current', authenticateToken, async (req, res) => {
         }
 
         // --- Correct Week Calculation ---
-        const now = new Date();
-        const startDate = plan.createdAt instanceof Date ? plan.createdAt : new Date(plan.createdAt);
-        
-        const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-        const weeksElapsed = Math.floor((now - startDate) / msPerWeek);
+       // --- Correct Week + Workouts Calculation (weeks[] based) ---
+const now = new Date();
 
-        const totalWeeks = plan.planData?.totalWeeks || 16;
-        const currentWeekDisplay = Math.min(Math.max(1, weeksElapsed + 1), totalWeeks);
+// Normalize createdAt into a JS Date
+const startDate =
+  plan.createdAt instanceof Date
+    ? plan.createdAt
+    : (plan.createdAt?.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt));
 
-        const weekKey = `week${currentWeekDisplay}`;
-        // If we bypassed service, we might need to grab workouts from JSON planData
-        const thisWeekWorkouts = plan.thisWeekWorkouts?.length > 0 
-            ? plan.thisWeekWorkouts 
-            : (plan.planData?.schedule ? plan.planData.schedule[weekKey] : []);
+const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+const diffMs = now.getTime() - startDate.getTime();
+const weeksElapsed = Math.max(0, Math.floor(diffMs / msPerWeek));
 
-        res.json({
-            success: true,
-            plan: {
-                ...plan,
-                currentWeek: currentWeekDisplay,
-                totalWeeks: totalWeeks,
-                thisWeekWorkouts: thisWeekWorkouts
-            }
-        });
+// Prefer weeks[] length over a hard-coded 16
+const weeksArr =
+  plan.planData?.weeks ||
+  plan.weeks ||
+  [];
+
+const totalWeeks =
+  plan.planData?.totalWeeks ||
+  (Array.isArray(weeksArr) ? weeksArr.length : null) ||
+  16;
+
+const currentWeekDisplay = Math.min(Math.max(1, weeksElapsed + 1), totalWeeks);
+const currentWeekIndex = currentWeekDisplay - 1;
+
+// 1) Try workouts collection (best, because has completion status)
+let thisWeekWorkouts = [];
+try {
+  // Monday -> Sunday boundaries (same idea as TrainingPlanService)
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day = today.getDay(); // 0 Sun ... 1 Mon
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() + diffToMon);
+  weekStart.setHours(0,0,0,0);
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23,59,59,999);
+
+  const snap = await db.collection('workouts')
+    .where('userId', '==', userId)
+    .where('scheduledDate', '>=', weekStart)
+    .where('scheduledDate', '<=', weekEnd)
+    .get();
+
+  if (!snap.empty) {
+    const filtered = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(w => !w.planId || w.planId === plan.id); // keep current plan only
+
+    thisWeekWorkouts = filtered.map(w => ({
+      ...w,
+      scheduledDate: w.scheduledDate?.toDate ? w.scheduledDate.toDate() : new Date(w.scheduledDate),
+    }));
+  }
+} catch (e) {
+  // ignore and fall back to JSON
+}
+
+// 2) JSON fallback (works with your AI schema: weeks[].days[])
+if (thisWeekWorkouts.length === 0 && Array.isArray(weeksArr) && weeksArr[currentWeekIndex]?.days) {
+  const weekStart = new Date(startDate);
+  weekStart.setDate(startDate.getDate() + currentWeekIndex * 7);
+  weekStart.setHours(0, 0, 0, 0);
+
+  thisWeekWorkouts = weeksArr[currentWeekIndex].days.map((day, dayIndex) => {
+    const workoutDate = new Date(weekStart);
+    workoutDate.setDate(weekStart.getDate() + dayIndex);
+
+    return {
+      id: `json-week-${currentWeekIndex}-day-${dayIndex}`,
+      dayName: day.dayName,
+      type: day.type || 'rest',
+      title: day.type || 'Workout',
+      description: day.description || '',
+      distance: day.distanceKm || 0,
+      duration: day.durationMin || 0,
+      intensity: day.intensity || 'easy',
+      scheduledDate: workoutDate,
+      completed: false
+    };
+  });
+}
+
+// Optional: provide phase to widget (it already defaults, but this is correct)
+const phase =
+  weeksArr?.[currentWeekIndex]?.focus ||
+  weeksArr?.[currentWeekIndex]?.theme ||
+  plan.phase ||
+  "Base Building";
+
+res.json({
+  success: true,
+  plan: {
+    ...plan,
+    currentWeek: currentWeekDisplay,
+    totalWeeks,
+    phase,
+    thisWeekWorkouts
+  }
+});
+
 
     } catch (error) {
         console.error('Get current plan error:', error);

@@ -941,4 +941,133 @@
         padding: 24px;
         max-width: 90%;
     }
+   /* =========================================
+   RACE COACH SPECIFIC STYLES
+   ========================================= */
+
+/* The Grid Container for the Weekly Plan */
+.race-weekly-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+/* Individual Day Card */
+.race-card {
+    position: relative;
+    border-radius: 8px;
+    padding: 8px;
+    height: 96px; /* Fixed height for alignment */
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+}
+
+.race-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* --- Color Themes --- */
+
+/* REST: Gray */
+.race-card.type-rest {
+    background-color: #f9fafb;
+    border-color: #e5e7eb;
+    opacity: 0.85;
+}
+.race-card.type-rest .race-strip { background-color: #d1d5db; }
+.race-card.type-rest .race-badge { background-color: #e5e7eb; color: #6b7280; }
+
+/* LONG RUN: Purple */
+.race-card.type-long {
+    background-color: #faf5ff;
+    border-color: #e9d5ff;
+}
+.race-card.type-long .race-strip { background-color: #a855f7; }
+.race-card.type-long .race-badge { background-color: #f3e8ff; color: #7e22ce; }
+
+/* QUALITY (Interval/Tempo): Orange */
+.race-card.type-quality {
+    background-color: #fff7ed;
+    border-color: #fed7aa;
+}
+.race-card.type-quality .race-strip { background-color: #f97316; }
+.race-card.type-quality .race-badge { background-color: #ffedd5; color: #c2410c; }
+
+/* EASY: Blue/White (Default) */
+.race-card.type-easy {
+    background-color: #ffffff; 
+    border-color: #dbeafe;
+}
+.race-card.type-easy .race-strip { background-color: #3b82f6; }
+.race-card.type-easy .race-badge { background-color: #dbeafe; color: #1d4ed8; }
+
+/* --- Visual Elements --- */
+
+.race-strip {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+}
+
+.race-day-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #9ca3af;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.race-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.3;
+    margin-left: 4px;
+    
+    /* Multi-line Truncation (Line Clamp) */
+    display: -webkit-box;           /* Required for line-clamp to work */
+    -webkit-line-clamp: 2;          /* Limit to 2 lines (Vendor Prefix) */
+    line-clamp: 2;                  /* Standard Property */
+    -webkit-box-orient: vertical;   /* Required for box display */
+    overflow: hidden;               /* Hide the overflow text */
+}
+
+.race-stats {
+    display: flex;
+    justify-content: center;
+    margin-top: auto;
+}
+
+.race-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+/* Responsive adjust for mobile */
+@media (max-width: 768px) {
+    .race-weekly-grid {
+        grid-template-columns: repeat(4, 1fr); /* 4 per row on tablet */
+    }
+}
+
+@media (max-width: 480px) {
+    .race-weekly-grid {
+        grid-template-columns: repeat(3, 1fr); /* 3 per row on mobile */
+    }
+    .race-title {
+        font-size: 10px;
+    }
+}
+
+
 }
