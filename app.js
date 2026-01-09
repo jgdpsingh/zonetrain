@@ -3274,17 +3274,18 @@ app.post('/api/ai-onboarding', authenticateToken, async (req, res) => {
         let trainingPlan;
         
         try {
-            trainingPlan = await generateInitialTrainingPlan(aiProfile, planType);
+            trainingPlan = await generateInitialTrainingPlan(aiProfile, planType, false);
 
 trainingPlan = normalizePlanFromContent(trainingPlan);
 
         } catch (planError) {
-            console.error('⚠️ Plan generation failed, using fallback');
-            trainingPlan = {
-                type: 'fallback_error',
-                error: planError.message,
-                generatedAt: new Date().toISOString()
-            };
+    console.error("Initial Plan Generation Failed:", planError.message);
+    // Return 503 so frontend shows the Retry button
+    return res.status(503).json({
+        success: false,
+        message: "AI Service is currently overloaded. Please try again.",
+        canRetry: true
+    });
         }
         
         // Save training plan
@@ -3545,17 +3546,16 @@ app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
         try {
             // This function now has internal retries (as per previous fix).
             // If it throws here, it means the AI is truly down after multiple attempts.
-            newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, planType);
+            newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, planType, false);
         } catch (planError) {
             console.error('❌ Plan regeneration failed (Max Retries Exceeded):', planError.message);
             
             // STOP HERE! Do not save a fallback plan.
             // Return a 503 Service Unavailable error to the client.
-            return res.status(503).json({
-                success: false,
-                message: "AI Training Plan Generator is currently overloaded. Please try again in 1-2 minutes.",
-                error: planError.message
-            });
+            return res.status(503).json({ 
+       success: false, 
+       message: "AI Service is currently overloaded. Please try again." 
+   });
         }
 
         
@@ -4443,7 +4443,7 @@ app.post('/api/hrv/log', authenticateToken, async (req, res) => {
  * RACE COACH PLAN GENERATOR
  * Optimized for periodization, peak performance, race strategy
  */
-async function generateRaceCoachPlan(profile) {
+async function generateRaceCoachPlan(profile, allowFallback = true) {
     console.log('🤖 Generating RACE COACH plan for:', profile.personalProfile.email);
 
     const daysToRace = profile.raceHistory.targetRace.daysToRace;
@@ -4547,7 +4547,20 @@ Return a valid JSON object with:
             if (retries >= MAX_RETRIES) {
                 console.error("❌ All AI attempts exhausted.");
                 // THROW FINAL ERROR to user - do NOT return fallback
-                throw new Error("AI Service is currently overloaded. Please try again in a few minutes.");
+                if (!allowFallback) {
+                    console.error("🚫 Fallback disabled. Throwing error to client.");
+                    throw new Error("AI Service is currently overloaded. Please try again in a few minutes.");
+                }
+                // ---------------------------------------
+
+                console.log("⚠️ Switching to Race Fallback Plan...");
+                const fallbackPlan = generateRaceFallbackPlan(profile);
+                return {
+                     ...fallbackPlan,
+                     needsRegeneration: true,
+                     regenerationError: error.message,
+                     regenerationAttempts: 0
+                };
             }
 
             // Exponential backoff with a cap of 15 seconds
@@ -4562,7 +4575,7 @@ Return a valid JSON object with:
  * BASIC COACH PLAN GENERATOR
  * Optimized for habit formation, consistency, beginner-friendly
  */
-async function generateBasicCoachPlan(profile) {
+async function generateBasicCoachPlan(profile, allowFallback = true) {
   try {
     console.log('🤖 Generating BASIC COACH plan for:', profile.personalProfile.email);
 
@@ -4648,6 +4661,10 @@ Return a valid JSON object with:
 
   } catch (error) {
     console.warn('❌ AI Generation failed, using fallback with retry flag:', error.message);
+
+    if (!allowFallback) {
+             throw new Error("AI Service is currently overloaded. Please try again.");
+        }
     
     // FALLBACK PATH
     const fallbackPlan = generateBasicFallbackPlan(profile);
@@ -4844,17 +4861,20 @@ function generateBasicFallbackPlan(profile) {
  * FACTORY FUNCTION: Route to correct generator based on plan type
  */
 // Plan router – keep as is
-async function generateInitialTrainingPlan(profile, planType = 'race') {
-  console.log(`🎯 Routing to ${planType} coach plan generator...`);
+// In app.js
+
+async function generateInitialTrainingPlan(profile, planType = 'race', allowFallback = true) {
+  console.log(`🎯 Routing to ${planType} coach plan generator (Fallback allowed: ${allowFallback})...`);
   
   if (planType === 'basic') {
-    return generateBasicCoachPlan(profile);
+    return generateBasicCoachPlan(profile, allowFallback);
   } else if (planType === 'race') {
-    return generateRaceCoachPlan(profile);
+    return generateRaceCoachPlan(profile, allowFallback);
   } else {
     throw new Error(`Unknown plan type: ${planType}`);
   }
 }
+
 
 // app.js - Add this new route
 
