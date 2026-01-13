@@ -10111,7 +10111,7 @@ app.get('/api/user-status', authenticateToken, async (req, res) => {
 
 // ==================== STRAVA & ANALYTICS ROUTES ====================
 
-const AIService = require('./services/aiService');
+
 const StravaService = require('./services/stravaService');
 const WorkoutAnalyticsService = require('./services/workoutAnalyticsService');
 const NotificationService = require('./services/notificationService');
