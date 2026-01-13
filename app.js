@@ -2143,7 +2143,7 @@ app.get('/analyze-zones', authenticateToken, async (req, res) => {
         
         // Generate AI insight
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         
         const zoneSummary = zoneAnalysis.zoneNames.map((name, i) => 
             `${name}: ${zoneAnalysis.percentages[i]}%`
@@ -4621,7 +4621,7 @@ Return a valid JSON object with:
 - Do not include any explanation outside the JSON.`;
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite'});
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -5127,6 +5127,45 @@ app.get('/api/ai/weekly-analysis/:week', authenticateToken, async (req, res) => 
         });
     }
 });
+
+// In app.js
+
+app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Find the most recent workout that has 'aiAnalysis' field
+        const snapshot = await db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('completed', '==', true)
+            .orderBy('date', 'desc') // Get latest
+            .limit(1)
+            .get();
+
+        if (snapshot.empty) {
+            return res.json({ success: false, message: "No analyzed workouts found" });
+        }
+
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+
+        if (!data.aiAnalysis) {
+             return res.json({ success: false, message: "Latest workout not analyzed yet" });
+        }
+
+        res.json({
+            success: true,
+            analysis: data.aiAnalysis, // The JSON object { match_score, feedback, tip }
+            date: data.date.toDate(),
+            activityName: data.title || "Workout"
+        });
+
+    } catch (error) {
+        console.error("Latest analysis error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Adjust training plan
 app.post('/api/ai/adjust-plan', authenticateToken, async (req, res) => {
@@ -6063,7 +6102,7 @@ async function callAIForWorkout(prompt) {
     
     // Or if you have Gemini
      const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-     const model = gemini.getGenerativeModel({ model: 'gemini-pro' });
+     const model = gemini.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
      const result = await model.generateContent(prompt);
      return result.response.text();
     
@@ -9720,7 +9759,7 @@ app.get('/run-analysis', async (req, res) => {
         // Generate AI insight
         console.log('🤖 Generating AI insight...');
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         
         const zoneSummary = zoneAnalysis.zoneNames.map((name, i) => 
             `${name}: ${zoneAnalysis.percentages[i]}%`
@@ -9857,7 +9896,7 @@ app.get('/guest-analysis', async (req, res) => {
         // Generate AI insight
         console.log('🤖 Generating AI insight...');
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         
         const zoneSummary = zoneAnalysis.zoneNames.map((name, i) => 
             `${name}: ${zoneAnalysis.percentages[i]}%`
@@ -10072,12 +10111,13 @@ app.get('/api/user-status', authenticateToken, async (req, res) => {
 
 // ==================== STRAVA & ANALYTICS ROUTES ====================
 
+const AIService = require('./services/aiService');
 const StravaService = require('./services/stravaService');
 const WorkoutAnalyticsService = require('./services/workoutAnalyticsService');
 const NotificationService = require('./services/notificationService');
 const TrainingPlanService = require('./services/trainingPlanService');
 
-const stravaService = new StravaService(db);
+const stravaService = new StravaService(db, aiService);
 const analyticsService = new WorkoutAnalyticsService(db);
 const notificationService = new NotificationService(db);
 const trainingPlanService = new TrainingPlanService(db, aiService);
@@ -10946,6 +10986,27 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
         });
     }
 });
+
+
+// Update Training Preferences (e.g. Long Run Day)
+app.post('/api/training-plan/update-preferences', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { longRunDay, daysPerWeek } = req.body; // e.g., "Sunday"
+
+        // Call service to regenerate or shift the current plan
+        const result = await trainingPlanService.updateSchedulePreferences(
+            userId,
+            { longRunDay, daysPerWeek }
+        );
+
+        res.json({ success: true, message: "Plan updated successfully", plan: result });
+    } catch (error) {
+        console.error('Update preferences error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 
 console.log('✅ Strava analytics and notification routes initialized');
 

@@ -1559,9 +1559,260 @@ attachWorkoutListeners() {
   // Safe no-op for now to prevent "is not a function" crashes.
 }
 
+// In dashboard-race-widgets.js
+
+async renderAIInsightWidget(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Initial Loading State
+    container.innerHTML = `
+        <div class="widget">
+            <div class="widget-header" style="border-bottom:none; padding-bottom:10px;">
+                <h3 style="display:flex; align-items:center; font-size:18px;">
+                    <span style="font-size:20px; margin-right:8px;">🤖</span> Coach Insight
+                </h3>
+            </div>
+            <div id="ai-insight-content" style="min-height:100px; display:flex; align-items:center; justify-content:center;">
+                <div class="loading-spinner"></div>
+                <span style="margin-left:10px; color:#6b7280; font-size:14px;">Analyzing latest run...</span>
+            </div>
+        </div>
+    `;
+
+    try {
+        const token = localStorage.getItem('userToken');
+        
+        // Call your real backend endpoint
+        // NOTE: You need to ensure you have a route like GET /api/workouts/latest-analysis
+        const res = await fetch('/api/workouts/latest-analysis', {
+             headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await res.json();
+
+        const contentDiv = document.getElementById('ai-insight-content');
+        
+        if (data.success && data.analysis) {
+            // We have real AI data!
+            const analysis = data.analysis; // { match_score, feedback, tip }
+            const dateStr = new Date(data.date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+            
+            // Score Color Logic
+            let scoreColor = '#10b981'; // Green
+            if (analysis.match_score < 5) scoreColor = '#ef4444'; // Red
+            else if (analysis.match_score < 8) scoreColor = '#f59e0b'; // Orange
+
+            contentDiv.style.display = 'block';
+            contentDiv.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <span style="font-size:12px; font-weight:600; color:#6b7280; background:#f3f4f6; padding:4px 8px; border-radius:12px;">
+                        ${data.activityName || 'Latest Run'} • ${dateStr}
+                    </span>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <span style="font-size:12px; color:#6b7280; font-weight:600;">Score</span>
+                        <span style="font-size:14px; font-weight:800; color:${scoreColor}; border:1px solid ${scoreColor}; padding:2px 6px; border-radius:6px;">
+                            ${analysis.match_score || '-'}/10
+                        </span>
+                    </div>
+                </div>
+
+                <div style="background:#f9fafb; border-radius:8px; padding:12px; margin-bottom:12px; border:1px solid #e5e7eb;">
+                    <p style="margin:0; font-size:14px; color:#374151; line-height:1.5;">
+                        ${analysis.feedback || "No feedback available."}
+                    </p>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:start;">
+                    <span style="font-size:16px;">💡</span>
+                    <p style="margin:0; font-size:13px; color:#4b5563; font-style:italic; line-height:1.4;">
+                        <strong>Tip:</strong> ${analysis.tip || "Keep consistent!"}
+                    </p>
+                </div>
+                
+                <div style="margin-top:16px; text-align:right;">
+                     <button onclick="loadPreviousInsights()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:12px; font-weight:600; text-decoration:underline;">
+                        View Past 7 Days
+                     </button>
+                </div>
+            `;
+        } else {
+            // No analysis found (Empty State)
+            contentDiv.innerHTML = `
+                <div style="text-align:center; padding:10px 0;">
+                    <p style="color:#9ca3af; font-size:14px; margin-bottom:8px;">No recent analyzed workouts found.</p>
+                    <small style="color:#d1d5db;">Complete a planned workout to see AI insights.</small>
+                </div>
+            `;
+        }
+
+    } catch (error) {
+        console.error("AI Insight Error", error);
+        const contentDiv = document.getElementById('ai-insight-content');
+        if(contentDiv) {
+            contentDiv.innerHTML = `
+                <div style="text-align:center; padding:10px; color:#ef4444;">
+                    <p style="font-size:13px; margin:0;">Unable to load insights.</p>
+                    <button onclick="renderAIInsightWidget('${containerId}')" style="margin-top:8px; font-size:11px; padding:4px 8px;">Retry</button>
+                </div>
+            `;
+        }
+    }
+}
 
 
 }
+
+// ==========================================
+// PREFERENCES & SETTINGS MODAL
+// ==========================================
+
+// 1. Function to render the Settings Modal for Long Run Day
+window.openPreferencesModal = function() {
+    // Check if modal exists, if not create it dynamically
+    if (!document.getElementById('preferences-modal')) {
+        const modalHtml = `
+        <div id="preferences-modal" class="modal" style="display:none; align-items:center; justify-content:center;">
+            <div class="modal-content" style="max-width: 400px; width:90%;">
+                <span class="modal-close" onclick="closePreferencesModal()" style="float:right; cursor:pointer; font-size:24px;">&times;</span>
+                <h3 style="margin-top:0;">Training Preferences</h3>
+                <div style="margin-top: 20px;">
+                    <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 8px;">Long Run Day</label>
+                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">Choose which day you have the most time for your longest run. Your schedule will be automatically adjusted.</p>
+                    <select id="long-run-day-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #d1d5db; font-size:16px;">
+                        <option value="Monday">Monday</option>
+                        <option value="Tuesday">Tuesday</option>
+                        <option value="Wednesday">Wednesday</option>
+                        <option value="Thursday">Thursday</option>
+                        <option value="Friday">Friday</option>
+                        <option value="Saturday">Saturday</option>
+                        <option value="Sunday">Sunday</option>
+                    </select>
+                </div>
+                <button id="btn-save-prefs" onclick="savePreferences()" class="btn-primary" style="width: 100%; margin-top: 24px;">Save Changes</button>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    
+    // Load current preference (default Saturday, or check local storage)
+    const currentPref = localStorage.getItem('longRunDay') || 'Saturday';
+    document.getElementById('long-run-day-select').value = currentPref;
+    
+    document.getElementById('preferences-modal').style.display = 'flex';
+};
+
+window.closePreferencesModal = function() {
+    const modal = document.getElementById('preferences-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.savePreferences = async function() {
+    const day = document.getElementById('long-run-day-select').value;
+    const token = localStorage.getItem('userToken');
+    const saveBtn = document.querySelector('#preferences-modal button');
+    
+    // Check if elements exist
+    if (!saveBtn || !document.getElementById('preferences-modal')) {
+        console.error("Modal elements missing");
+        return;
+    }
+
+    // UI Loading State
+    const originalText = saveBtn.innerText;
+    saveBtn.innerText = 'Updating Plan...';
+    saveBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/training-plan/update-preferences', {
+             method: 'POST',
+             headers: { 
+                 'Authorization': `Bearer ${token}`, 
+                 'Content-Type': 'application/json' 
+             },
+             body: JSON.stringify({ longRunDay: day })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Update Local Storage for UI consistency
+            localStorage.setItem('longRunDay', day);
+            if (typeof closePreferencesModal === 'function') {
+                closePreferencesModal();
+            } else {
+                 document.getElementById('preferences-modal').style.display = 'none';
+            }
+            
+            // Show success notification if available
+            if (typeof showNotification === 'function') {
+                showNotification(`Plan updated! Long runs are now on ${day}s.`, 'success');
+            } else {
+                alert(`Plan updated! Long runs are now on ${day}s.`);
+            }
+            
+            // Reload the page to fetch the new workout schedule
+            setTimeout(() => window.location.reload(), 1000); 
+        } else {
+            throw new Error(data.message || 'Update failed');
+        }
+        
+    } catch (error) {
+        console.error('Failed to save preferences', error);
+        if (typeof showNotification === 'function') {
+            showNotification(error.message, 'error');
+        } else {
+            alert("Error: " + error.message);
+        }
+        
+        // Reset button
+        saveBtn.innerText = originalText;
+        saveBtn.disabled = false;
+    }
+};
+
+// ==========================================
+// SKIP WORKOUT FUNCTIONALITY
+// ==========================================
+
+window.skipWorkout = async function(date, workoutId) {
+    if(!confirm("Skip this workout? It will be marked as 'Skipped' and won't count towards your completion stats.")) return;
+    
+    const token = localStorage.getItem('userToken');
+    try {
+        // Call API to mark as skipped (using your modify-workout endpoint or a new one)
+        // We'll use a simple status update endpoint if you have one, or the modify endpoint
+        const response = await fetch(`/api/workouts/${workoutId}/status`, {
+            method: 'PATCH', // or POST depending on your API
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status: 'skipped', skippedReason: 'User requested skip' })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (typeof showNotification === 'function') {
+                showNotification('Workout skipped.', 'success');
+            }
+            // Reload just the weekly widget if possible, or page
+            window.location.reload();
+        } else {
+            throw new Error(data.message || 'Failed to skip');
+        }
+    } catch (e) {
+        console.error(e);
+        if (typeof showNotification === 'function') {
+             showNotification('Error skipping workout', 'error');
+        } else {
+             alert('Error skipping workout');
+        }
+    }
+};
+
+
 
 // Auto-init
 document.addEventListener('DOMContentLoaded', () => {

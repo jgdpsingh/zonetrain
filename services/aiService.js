@@ -8,7 +8,7 @@ const { AIDataProcessor } = require('../middleware/aiDataProcessor');
 class AIService {
     constructor() {
         this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         this.processor = new AIDataProcessor();
         
         // Cost tracking
@@ -320,6 +320,75 @@ a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
         if (totalKm < targetKm * 0.8) return 'increase_volume';
         if (totalKm > targetKm * 1.2) return 'recovery_focus';
         return 'maintain_consistency';
+    }
+
+    async generateWorkoutAnalysis(userProfile, workoutDoc, stravaActivity) {
+        const requestType = 'workout_analysis';
+
+        // 1. Calculate Context Variables
+        const raceName = userProfile.currentRace?.name || "Target Race";
+        const raceDate = userProfile.currentRace?.date ? new Date(userProfile.currentRace.date) : null;
+        let timeToRace = "Unknown date";
+        
+        if (raceDate) {
+            const diffTime = raceDate - new Date();
+            const diffWeeks = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
+            timeToRace = `${diffWeeks} weeks away`;
+        }
+
+        const planPhase = workoutDoc.phase || "General Training";
+        const plannedType = workoutDoc.type || "Run";
+        const plannedDistance = workoutDoc.distance ? `${workoutDoc.distance}km` : "N/A";
+        const plannedPace = workoutDoc.targetPace ? `${workoutDoc.targetPace}/km` : "N/A";
+        
+        // Actuals
+        const actualDistance = (stravaActivity.distance / 1000).toFixed(2) + "km";
+        const movingTimeMinutes = Math.floor(stravaActivity.moving_time / 60);
+        const actualPaceSeconds = stravaActivity.distance > 0 ? (stravaActivity.moving_time / (stravaActivity.distance / 1000)) : 0;
+        const actualPace = this.secondsToPace(actualPaceSeconds);
+        const avgHr = stravaActivity.average_heartrate ? `${Math.round(stravaActivity.average_heartrate)} bpm` : "N/A";
+
+        // 2. Build Prompt (Optimized for Gemini)
+        const systemPrompt = `
+        ACT AS: Elite Running Coach.
+        TASK: Compare PLANNED vs ACTUAL workout. 
+        CONTEXT: User training for ${raceName} (${timeToRace}). Phase: ${planPhase}.
+        
+        PLANNED: ${plannedType}, ${plannedDistance} @ ${plannedPace}.
+        ACTUAL: ${actualDistance} in ${movingTimeMinutes}min @ ${actualPace}. HR: ${avgHr}.
+        
+        OUTPUT JSON ONLY:
+        {
+            "match_score": 1-10 (how well did they execute?),
+            "feedback": "2 sentences max. Be specific about pace/HR.",
+            "tip": "1 actionable tip for next time."
+        }
+        `;
+
+        try {
+            // Track cost before call
+            this.trackUsage(systemPrompt, "");
+
+            // Call Gemini
+            const result = await this.model.generateContent(systemPrompt);
+            const response = result.response;
+            const text = response.text();
+            
+            // Track response cost
+            this.trackUsage("", text);
+
+            return this.parseAIResponse(text);
+
+        } catch (error) {
+            console.error("❌ Error generating workout analysis:", error);
+            // Return fallback structure
+            return {
+                match_score: 5,
+                feedback: "Good effort logging your run! Compare your actual pace to the target manually this time.",
+                tip: "Consistency is key.",
+                fallback: true
+            };
+        }
     }
 }
 

@@ -941,23 +941,24 @@
         padding: 24px;
         max-width: 90%;
     }
-   /* =========================================
-   RACE COACH SPECIFIC STYLES
+/* =========================================
+   RACE COACH SPECIFIC STYLES (Fixed)
    ========================================= */
 
-/* The Grid Container for the Weekly Plan */
+/* The Grid Container */
 .race-weekly-grid {
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(7, 1fr);
     gap: 8px;
+    width: 100%;
 }
 
 /* Individual Day Card */
 .race-card {
     position: relative;
     border-radius: 8px;
-    padding: 8px;
-    height: 96px; /* Fixed height for alignment */
+    padding: 8px 6px;
+    height: 96px;
     border: 1px solid #e5e7eb;
     background: #ffffff;
     cursor: pointer;
@@ -966,6 +967,7 @@
     flex-direction: column;
     justify-content: space-between;
     overflow: hidden;
+    text-align: left;
 }
 
 .race-card:hover {
@@ -974,15 +976,13 @@
 }
 
 /* --- Color Themes --- */
-
 /* REST: Gray */
 .race-card.type-rest {
-    background-color: #f9fafb;
+    background-color: #f3f4f6;
     border-color: #e5e7eb;
-    opacity: 0.85;
 }
-.race-card.type-rest .race-strip { background-color: #d1d5db; }
-.race-card.type-rest .race-badge { background-color: #e5e7eb; color: #6b7280; }
+.race-card.type-rest .race-strip { background-color: #9ca3af; }
+.race-card.type-rest .race-badge { background-color: #e5e7eb; color: #4b5563; }
 
 /* LONG RUN: Purple */
 .race-card.type-long {
@@ -992,7 +992,7 @@
 .race-card.type-long .race-strip { background-color: #a855f7; }
 .race-card.type-long .race-badge { background-color: #f3e8ff; color: #7e22ce; }
 
-/* QUALITY (Interval/Tempo): Orange */
+/* QUALITY: Orange */
 .race-card.type-quality {
     background-color: #fff7ed;
     border-color: #fed7aa;
@@ -1000,72 +1000,77 @@
 .race-card.type-quality .race-strip { background-color: #f97316; }
 .race-card.type-quality .race-badge { background-color: #ffedd5; color: #c2410c; }
 
-/* EASY: Blue/White (Default) */
+/* EASY: Blue/White */
 .race-card.type-easy {
-    background-color: #ffffff; 
+    background-color: #ffffff;
     border-color: #dbeafe;
 }
 .race-card.type-easy .race-strip { background-color: #3b82f6; }
 .race-card.type-easy .race-badge { background-color: #dbeafe; color: #1d4ed8; }
 
 /* --- Visual Elements --- */
-
 .race-strip {
     position: absolute;
     left: 0; top: 0; bottom: 0;
     width: 4px;
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
 }
 
 .race-day-label {
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
-    color: #9ca3af;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
+    color: #6b7280;
+    margin-bottom: 2px;
+    padding-left: 6px;
 }
 
 .race-title {
     font-size: 11px;
     font-weight: 700;
-    color: #1f2937;
-    line-height: 1.3;
-    margin-left: 4px;
-    
-    /* Multi-line Truncation (Line Clamp) */
-    display: -webkit-box;           /* Required for line-clamp to work */
-    -webkit-line-clamp: 2;          /* Limit to 2 lines (Vendor Prefix) */
-    line-clamp: 2;                  /* Standard Property */
-    -webkit-box-orient: vertical;   /* Required for box display */
-    overflow: hidden;               /* Hide the overflow text */
+    color: #111827;
+    line-height: 1.25;
+    margin-left: 6px;
+    margin-right: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .race-stats {
     display: flex;
     justify-content: center;
     margin-top: auto;
+    padding-top: 4px;
 }
 
 .race-badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
     border-radius: 12px;
+    white-space: nowrap;
 }
 
-/* Responsive adjust for mobile */
+/* RESPONSIVE DESIGN */
 @media (max-width: 768px) {
     .race-weekly-grid {
-        grid-template-columns: repeat(4, 1fr); /* 4 per row on tablet */
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
     }
 }
 
 @media (max-width: 480px) {
     .race-weekly-grid {
-        grid-template-columns: repeat(3, 1fr); /* 3 per row on mobile */
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
     }
-    .race-title {
-        font-size: 10px;
+    .race-card {
+        height: 85px;
+        padding: 6px 4px;
     }
 }
 
