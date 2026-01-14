@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 class StravaService {
-    constructor(db) {
+    constructor(db, aiService) {
         this.db = db;
         this.aiService = aiService;
         this.baseURL = 'https://www.strava.com/api/v3';
