@@ -1056,23 +1056,61 @@
 }
 
 /* RESPONSIVE DESIGN */
-@media (max-width: 768px) {
+/* RESPONSIVE DESIGN FOR WEEKLY GRID */
+
+/* Tablet: 4 columns (still grid) */
+@media (max-width: 1024px) {
     .race-weekly-grid {
         grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
+        gap: 8px;
     }
 }
 
-@media (max-width: 480px) {
+/* Mobile: Vertical Stack (List View) to fix cramping */
+@media (max-width: 600px) {
     .race-weekly-grid {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
     }
+
     .race-card {
-        height: 85px;
-        padding: 6px 4px;
+        height: auto; /* Allow auto height */
+        min-height: 70px; /* Minimum height */
+        flex-direction: row; /* Horizontal layout for list items */
+        align-items: center;
+        padding: 12px;
+    }
+
+    /* Adjust inner elements for horizontal list view */
+    .race-strip {
+        width: 6px; /* Slightly thicker strip */
+    }
+
+    .race-day-label {
+        font-size: 14px; /* Larger text */
+        width: 50px; /* Fixed width for alignment */
+        margin-bottom: 0;
+        padding-left: 12px;
+    }
+
+    .race-title {
+        font-size: 15px; /* Larger title */
+        margin-left: 0;
+        flex: 1; /* Take up available space */
+        -webkit-line-clamp: 1; /* Single line */
+        line-clamp: 1;
+    }
+
+    .race-stats {
+        margin-top: 0; /* Remove top margin */
+        padding-top: 0;
+    }
+    
+    .race-badge {
+        font-size: 12px;
+        padding: 4px 8px;
     }
 }
-
 
 }

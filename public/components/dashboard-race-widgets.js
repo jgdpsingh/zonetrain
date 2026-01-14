@@ -1895,6 +1895,15 @@ window.openWorkoutModal = async function(workoutId) {
                 <span style="color:#111827; font-family:monospace; font-size:15px;">${w.targetPace}/km</span>
             </div>` : ''}
 
+            ${w.hr_zone ? `
+            <div style="margin-bottom:24px; padding:12px; background:#fef2f2; border-left:4px solid #ef4444; border-radius:4px;">
+                <div style="display:flex; align-items:center; margin-bottom:4px;">
+                    <strong style="color:#991b1b; margin-right:6px;">❤️ Target Zone:</strong> 
+                    <span style="color:#b91c1c; font-weight:700;">${w.hr_zone}</span>
+                </div>
+                ${w.hr_target ? `<div style="color:#7f1d1d; font-size:13px; margin-left:2px;">Target Range: <strong>${w.hr_target}</strong></div>` : ''}
+            </div>` : ''}
+
             <div style="display:flex; gap:12px;">
                 <button onclick="skipWorkout(null, '${w.id}')" style="flex:1; padding:12px; border:1px solid #ef4444; color:#ef4444; background:white; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;">
                     Skip Workout

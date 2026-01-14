@@ -583,6 +583,142 @@ async getCurrentPlan(userId) {
                d1.getDate() === d2.getDate();
     }
 
+// In trainingPlanService.js
+
+// 1. UPDATED Handle Skipped Workout Logic
+async handleSkippedWorkout(userId, workoutId, reason) {
+    console.log(`Analyzing skip for workout ${workoutId} (${reason})`);
+    
+    const doc = await this.db.collection('workouts').doc(workoutId).get();
+    if (!doc.exists) throw new Error("Workout not found");
+    
+    const workout = doc.data();
+    const isKey = workout.type === 'long_run' || workout.type === 'interval' || workout.type === 'tempo';
+
+    // A. Trivial Case: Skipped a recovery run -> Do nothing
+    if (!isKey) {
+        return { 
+            adjusted: false, 
+            message: "Skipped recovery run. No schedule changes needed. Rest well!" 
+        };
+    }
+
+    // B. Key Workout Case: Try Simple Shift (Move to Tomorrow)
+    const tomorrow = new Date(workout.date.toDate());
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Check if tomorrow is "free" (Rest or Easy)
+    const nextDocs = await this.db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('date', '==', tomorrow)
+        .limit(1)
+        .get();
+
+    if (!nextDocs.empty) {
+        const nextDoc = nextDocs.docs[0];
+        const nextWorkout = nextDoc.data();
+        
+        if (nextWorkout.type === 'rest' || nextWorkout.type === 'easy_run') {
+            // SWAP: Move Key Workout here
+            await nextDoc.ref.update({
+                type: workout.type,
+                title: workout.title + ' (Rescheduled)',
+                distance: workout.distance,
+                description: `Rescheduled from yesterday due to: ${reason}. \n` + workout.description,
+                hr_zone: workout.hr_zone || 'Zone 2', // Carry over HR data
+                hr_target: workout.hr_target || '',
+                isKeyWorkout: true
+            });
+            return { adjusted: true, message: "Moved skipped key workout to tomorrow." };
+        }
+    }
+
+    // C. Complex Case: Tomorrow is busy too -> FULL REGENERATION
+    // We need to ask AI to re-plan the rest of the week/plan from today onwards.
+    console.log("⚠️ Simple shift failed. Triggering AI regeneration...");
+    
+    await this.regenerateScheduleFromDate(userId, workout.planId, new Date());
+    
+    return { 
+        adjusted: true, 
+        message: "Your schedule has been fully regenerated to accommodate the missed session." 
+    };
+}
+
+// 2. NEW METHOD: Regenerate Schedule (The "AI Fix" Button)
+async regenerateScheduleFromDate(userId, planId, startDate) {
+    // 1. Fetch User Profile & Goal
+    const userDoc = await this.db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    
+    // 2. Fetch the Plan Context
+    const planDoc = await this.db.collection('trainingplans').doc(planId).get();
+    const planData = planDoc.data();
+    
+    // 3. AI Request: "Re-plan from [Date]"
+    // We use your existing AI service but with a specific adjustment prompt
+    const promptContext = {
+        currentPlan: planData.name || "Marathon Plan",
+        missedWorkoutDate: startDate.toDateString(),
+        goal: userData.currentRace || "General Fitness",
+        weeksRemaining: 8 // You should calculate this dynamically
+    };
+
+    // CALL AI (using your existing adjustTrainingPlan or a new generic generator)
+    // Here we reuse adjustTrainingPlan for simplicity
+    const newSchedule = await this.aiService.adjustTrainingPlan(
+        userId, 
+        userData, 
+        `User missed a key workout on ${startDate.toDateString()}. Regenerate the next 7 days to get back on track. Maintain volume if possible.`
+    );
+
+    // 4. Update Database with New Workouts
+    // Assuming 'newSchedule' returns an array of workouts for the next week
+    // We delete old future workouts and insert new ones
+    
+    const batch = this.db.batch();
+    
+    // A. Delete existing future workouts for this week
+    const weekEnd = new Date(startDate);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    
+    const futureDocs = await this.db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('date', '>=', startDate)
+        .where('date', '<=', weekEnd)
+        .get();
+        
+    futureDocs.forEach(doc => batch.delete(doc.ref));
+
+    // B. Insert New Workouts
+    if (newSchedule && newSchedule.workouts) {
+        newSchedule.workouts.forEach(w => {
+            const ref = this.db.collection('workouts').doc();
+            // Calculate actual date based on offset from startDate
+            const wDate = new Date(startDate);
+            wDate.setDate(wDate.getDate() + (w.dayOffset || 0)); // AI should return dayOffset (0=today, 1=tomorrow)
+            
+            batch.set(ref, {
+                userId,
+                planId,
+                date: wDate,
+                scheduledDate: wDate, // Keep consistent field names
+                type: w.type,
+                title: w.title,
+                distance: w.distance,
+                description: w.description,
+                hr_zone: w.hr_zone,
+                status: 'scheduled',
+                createdAt: new Date()
+            });
+        });
+    }
+
+    await batch.commit();
+    return true;
+}
+
+
     
 }
 

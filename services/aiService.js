@@ -54,9 +54,13 @@ class AIService {
         }
     }
 
-    async callAIWithConstraints(compressedPrompt) {
-        const systemPrompt = `
-You are ZoneTrain AI, a running coach. 
+   async callAIWithConstraints(compressedPrompt) {
+    // UPDATED SYSTEM PROMPT - Now includes HR Zone requirements
+    const systemPrompt = `
+You are ZoneTrain AI, an elite running coach who specializes in Heart Rate Zone training.
+
+BRAND IDENTITY: ZoneTrain = Zone-based training. Every workout MUST include HR Zone guidance.
+
 CONSTRAINTS:
 - Max ${compressedPrompt.constraints.maxTokens} tokens
 - Use abbreviations: wkout=workout, tempo=T, easy=E, interval=I, long=L
@@ -66,15 +70,36 @@ CONSTRAINTS:
 DATA FORMAT:
 p=profile, goal=goals, rec=recovery, train=training, env=environment
 a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
+
+REQUIRED OUTPUT FIELDS FOR WORKOUTS:
+{
+  "title": "...",
+  "type": "easy_run | interval | tempo | long_run | rest",
+  "distance": 5,
+  "duration": 45,
+  "hr_zone": "Zone 2 (Aerobic Base)" | "Zone 4 (Threshold)" | etc.,
+  "hr_target": "135-145 bpm" (if max HR known),
+  "description": "..."
+}
+
+HR ZONE GUIDE (Use this for all workouts):
+- Zone 1: Recovery (50-60% max HR) - Very Easy
+- Zone 2: Aerobic Base (60-70% max HR) - Easy/Conversational
+- Zone 3: Tempo (70-80% max HR) - Moderate/Steady
+- Zone 4: Threshold (80-90% max HR) - Hard/Uncomfortable
+- Zone 5: VO2 Max (90-100% max HR) - Max Effort/Intervals
+
+If user max HR is unknown, assume 220 - age as default.
 `;
 
-        const userPrompt = `${systemPrompt}\n\nTASK: ${compressedPrompt.task}\nDATA: ${JSON.stringify(compressedPrompt)}`;
-        
-        const result = await this.model.generateContent(userPrompt);
-        const response = result.response;
-        
-        return this.parseAIResponse(response.text());
-    }
+    const userPrompt = `${systemPrompt}\n\nTASK: ${compressedPrompt.task}\nDATA: ${JSON.stringify(compressedPrompt)}`;
+    
+    const result = await this.model.generateContent(userPrompt);
+    const response = result.response;
+    
+    return this.parseAIResponse(response.text());
+}
+
 
     parseAIResponse(aiText) {
         try {
@@ -126,12 +151,63 @@ a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
         return this.generateWeeklyTemplate(userData, weekWorkouts);
     }
 
-    async adjustTrainingPlan(userId, userData, adjustmentReason) {
-        const requestType = 'plan_adjustment';
-        return this.generateResponse(requestType, userId, userData, { 
-            reason: adjustmentReason 
-        });
+    // In aiService.js
+
+async adjustTrainingPlan(userId, userData, adjustmentReason) {
+    // 1. Construct the exact prompt you need
+    const systemPrompt = `
+    You are an expert running coach.
+    TASK: Regenerate a training schedule for a user who missed a workout or needs an adjustment.
+    
+    USER CONTEXT:
+    - User Goal: ${userData.currentRace ? userData.currentRace.name : "General Fitness"}
+    - Current Fitness: ${userData.fitnessLevel || "Intermediate"}
+    - Reason for Adjustment: "${adjustmentReason}"
+    
+    OUTPUT REQUIREMENTS:
+    - Provide a JSON object with a 'workouts' array.
+    - Plan for the next 3-7 days to get them back on track.
+    - If the user missed a key session, try to reschedule it soon.
+    
+    STRICT JSON FORMAT:
+    {
+      "reason": "Brief explanation of the changes...",
+      "workouts": [
+        {
+          "dayOffset": 0, // 0 for today, 1 for tomorrow...
+          "type": "easy_run", // or interval, long_run, rest
+          "title": "Recovery Run",
+          "distance": 5, // in km
+          "description": "Keep HR in Zone 2.",
+          "hr_zone": "Zone 2",
+          "hr_target": "135-145 bpm"
+        }
+      ]
     }
+    `;
+
+    try {
+        // 2. Call Gemini Direct (Bypassing AIDataProcessor for this complex request)
+        this.trackUsage(systemPrompt, ""); // Track input cost
+        
+        const result = await this.model.generateContent(systemPrompt);
+        const response = result.response;
+        const text = response.text();
+        
+        this.trackUsage("", text); // Track output cost
+        
+        return this.parseAIResponse(text);
+
+    } catch (error) {
+        console.error("❌ Plan adjustment error:", error);
+        // Fallback: Return empty plan so the app doesn't crash
+        return { 
+            reason: "AI unavailable, no changes made.", 
+            workouts: [] 
+        };
+    }
+}
+
 
     // TEMPLATE SYSTEM (COST SAVINGS)
     canUseTemplate(userData, templateType) {
@@ -151,27 +227,36 @@ a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
         }
     }
 
-    generateFromTemplate(templateType, userData, additionalData = {}) {
-        const templates = this.processor.getTemplateResponses();
-        const template = templates[templateType];
+  generateFromTemplate(templateType, userData, additionalData = {}) {
+    const templates = this.processor.getTemplateResponses();
+    const template = templates[templateType];
+    
+    if (!template) return null;
+    
+    // Customize template with user data
+    const customized = { ...template };
+    
+    // Replace placeholders
+    if (templateType === 'easy_run') {
+        customized.structure.main = customized.structure.main
+            .replace('{duration}', this.calculateEasyRunDuration(userData))
+            .replace('{pace}', this.calculateEasyPace(userData));
         
-        if (!template) return null;
+        // ADD HR ZONE DATA to template
+        const maxHr = userData.maxHeartRate || (220 - (userData.age || 30));
+        const zone2Low = Math.round(maxHr * 0.60);
+        const zone2High = Math.round(maxHr * 0.70);
         
-        // Customize template with user data
-        const customized = { ...template };
-        
-        // Replace placeholders
-        if (templateType === 'easy_run') {
-            customized.structure.main = customized.structure.main
-                .replace('{duration}', this.calculateEasyRunDuration(userData))
-                .replace('{pace}', this.calculateEasyPace(userData));
-        }
-        
-        customized.generated = 'template';
-        customized.timestamp = new Date().toISOString();
-        
-        return customized;
+        customized.hr_zone = "Zone 2 (Aerobic Base)";
+        customized.hr_target = `${zone2Low}-${zone2High} bpm`;
     }
+    
+    customized.generated = 'template';
+    customized.timestamp = new Date().toISOString();
+    
+    return customized;
+}
+
 
     calculateEasyRunDuration(userData) {
         const baseMinutes = userData.goal.wm * 8; // 8 min per km of weekly mileage
@@ -340,6 +425,8 @@ a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
         const plannedType = workoutDoc.type || "Run";
         const plannedDistance = workoutDoc.distance ? `${workoutDoc.distance}km` : "N/A";
         const plannedPace = workoutDoc.targetPace ? `${workoutDoc.targetPace}/km` : "N/A";
+        const plannedZone = workoutDoc.hr_zone || "N/A"; // ADD THIS
+const plannedHrTarget = workoutDoc.hr_target || "N/A"; 
         
         // Actuals
         const actualDistance = (stravaActivity.distance / 1000).toFixed(2) + "km";
@@ -354,13 +441,14 @@ a=age, g=gender, h=height, w=weight, hr=heart rate, hrv=HRV
         TASK: Compare PLANNED vs ACTUAL workout. 
         CONTEXT: User training for ${raceName} (${timeToRace}). Phase: ${planPhase}.
         
-        PLANNED: ${plannedType}, ${plannedDistance} @ ${plannedPace}.
-        ACTUAL: ${actualDistance} in ${movingTimeMinutes}min @ ${actualPace}. HR: ${avgHr}.
+        PLANNED: ${plannedType}, ${plannedDistance} @ ${plannedPace}. Target HR Zone: ${plannedZone} (${plannedHrTarget}).
+ACTUAL: ${actualDistance} in ${movingTimeMinutes}min @ ${actualPace}. HR: ${avgHr}.
+
         
         OUTPUT JSON ONLY:
         {
             "match_score": 1-10 (how well did they execute?),
-            "feedback": "2 sentences max. Be specific about pace/HR.",
+            "feedback": "2 sentences max. Be specific about pace/HR adherence.",
             "tip": "1 actionable tip for next time."
         }
         `;

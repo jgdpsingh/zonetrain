@@ -1016,10 +1016,26 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
 </div>
         </div>
 
-        <!-- Weekly Plan -->
-        <div style="margin-top: 24px;">
-            <div id="weekly-plan-container"></div>
-        </div>
+       <!-- Weekly Plan -->
+<div class="widget" style="margin-top:24px;">
+  <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+    <h3 style="margin:0;">Weekly Plan</h3>
+
+    <!-- This calls the modal you added in dashboard-race-widgets.js -->
+    <button
+      type="button"
+      onclick="window.openPreferencesModal && window.openPreferencesModal()"
+      style="background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:13px;"
+      title="Move your long run day and regenerate the schedule"
+    >
+      Change schedule
+    </button>
+  </div>
+
+  <!-- IMPORTANT: keep this ID consistent with your JS -->
+  <div id="weekly-plan-container"></div>
+</div>
+
 
         <!-- Race Planning Section - EXCLUSIVE -->
         <div class="widget premium-widget" style="margin-top: 24px;">

@@ -2743,6 +2743,35 @@ app.post('/api/workouts/complete', authenticateToken, async (req, res) => {
     }
 });
 
+// In app.js
+
+app.post('/api/workouts/skip', authenticateToken, async (req, res) => {
+    try {
+        const { workoutId, reason } = req.body;
+        const userId = req.user.userId;
+
+        // 1. Mark current workout as skipped
+        await db.collection('workouts').doc(workoutId).update({
+            status: 'skipped',
+            skippedReason: reason || 'User busy',
+            completed: false
+        });
+
+        // 2. TRIGGER RE-PLAN (The Logic)
+        // If the user skips a KEY workout (Long Run or Interval), we might need to move it.
+        // We delegate this to the service.
+        
+        // This is a new method you should add to trainingPlanService
+        const result = await trainingPlanService.handleSkippedWorkout(userId, workoutId, reason);
+
+        res.json({ success: true, message: "Workout skipped. Plan updated.", adjustments: result });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ success: false });
+    }
+});
+
 
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {
