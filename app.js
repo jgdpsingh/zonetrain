@@ -23,6 +23,16 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const appEnv = process.env.APP_ENV || 'development';
 const isRealProd = appEnv === 'production';
 
+const StravaService = require('./services/stravaService');
+const WorkoutAnalyticsService = require('./services/workoutAnalyticsService');
+const NotificationService = require('./services/notificationService');
+const TrainingPlanService = require('./services/trainingPlanService');
+
+const stravaService = new StravaService(db, aiService);
+const analyticsService = new WorkoutAnalyticsService(db);
+const notificationService = new NotificationService(db);
+const trainingPlanService = new TrainingPlanService(db, aiService);
+
 
 
 // Add these imports after your existing requires
@@ -10151,16 +10161,6 @@ app.get('/api/user-status', authenticateToken, async (req, res) => {
 
 // ==================== STRAVA & ANALYTICS ROUTES ====================
 
-
-const StravaService = require('./services/stravaService');
-const WorkoutAnalyticsService = require('./services/workoutAnalyticsService');
-const NotificationService = require('./services/notificationService');
-const TrainingPlanService = require('./services/trainingPlanService');
-
-const stravaService = new StravaService(db, aiService);
-const analyticsService = new WorkoutAnalyticsService(db);
-const notificationService = new NotificationService(db);
-const trainingPlanService = new TrainingPlanService(db, aiService);
 
 // ==================== STRAVA SYNC ROUTES ====================
 
