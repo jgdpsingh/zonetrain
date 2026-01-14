@@ -6986,6 +6986,46 @@ app.post('/api/workouts/:workoutId/complete', authenticateToken, async (req, res
     }
 });
 
+// Get Single Workout Details (for Modal)
+app.get('/api/workouts/:workoutId', authenticateToken, async (req, res) => {
+    try {
+        const { workoutId } = req.params;
+        const userId = req.user.userId;
+
+        // Skip if looking for special keywords like 'calendar' or 'latest-analysis'
+        // (Express usually handles this by route ordering, but good safety)
+        if (workoutId === 'calendar' || workoutId === 'latest-analysis') return;
+
+        const doc = await db.collection('workouts').doc(workoutId).get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ success: false, error: 'Workout not found' });
+        }
+
+        const data = doc.data();
+
+        // Security Check: Ensure user owns this workout
+        if (data.userId !== userId) {
+            return res.status(403).json({ success: false, error: 'Unauthorized' });
+        }
+
+        // Return the workout data
+        res.json({
+            success: true,
+            workout: {
+                id: doc.id,
+                ...data,
+                // Ensure date is serializable
+                date: data.date && data.date.toDate ? data.date.toDate() : data.date
+            }
+        });
+    } catch (error) {
+        console.error('Get single workout error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 // Email verification endpoint
 app.get('/verify-email', async (req, res) => {
     try {

@@ -25,6 +25,7 @@ class RaceDashboardWidgets {
         this.renderRaceCountdown('race-countdown-widget'); 
         this.renderWeeklyPlanWidget('weekly-plan-container');
         this.renderPerformanceChart('performance-chart-container');
+        this.renderAIInsightWidget('ai-insight-widget-container');
         
         // Subscription & Downgrade Logic
         this.loadSubscriptionDetails();
@@ -1331,10 +1332,16 @@ raceWeeklyTemplate(planMap) {
             volumeDisplay = `${workout.duration} min`;
         }
 
-        // 4. Render with custom CSS classes
+        // 4. Click Handler: Only clickable if it has an ID and isn't just a placeholder rest day
+        // Note: We use the workout.id directly.
+        const clickAction = (workout.id && !isRest) 
+            ? `onclick="window.openWorkoutModal('${workout.id}')"` 
+            : `style="cursor: default;"`;
+
+        // 5. Render
         return `
             <div 
-                onclick="window.openWorkoutDetails('${day}', '${workout.id || ''}')" 
+                ${clickAction} 
                 class="race-card ${typeClass}"
             >
                 <div class="race-strip"></div>
@@ -1353,13 +1360,6 @@ raceWeeklyTemplate(planMap) {
             </div>
         `;
     }).join('');
-
-    // Ensure global handler exists
-    if (!window.openWorkoutDetails) {
-        window.openWorkoutDetails = (day, id) => {
-            console.log(`Open details for ${day}, ID: ${id}`);
-        };
-    }
 
     return `<div class="race-weekly-grid">${items}</div>`;
 }
@@ -1561,6 +1561,8 @@ attachWorkoutListeners() {
 
 // In dashboard-race-widgets.js
 
+// In dashboard-race-widgets.js
+
 async renderAIInsightWidget(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1659,6 +1661,7 @@ async renderAIInsightWidget(containerId) {
         }
     }
 }
+
 
 
 }
@@ -1812,11 +1815,119 @@ window.skipWorkout = async function(date, workoutId) {
     }
 };
 
+// ==========================================
+// WORKOUT MODAL LOGIC (Global Scope)
+// ==========================================
+
+window.openWorkoutModal = async function(workoutId) {
+    if (!workoutId || workoutId === 'undefined') return;
+
+    // 1. Create Modal if it doesn't exist
+    if (!document.getElementById('workout-detail-modal')) {
+        const modalHtml = `
+        <div id="workout-detail-modal" class="modal" style="display:none; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+            <div class="modal-content" style="background:white; padding:25px; border-radius:12px; max-width: 500px; width:90%; position:relative; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+                <span class="modal-close" onclick="closeWorkoutModal()" style="position:absolute; right:20px; top:15px; cursor:pointer; font-size:28px; color:#9ca3af;">&times;</span>
+                <div id="workout-modal-body" style="min-height:150px;">
+                    <div class="loading-spinner"></div> Loading details...
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    // 2. Show Modal & Loading State
+    const modal = document.getElementById('workout-detail-modal');
+    const body = document.getElementById('workout-modal-body');
+    modal.style.display = 'flex';
+    body.innerHTML = '<div style="display:flex; justify-content:center; padding:40px;"><div class="loading-spinner"></div></div>';
+
+    try {
+        // 3. Fetch Workout Details
+        const token = localStorage.getItem('userToken');
+        // NOTE: Ensure you have an endpoint GET /api/workouts/:id
+        // If not, you might need to pass the full workout object directly to this function instead of ID
+        const res = await fetch(`/api/workouts/${workoutId}`, {
+             headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await res.json();
+        
+        if(!data.success) throw new Error("Could not fetch workout");
+        const w = data.workout || data.data; // Handle different API response structures
+
+        // 4. Render Content
+        // Map types to friendly names
+        const typeLabels = {
+            'long_run': 'Long Run',
+            'easy_run': 'Easy Run',
+            'interval': 'Intervals',
+            'tempo': 'Tempo Run',
+            'recovery_run': 'Recovery'
+        };
+        const friendlyType = typeLabels[w.type] || w.type;
+        
+        // Color coding badges
+        let badgeColor = '#3b82f6'; // blue
+        if(w.type === 'long_run') badgeColor = '#8b5cf6'; // purple
+        if(w.type === 'interval') badgeColor = '#f97316'; // orange
+
+        body.innerHTML = `
+            <h2 style="margin-top:0; margin-bottom:12px; color:#111827; font-size:20px;">${w.title}</h2>
+            
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+                <span style="background:${badgeColor}20; color:${badgeColor}; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700; text-transform:uppercase;">${friendlyType}</span>
+                <span style="color:#4b5563; font-weight:600; font-size:14px;">
+                    ${w.distance ? w.distance + ' km' : w.duration + ' min'}
+                </span>
+            </div>
+            
+            <div style="background:#f9fafb; padding:16px; border-radius:10px; border:1px solid #e5e7eb; margin-bottom:20px;">
+                <h4 style="margin:0 0 8px 0; color:#374151; font-size:13px; text-transform:uppercase;">Instructions</h4>
+                <p style="margin:0; font-size:15px; line-height:1.6; color:#1f2937;">
+                    ${w.description || "No specific instructions for this workout."}
+                </p>
+            </div>
+
+            ${w.targetPace ? `
+            <div style="margin-bottom:24px; padding:12px; border-left:4px solid ${badgeColor}; background:#fff;">
+                <strong style="color:#374151;">Target Pace:</strong> 
+                <span style="color:#111827; font-family:monospace; font-size:15px;">${w.targetPace}/km</span>
+            </div>` : ''}
+
+            <div style="display:flex; gap:12px;">
+                <button onclick="skipWorkout(null, '${w.id}')" style="flex:1; padding:12px; border:1px solid #ef4444; color:#ef4444; background:white; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;">
+                    Skip Workout
+                </button>
+                <button onclick="closeWorkoutModal()" style="flex:1; padding:12px; background:#1f2937; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600;">
+                    Close
+                </button>
+            </div>
+        `;
+
+    } catch (error) {
+        console.error("Modal Error", error);
+        body.innerHTML = `
+            <div style="text-align:center; padding:20px;">
+                <p style="color:#ef4444; margin-bottom:15px;">Failed to load workout details.</p>
+                <button onclick="closeWorkoutModal()" style="padding:8px 16px; background:#e5e7eb; border:none; border-radius:6px; cursor:pointer;">Close</button>
+            </div>
+        `;
+    }
+};
+
+window.closeWorkoutModal = function() {
+    const modal = document.getElementById('workout-detail-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+
 
 
 // Auto-init
 document.addEventListener('DOMContentLoaded', () => {
   window.dashboardWidgets = new RaceDashboardWidgets();
+
   window.dashboardWidgets.init();
 });
 

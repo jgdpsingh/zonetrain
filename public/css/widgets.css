@@ -948,8 +948,8 @@
 /* The Grid Container */
 .race-weekly-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(7, 1fr); /* Force 7 columns on desktop */
+    gap: 12px;
     width: 100%;
 }
 

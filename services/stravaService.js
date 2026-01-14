@@ -4,6 +4,7 @@ const axios = require('axios');
 class StravaService {
     constructor(db) {
         this.db = db;
+        this.aiService = aiService;
         this.baseURL = 'https://www.strava.com/api/v3';
     }
 
@@ -198,50 +199,102 @@ async getAccessToken(userId) {
         try {
             console.log('🔄 Syncing Strava activities for user:', userId);
 
-            // Get activities from last 90 days
+            // Get activities from last 90 days (or shorter window for efficiency)
             const endDate = new Date();
             const startDate = new Date();
-            startDate.setDate(endDate.getDate() - 90);
+            startDate.setDate(endDate.getDate() - 7); // OPTIMIZATION: Only check last 7 days for sync to save API calls
 
             const activities = await this.getActivitiesInRange(userId, startDate, endDate);
 
-            // Store in database for quick access
-            const batch = this.db.batch();
+            // Get User Profile for AI Context
+            const userDoc = await this.db.collection('users').doc(userId).get();
+            const userData = userDoc.data();
 
-            activities.forEach(activity => {
+            const batch = this.db.batch();
+            let analysisCount = 0;
+
+            for (const activity of activities) {
                 const activityRef = this.db.collection('strava_activities').doc(`${userId}_${activity.id}`);
+                
+                // 1. Save Strava Activity
                 batch.set(activityRef, {
                     userId,
                     stravaActivityId: activity.id,
                     name: activity.name,
                     type: activity.type,
-                    distance: activity.distance / 1000, // Convert to km
-                    movingTime: activity.moving_time / 60, // Convert to minutes
+                    distance: activity.distance / 1000, 
+                    movingTime: activity.moving_time / 60,
                     elapsedTime: activity.elapsed_time / 60,
                     totalElevationGain: activity.total_elevation_gain,
                     startDate: new Date(activity.start_date),
-                    averageSpeed: activity.average_speed * 3.6, // Convert to km/h
+                    averageSpeed: activity.average_speed * 3.6,
                     maxSpeed: activity.max_speed * 3.6,
                     averageHeartrate: activity.average_heartrate || null,
                     maxHeartrate: activity.max_heartrate || null,
-                    calories: activity.calories || null,
-                    sufferScore: activity.suffer_score || null,
                     hasHeartrate: activity.has_heartrate || false,
                     synced: true,
                     syncedAt: new Date()
                 }, { merge: true });
-            });
+
+                // 2. AI ANALYSIS TRIGGER (The New Part)
+                if (this.aiService) {
+                    // Find if there was a PLANNED workout for this date
+                    const activityDate = new Date(activity.start_date);
+                    activityDate.setHours(0,0,0,0); // Normalize time
+                    
+                    // Query for a workout on this date
+                    // Note: This query inside a loop isn't ideal for bulk syncs, 
+                    // but for 1-2 new activities it's fine.
+                    const plannedWorkoutsSnapshot = await this.db.collection('workouts')
+                        .where('userId', '==', userId)
+                        .where('date', '==', activityDate)
+                        .limit(1)
+                        .get();
+
+                    if (!plannedWorkoutsSnapshot.empty) {
+                        const plannedWorkoutDoc = plannedWorkoutsSnapshot.docs[0];
+                        const plannedData = plannedWorkoutDoc.data();
+
+                        // Only analyze if not already analyzed
+                        if (!plannedData.aiAnalysis) {
+                            console.log(`🤖 Generating AI analysis for workout on ${activityDate.toDateString()}...`);
+                            
+                            // Generate Analysis
+                            const analysis = await this.aiService.generateWorkoutAnalysis(
+                                userData, 
+                                plannedData, 
+                                activity
+                            );
+
+                            // Update the PLANNED workout doc with the analysis
+                            // (We don't batch this because it depends on the async AI call)
+                            await plannedWorkoutDoc.ref.update({
+                                aiAnalysis: analysis,
+                                completed: true, // Mark as completed since we found a Strava match
+                                actualDistance: activity.distance / 1000,
+                                actualDuration: activity.moving_time / 60,
+                                stravaActivityId: activity.id,
+                                analyzedAt: new Date()
+                            });
+                            
+                            analysisCount++;
+                        }
+                    }
+                }
+            }
 
             await batch.commit();
 
-            console.log(`✅ Synced ${activities.length} activities`);
+            console.log(`✅ Synced ${activities.length} activities, Generated ${analysisCount} AI analyses`);
+            
             await this.db.collection('users').doc(userId).update({
-  stravaLastSync: new Date()
-}); 
+                stravaLastSync: new Date()
+            });
 
             return {
                 success: true,
-                count: activities.length
+                count: activities.length,
+                analyzed: analysisCount
             };
         } catch (error) {
             console.error('Sync activities error:', error);
@@ -249,5 +302,6 @@ async getAccessToken(userId) {
         }
     }
 }
+
 
 module.exports = StravaService;
