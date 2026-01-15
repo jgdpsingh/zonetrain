@@ -5173,37 +5173,61 @@ app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => 
     try {
         const userId = req.user.userId;
         
-        // Find the most recent workout that has 'aiAnalysis' field
+        // Find the most recent COMPLETED workout
+        // NOTE: This query requires a Composite Index: (userId ASC, completed ASC, date DESC)
         const snapshot = await db.collection('workouts')
             .where('userId', '==', userId)
             .where('completed', '==', true)
-            .orderBy('date', 'desc') // Get latest
+            .orderBy('date', 'desc') 
             .limit(1)
             .get();
 
         if (snapshot.empty) {
-            return res.json({ success: false, message: "No analyzed workouts found" });
+            return res.json({ success: false, message: "No completed workouts found" });
         }
 
         const doc = snapshot.docs[0];
         const data = doc.data();
 
+        // Check if analysis exists
         if (!data.aiAnalysis) {
-             return res.json({ success: false, message: "Latest workout not analyzed yet" });
+             // Fallback: If latest workout has no analysis, we might want to return that info
+             // rather than a generic error, so the UI can show "Analysis Pending"
+             return res.json({ 
+                 success: false, 
+                 message: "Latest workout waiting for analysis",
+                 waiting: true 
+             });
+        }
+
+        // Safe Date Handling
+        let workoutDate = new Date();
+        if (data.date && typeof data.date.toDate === 'function') {
+            workoutDate = data.date.toDate();
+        } else if (data.date) {
+            workoutDate = new Date(data.date);
         }
 
         res.json({
             success: true,
-            analysis: data.aiAnalysis, // The JSON object { match_score, feedback, tip }
-            date: data.date.toDate(),
+            analysis: data.aiAnalysis, // { match_score, feedback, tip }
+            date: workoutDate,
             activityName: data.title || "Workout"
         });
 
     } catch (error) {
         console.error("Latest analysis error:", error);
+        // If error is index related, log specifically
+        if (error.code === 9 || error.message.includes('index')) {
+             return res.status(500).json({ 
+                 success: false, 
+                 error: "Database index building. Please try again in a few minutes." 
+             });
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 
 // Adjust training plan
