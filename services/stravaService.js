@@ -194,15 +194,17 @@ async getAccessToken(userId) {
         }
     }
 
-    // Sync activities to local database (for caching)
+   
+        // Sync activities to local database (for caching)
+        
     async syncActivities(userId) {
         try {
             console.log('🔄 Syncing Strava activities for user:', userId);
 
-            // Get activities from last 90 days (or shorter window for efficiency)
+            // Get activities from last 7 days (Optimization)
             const endDate = new Date();
             const startDate = new Date();
-            startDate.setDate(endDate.getDate() - 7); // OPTIMIZATION: Only check last 7 days for sync to save API calls
+            startDate.setDate(endDate.getDate() - 7); 
 
             const activities = await this.getActivitiesInRange(userId, startDate, endDate);
 
@@ -236,18 +238,21 @@ async getAccessToken(userId) {
                     syncedAt: new Date()
                 }, { merge: true });
 
-                // 2. AI ANALYSIS TRIGGER (The New Part)
+                // 2. AI ANALYSIS TRIGGER (FIXED DATE MATCHING)
                 if (this.aiService) {
-                    // Find if there was a PLANNED workout for this date
+                    // Define the full day range for matching
                     const activityDate = new Date(activity.start_date);
-                    activityDate.setHours(0,0,0,0); // Normalize time
+                    const startOfDay = new Date(activityDate);
+                    startOfDay.setHours(0, 0, 0, 0);
                     
-                    // Query for a workout on this date
-                    // Note: This query inside a loop isn't ideal for bulk syncs, 
-                    // but for 1-2 new activities it's fine.
+                    const endOfDay = new Date(activityDate);
+                    endOfDay.setHours(23, 59, 59, 999);
+                    
+                    // Query for a workout WITHIN that day
                     const plannedWorkoutsSnapshot = await this.db.collection('workouts')
                         .where('userId', '==', userId)
-                        .where('date', '==', activityDate)
+                        .where('date', '>=', startOfDay)
+                        .where('date', '<=', endOfDay)
                         .limit(1)
                         .get();
 
@@ -259,25 +264,29 @@ async getAccessToken(userId) {
                         if (!plannedData.aiAnalysis) {
                             console.log(`🤖 Generating AI analysis for workout on ${activityDate.toDateString()}...`);
                             
-                            // Generate Analysis
-                            const analysis = await this.aiService.generateWorkoutAnalysis(
-                                userData, 
-                                plannedData, 
-                                activity
-                            );
+                            try {
+                                // Generate Analysis
+                                const analysis = await this.aiService.generateWorkoutAnalysis(
+                                    userData, 
+                                    plannedData, 
+                                    activity
+                                );
 
-                            // Update the PLANNED workout doc with the analysis
-                            // (We don't batch this because it depends on the async AI call)
-                            await plannedWorkoutDoc.ref.update({
-                                aiAnalysis: analysis,
-                                completed: true, // Mark as completed since we found a Strava match
-                                actualDistance: activity.distance / 1000,
-                                actualDuration: activity.moving_time / 60,
-                                stravaActivityId: activity.id,
-                                analyzedAt: new Date()
-                            });
-                            
-                            analysisCount++;
+                                // Update the PLANNED workout doc with the analysis
+                                // (We don't batch this because it depends on the async AI call)
+                                await plannedWorkoutDoc.ref.update({
+                                    aiAnalysis: analysis,
+                                    completed: true, // Mark as completed since we found a Strava match
+                                    actualDistance: activity.distance / 1000,
+                                    actualDuration: activity.moving_time / 60,
+                                    stravaActivityId: activity.id,
+                                    analyzedAt: new Date()
+                                });
+                                
+                                analysisCount++;
+                            } catch (aiError) {
+                                console.error("❌ AI Analysis failed:", aiError);
+                            }
                         }
                     }
                 }
@@ -301,6 +310,7 @@ async getAccessToken(userId) {
             throw error;
         }
     }
+
 }
 
 

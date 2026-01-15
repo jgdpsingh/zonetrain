@@ -1304,6 +1304,15 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 raceWeeklyTemplate(planMap) {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     
+    // Explicit Grid Style for Desktop (7 columns)
+    const gridStyle = `
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 12px;
+        width: 100%;
+        margin-top: 10px;
+    `;
+
     const items = days.map(day => {
         const data = planMap[day] || {};
         const workout = data.workout || {};
@@ -1314,14 +1323,18 @@ raceWeeklyTemplate(planMap) {
         const isRest = title.includes('rest');
         
         // 2. Assign CSS Class based on logic
-        let typeClass = 'type-easy'; // Default
+        let typeClass = 'type-easy'; // Default fallback
+        let stripColor = '#3b82f6'; // Default blue
         
         if (isRest) {
             typeClass = 'type-rest';
+            stripColor = '#9ca3af'; // Grey
         } else if (title.includes('long') || type === 'long_run') {
             typeClass = 'type-long';
+            stripColor = '#8b5cf6'; // Purple
         } else if (title.includes('interval') || title.includes('tempo') || title.includes('speed')) {
             typeClass = 'type-quality';
+            stripColor = '#f97316'; // Orange
         }
         
         // 3. Format Volume
@@ -1332,37 +1345,69 @@ raceWeeklyTemplate(planMap) {
             volumeDisplay = `${workout.duration} min`;
         }
 
-        // 4. Click Handler: Only clickable if it has an ID and isn't just a placeholder rest day
-        // Note: We use the workout.id directly.
+        // 4. Click Handler & Cursor Style
         const clickAction = (workout.id && !isRest) 
             ? `onclick="window.openWorkoutModal('${workout.id}')"` 
-            : `style="cursor: default;"`;
+            : ``;
+        
+        const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
 
-        // 5. Render
+        // 5. Card Inline Styles for Safety (in case CSS is missing)
+        const cardStyle = `
+            ${cursorStyle}
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 110px; /* Prevent collapse */
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        `;
+
+        // 6. Render
         return `
-            <div 
-                ${clickAction} 
-                class="race-card ${typeClass}"
-            >
-                <div class="race-strip"></div>
+            <div ${clickAction} class="race-card ${typeClass}" style="${cardStyle}">
+                <!-- Colored Strip -->
+                <div class="race-strip" style="position:absolute; left:0; top:0; bottom:0; width:4px; background:${stripColor};"></div>
                 
-                <div class="race-day-label">${day.substring(0, 3)}</div>
-                
-                <div class="race-title">
-                    ${workout.title || 'Rest'}
-                </div>
-                
-                <div class="race-stats">
-                    <span class="race-badge">
-                        ${volumeDisplay}
-                    </span>
+                <div style="padding: 10px 10px 10px 14px; display:flex; flex-direction:column; height:100%;">
+                    <!-- Day Label -->
+                    <div class="race-day-label" style="font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; margin-bottom:4px;">
+                        ${day.substring(0, 3)}
+                    </div>
+                    
+                    <!-- Title -->
+                    <div class="race-title" style="font-size:13px; font-weight:600; color:#111827; line-height:1.3; margin-bottom:auto;">
+                        ${workout.title || 'Rest'}
+                    </div>
+                    
+                    <!-- Stats Badge -->
+                    <div class="race-stats" style="margin-top:8px;">
+                        <span class="race-badge" style="background:${isRest ? '#f3f4f6' : '#eff6ff'}; color:${isRest ? '#9ca3af' : '#1d4ed8'}; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;">
+                            ${volumeDisplay}
+                        </span>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
 
-    return `<div class="race-weekly-grid">${items}</div>`;
+    // Responsive Wrapper: On mobile, this grid will break. 
+    // We add a media query style block solely for this widget instance to handle mobile stacking.
+    const responsiveStyle = `
+        <style>
+            @media (max-width: 768px) {
+                .race-weekly-grid { grid-template-columns: repeat(1, 1fr) !important; }
+            }
+        </style>
+    `;
+
+    return `${responsiveStyle}<div class="race-weekly-grid" style="${gridStyle}">${items}</div>`;
 }
+
 
 
 renderPerformanceChart(containerId) {
@@ -1713,7 +1758,8 @@ window.closePreferencesModal = function() {
 window.savePreferences = async function() {
     const day = document.getElementById('long-run-day-select').value;
     const token = localStorage.getItem('userToken');
-    const saveBtn = document.querySelector('#preferences-modal button');
+    // Using ID selector is safer if you added IDs to your buttons
+    const saveBtn = document.querySelector('#preferences-modal button.btn-primary') || document.querySelector('#preferences-modal button');
     
     // Check if elements exist
     if (!saveBtn || !document.getElementById('preferences-modal')) {
@@ -1739,23 +1785,58 @@ window.savePreferences = async function() {
         const data = await response.json();
 
         if (data.success) {
-            // Update Local Storage for UI consistency
+            // Update Local Storage
             localStorage.setItem('longRunDay', day);
+            
+            // Close Modal
             if (typeof closePreferencesModal === 'function') {
                 closePreferencesModal();
             } else {
                  document.getElementById('preferences-modal').style.display = 'none';
             }
             
-            // Show success notification if available
+            // Notification
             if (typeof showNotification === 'function') {
                 showNotification(`Plan updated! Long runs are now on ${day}s.`, 'success');
             } else {
                 alert(`Plan updated! Long runs are now on ${day}s.`);
             }
             
-            // Reload the page to fetch the new workout schedule
-            setTimeout(() => window.location.reload(), 1000); 
+            // --- ENHANCED REFRESH LOGIC ---
+            // Instead of just reloading, try to refresh specific widgets for a smoother experience
+            let refreshed = false;
+            
+            if (window.dashboardWidgets) {
+                console.log("🔄 Triggering widget refresh...");
+                try {
+                    // Refresh Weekly Plan (Desktop)
+                    if(typeof window.dashboardWidgets.renderWeeklyPlanWidget === 'function') {
+                        await window.dashboardWidgets.renderWeeklyPlanWidget('race-weekly-plan-container');
+                    }
+                    
+                    // Refresh This Week/Calendar (Mobile/Dashboard)
+                    if(typeof window.dashboardWidgets.renderTrainingCalendar === 'function') {
+                        // Clear any internal cache if your calendar uses one
+                        window.dashboardWidgets.calendarCache = null; 
+                        await window.dashboardWidgets.renderTrainingCalendar('training-calendar-container');
+                    }
+                    
+                    // Refresh Today's Workout (in case the shift affected today)
+                    if(typeof window.dashboardWidgets.renderDailyWorkoutWidget === 'function') {
+                        await window.dashboardWidgets.renderDailyWorkoutWidget('daily-workout-container');
+                    }
+                    
+                    refreshed = true;
+                } catch(e) {
+                    console.warn("Widget refresh partial failure", e);
+                }
+            }
+
+            // Fallback: If we couldn't refresh widgets dynamically, reload page
+            if (!refreshed) {
+                setTimeout(() => window.location.reload(), 1000); 
+            }
+            
         } else {
             throw new Error(data.message || 'Update failed');
         }
@@ -1773,6 +1854,7 @@ window.savePreferences = async function() {
         saveBtn.disabled = false;
     }
 };
+
 
 // ==========================================
 // SKIP WORKOUT FUNCTIONALITY

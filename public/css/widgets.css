@@ -958,7 +958,7 @@
     position: relative;
     border-radius: 8px;
     padding: 8px 6px;
-    height: 96px;
+    min-height: 120px;
     border: 1px solid #e5e7eb;
     background: #ffffff;
     cursor: pointer;
