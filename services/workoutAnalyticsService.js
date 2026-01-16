@@ -2,9 +2,9 @@
 const StravaService = require('./stravaService');
 
 class WorkoutAnalyticsService {
-    constructor(db) {
+    constructor(db, aiService) {
         this.db = db;
-        this.stravaService = new StravaService(db);
+        this.stravaService = new StravaService(db), aiService;
     }
 
     // Get workout history from Strava

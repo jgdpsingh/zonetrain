@@ -29,7 +29,7 @@ const NotificationService = require('./services/notificationService');
 const TrainingPlanService = require('./services/trainingPlanService');
 
 const stravaService = new StravaService(db, aiService);
-const analyticsService = new WorkoutAnalyticsService(db);
+const analyticsService = new WorkoutAnalyticsService(db, aiService);
 const notificationService = new NotificationService(db);
 const trainingPlanService = new TrainingPlanService(db, aiService);
 
@@ -5178,12 +5178,13 @@ app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => 
         const snapshot = await db.collection('workouts')
             .where('userId', '==', userId)
             .where('completed', '==', true)
-            .orderBy('date', 'desc') 
+            .where('analyzedAt', '>=', new Date(0))   // only docs that actually have analyzedAt
+            .orderBy('analyzedAt', 'desc') 
             .limit(1)
             .get();
 
         if (snapshot.empty) {
-            return res.json({ success: false, message: "No completed workouts found" });
+            return res.json({ success: false, message: "No analyzed workouts found" });
         }
 
         const doc = snapshot.docs[0];
@@ -5201,12 +5202,13 @@ app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => 
         }
 
         // Safe Date Handling
-        let workoutDate = new Date();
-        if (data.date && typeof data.date.toDate === 'function') {
-            workoutDate = data.date.toDate();
-        } else if (data.date) {
-            workoutDate = new Date(data.date);
-        }
+       // Safe Date Handling
+const d = data.scheduledDate || data.date || data.analyzedAt;
+const workoutDate =
+  d?.toDate ? d.toDate() :
+  d ? new Date(d) :
+  new Date();
+
 
         res.json({
             success: true,
