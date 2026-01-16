@@ -241,7 +241,8 @@ async getAccessToken(userId) {
                 // 2. AI ANALYSIS TRIGGER (FIXED DATE MATCHING)
                 if (this.aiService) {
                     // Define the full day range for matching
-                    const activityDate = new Date(activity.start_date);
+                   const activityDate = new Date(activity.start_date_local || activity.start_date);
+
                     const startOfDay = new Date(activityDate);
                     startOfDay.setHours(0, 0, 0, 0);
                     
@@ -249,12 +250,12 @@ async getAccessToken(userId) {
                     endOfDay.setHours(23, 59, 59, 999);
                     
                     // Query for a workout WITHIN that day
-                    const plannedWorkoutsSnapshot = await this.db.collection('workouts')
-                        .where('userId', '==', userId)
-                        .where('date', '>=', startOfDay)
-                        .where('date', '<=', endOfDay)
-                        .limit(1)
-                        .get();
+                   const plannedWorkoutsSnapshot = await this.db.collection('workouts')
+  .where('userId', '==', userId)
+  .where('scheduledDate', '>=', startOfDay)
+  .where('scheduledDate', '<=', endOfDay)
+  .limit(1)
+  .get();
 
                     if (!plannedWorkoutsSnapshot.empty) {
                         const plannedWorkoutDoc = plannedWorkoutsSnapshot.docs[0];
