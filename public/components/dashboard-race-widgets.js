@@ -4,6 +4,7 @@ class RaceDashboardWidgets {
     constructor() {
         this.token = localStorage.getItem('userToken');
         this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
+        this.currentWeekOffset = 0;
     }
 
 
@@ -1198,20 +1199,26 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
 
     // ADVANCED Weekly Plan for Race
-       async renderWeeklyPlanWidget(containerId) {
+         async renderWeeklyPlanWidget(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    
-    // Check flag
+
+    // Check flag for initial generation
     const isGenerating = this.isPlanGenerating();
+    
+    // Ensure currentWeekOffset is initialized (add this to your constructor if missing)
+    if (typeof this.currentWeekOffset === 'undefined') {
+        this.currentWeekOffset = 0;
+    }
 
     try {
-        const response = await fetch('/api/race/weekly-plan', {
+        // Fetch with offset parameter
+        const response = await fetch(`/api/race/weekly-plan?offset=${this.currentWeekOffset}`, {
             headers: { 'Authorization': `Bearer ${this.token}` }
         });
         const data = await response.json();
 
-        // --- FIX: HANDLE GENERATING STATE FIRST ---
+        // --- HANDLING GENERATING STATE ---
         if ((!data.success || !data.weeklyPlan) && isGenerating) {
              container.innerHTML = `
                 <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
@@ -1220,12 +1227,12 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
                 </div>`;
              return;
         }
-        // ------------------------------------------
 
+        // --- SUCCESS CASE ---
         if (data.success && data.weeklyPlan) {
             console.log('✅ Plan found. Rendering RACE weekly schedule.');
 
-            // --- CONVERSION LOGIC START ---
+            // Normalize data structure
             let planMap = {};
             if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
                 data.weeklyPlan.days.forEach(day => {
@@ -1234,21 +1241,33 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
             } else if (Object.keys(data.weeklyPlan).length > 0) {
                 planMap = data.weeklyPlan;
             }
-            // --- CONVERSION LOGIC END ---
 
             if (Object.keys(planMap).length > 0) {
-                // --- FIX: CLEAR FLAG ON SUCCESS ---
                 this.clearPlanGenerating();
-                // ----------------------------------
 
-                // ✅ USE RACE TEMPLATE HERE
-                container.innerHTML = this.raceWeeklyTemplate(planMap);
+                // Navigation Header
+                const dateRange = data.weekRange || 'Current Week';
+                const navHeader = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding: 0 5px;">
+                        <button onclick="window.dashboardWidgets.changeWeek(-1)" 
+                                style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px;">
+                                &larr; Prev Week
+                        </button>
+                        <span style="font-weight:700; color:#374151; font-size:14px;">${dateRange}</span>
+                        <button onclick="window.dashboardWidgets.changeWeek(1)" 
+                                style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px;">
+                                Next Week &rarr;
+                        </button>
+                    </div>
+                `;
+
+                // Combine Nav + Grid
+                container.innerHTML = navHeader + this.raceWeeklyTemplate(planMap);
                 return;
             }
         } 
 
-        // If we reach here, we found no weekly plan data.
-        // Check if a plan exists at all (maybe the weekly breakdown failed but the plan is valid)
+        // --- FALLBACK: CHECK IF PLAN EXISTS BUT WEEK FAILED ---
         try {
           const planRes = await fetch('/api/race-goals/plan/current', {
             headers: { 'Authorization': `Bearer ${this.token}` }
@@ -1257,10 +1276,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
           if (planRes.ok) {
             const planData = await planRes.json();
             if (planData.success && planData.plan) {
-              // Plan exists, so DON'T show Create Race Plan
-              // Clear flag here too just in case
               this.clearPlanGenerating();
-
               container.innerHTML = `
                 <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
                   <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
@@ -1276,10 +1292,10 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
             }
           }
         } catch (e) {
-          // ignore and fall through to empty state
+          // ignore
         }
 
-        // EMPTY STATE FOR RACE (only if no plan exists and not generating)
+        // --- EMPTY STATE (No Plan) ---
         container.innerHTML = `
           <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
             <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
@@ -1290,18 +1306,26 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
             </button>
           </div>`;
           
-          // Clear flag if we truly have no plan (safety cleanup)
-         this.clearPlanGenerating();
+        this.clearPlanGenerating();
 
     } catch (error) {
         console.error("Race Plan Error", error);
         container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
     }
-}
+  }
+
+  // Helper method for navigation
+  changeWeek(delta) {
+      if (typeof this.currentWeekOffset === 'undefined') this.currentWeekOffset = 0;
+      this.currentWeekOffset += delta;
+      // Re-render the specific container
+      this.renderWeeklyPlanWidget('weekly-plan-container');
+  }
 
 
 
-raceWeeklyTemplate(planMap) {
+
+  raceWeeklyTemplate(planMap) {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     
     // Explicit Grid Style for Desktop (7 columns)
@@ -1346,13 +1370,14 @@ raceWeeklyTemplate(planMap) {
         }
 
         // 4. Click Handler & Cursor Style
+        // Ensure window.openWorkoutModal exists in your code or replace with window.openWorkoutDetails
         const clickAction = (workout.id && !isRest) 
-            ? `onclick="window.openWorkoutModal('${workout.id}')"` 
+            ? `onclick="window.openWorkoutDetails ? window.openWorkoutDetails('${day}', '${workout.id}') : console.log('Details not implemented')"` 
             : ``;
         
         const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
 
-        // 5. Card Inline Styles for Safety (in case CSS is missing)
+        // 5. Card Inline Styles
         const cardStyle = `
             ${cursorStyle}
             background: #fff;
@@ -1361,13 +1386,13 @@ raceWeeklyTemplate(planMap) {
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            min-height: 110px; /* Prevent collapse */
+            min-height: 110px;
             position: relative;
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
             transition: transform 0.2s;
         `;
 
-        // 6. Render
+        // 6. Render Card
         return `
             <div ${clickAction} class="race-card ${typeClass}" style="${cardStyle}">
                 <!-- Colored Strip -->
@@ -1395,8 +1420,7 @@ raceWeeklyTemplate(planMap) {
         `;
     }).join('');
 
-    // Responsive Wrapper: On mobile, this grid will break. 
-    // We add a media query style block solely for this widget instance to handle mobile stacking.
+    // Responsive Wrapper: Mobile Stacking
     const responsiveStyle = `
         <style>
             @media (max-width: 768px) {
@@ -1406,7 +1430,8 @@ raceWeeklyTemplate(planMap) {
     `;
 
     return `${responsiveStyle}<div class="race-weekly-grid" style="${gridStyle}">${items}</div>`;
-}
+  }
+
 
 
 

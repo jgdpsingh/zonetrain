@@ -10755,6 +10755,7 @@ app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
 app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const offset = parseInt(req.query.offset || 0);
 
     // 1. STRICT: Only active race plan
     const planDoc = await db.collection('trainingplans')
@@ -10764,12 +10765,11 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       .limit(1)
       .get();
 
-    // Handle No Active Plan
     if (planDoc.empty) {
       return res.json({
         success: false,
         message: 'No active race plan found.',
-        weeklyPlan: null, // Frontend will show "Create Race Plan"
+        weeklyPlan: null, 
         plan: null
       });
     }
@@ -10777,15 +10777,14 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     const planId = planDoc.docs[0].id;
     const plan = planDoc.docs[0].data();
 
-    // 2. Compute this week (Mon-Sun)
+    // 2. Compute the requested week (Mon-Sun)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const currentDay = today.getDay(); // 0=Sun, 1=Mon
-    // Calculate Monday of current week
-    const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
+    const currentDay = today.getDay() || 7; // 0=Sun -> 7
+    const diffToMon = 1 - currentDay;
 
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() + diffToMon);
+    weekStart.setDate(today.getDate() + diffToMon + (offset * 7));
     weekStart.setHours(0, 0, 0, 0);
 
     const weekEnd = new Date(weekStart);
@@ -10798,6 +10797,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       .where('planId', '==', planId)
       .where('scheduledDate', '>=', weekStart)
       .where('scheduledDate', '<=', weekEnd)
+      .orderBy('scheduledDate', 'asc') // <--- FIX 1: Enforce Order
       .get();
 
     let days = [];
@@ -10832,28 +10832,35 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     // =========================================================
     else if (plan.planData && plan.planData.weeks) {
         
-        console.log(`⚠️ Workouts missing in DB for user ${userId}. Repairing database from JSON...`);
+        console.log(`⚠️ Workouts missing in DB for user ${userId} (Week Offset ${offset}). Repairing...`);
 
-        // 1. Calculate which week index we are in
+        // 1. Calculate which week index we are in RELATIVE TO PLAN START
         const planStartDate = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
-        const diffTime = Math.abs(today - planStartDate);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        let currentWeekIndex = Math.floor(diffDays / 7);
         
+        // FIX 2: Use weekStart (the requested week) instead of today
+        // This ensures if we ask for Next Week, we get Next Week's content
+        const diffTime = weekStart.getTime() - planStartDate.getTime(); 
+        
+        // Use Math.floor to get full weeks elapsed
+        let currentWeekIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+
         // Bounds Check
         if (currentWeekIndex < 0) currentWeekIndex = 0;
-        if (currentWeekIndex >= plan.planData.weeks.length) currentWeekIndex = plan.planData.weeks.length - 1;
+        if (currentWeekIndex >= plan.planData.weeks.length) {
+            // Optional: If they ask for a week beyond the plan, show empty or maintenance
+            // For now, capping at the last week is a safe fallback
+            currentWeekIndex = plan.planData.weeks.length - 1;
+        }
 
         const weekData = plan.planData.weeks[currentWeekIndex];
 
         if (weekData && Array.isArray(weekData.days)) {
-            const batch = db.batch(); // Prepare batch write
+            const batch = db.batch();
             
             days = weekData.days.map((day, idx) => {
                 const wDate = new Date(weekStart);
                 wDate.setDate(weekStart.getDate() + idx);
                 
-                // Create the workout data object
                 const workoutData = {
                     userId: userId,
                     planId: planId,
@@ -10864,38 +10871,32 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
                     intensity: day.intensity || 'easy',
                     type: day.type || 'run',
                     dayName: day.dayName || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][idx],
-                    scheduledDate: wDate, // Store as Date object
+                    scheduledDate: wDate,
                     completed: false,
                     createdAt: new Date(),
-                    isRepaired: true // Flag for debugging
+                    isRepaired: true 
                 };
 
-                // Create a new Document Reference
                 const newDocRef = db.collection('workouts').doc();
-                
-                // Queue the write
                 batch.set(newDocRef, workoutData);
 
-                // Return the object for the immediate API response
                 return {
                     date: wDate.toISOString(),
                     label: workoutData.dayName,
                     workout: {
-                        id: newDocRef.id, // REAL ID
+                        id: newDocRef.id,
                         ...workoutData,
                         zones: null
                     }
                 };
             });
 
-            // Commit the batch to DB (Fire and forget, or await if critical)
             batch.commit()
-                .then(() => console.log(`✅ Repaired week ${currentWeekIndex + 1} for user ${userId}`))
+                .then(() => console.log(`✅ Repaired week index ${currentWeekIndex} for user ${userId}`))
                 .catch(err => console.error("❌ Database repair failed", err));
         }
     }
 
-    // 4. Return Final Response
     return res.json({
       success: true,
       plan: {
@@ -10909,13 +10910,10 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Race weekly plan API error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load race weekly plan.',
-      error: error.message
-    });
+    return res.status(500).json({ success: false, message: 'Failed.', error: error.message });
   }
 });
+
 
 // Today's workout for dashboard widget
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {

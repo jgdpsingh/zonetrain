@@ -98,7 +98,7 @@ async getCurrentPlan(userId) {
              const relevantWorkouts = workoutsSnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 // Ensure workout belongs to THIS specific plan (if planId is stored)
-                .filter(w => !w.planId || w.planId === plan.id);
+                .filter(w => w.planId === plan.id);
              
              if (relevantWorkouts.length > 0) {
                  plan.thisWeekWorkouts = relevantWorkouts.map(w => ({
