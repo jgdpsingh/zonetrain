@@ -440,28 +440,26 @@ clearPlanGenerating() {
 
 
 async markComplete(workoutId) {
-    if (!confirm('Mark this workout as completed?')) return;
-    
-    try {
-        const res = await fetch('/api/workouts/complete', {
-            method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${this.token}`,
-                'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({ workoutId })
-        });
-        
-        if (res.ok) {
-            // Re-render to show updated status
-            this.renderTodayWorkoutWidget('today-workout-container');
-            this.renderWeeklyPlanWidget('weekly-plan-container');
-            alert('Great job! Workout marked as complete.');
-        }
-    } catch (e) {
-        alert('Failed to update workout.');
-    }
+  if (!confirm('Mark this workout as completed?')) return;
+
+  try {
+    const res = await fetch(`/api/workouts/${workoutId}/complete`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || data.message || 'Failed to complete workout');
+
+    // Refresh widgets
+    await this.renderTodayWorkoutWidget('today-workout-container');
+    await this.renderWeeklyPlanWidget('weekly-plan-container');
+    alert('Great job! Workout marked as complete.');
+  } catch (e) {
+    alert('Failed to update workout: ' + e.message);
+  }
 }
+
 
 async logHRV() {
     // 1. Try to find the value in the dedicated input box
@@ -563,7 +561,7 @@ async renderStravaWorkoutHistory(containerId) {
                 <div class="widget-header">
                     <h3>📊 Workout History (Last 30 Days)</h3>
                     <button onclick="window.dashboardWidgets.syncStrava()" class="btn-sync" title="Sync Strava">
-                        🔄
+                        🔄 Sync
                     </button>
                 </div>
                 
@@ -643,35 +641,31 @@ getWorkoutIcon(type) {
     return icons[type] || '🏃';
 }
 
-async syncStrava() {
-    try {
-        const button = event.target;
-        button.innerHTML = '⏳';
-        button.disabled = true;
+async syncStrava(evt) {
+  const button = evt?.target; // safe
 
-        const response = await fetch('/api/strava/sync', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${this.token}` }
-        });
+  try {
+    if (button) { button.innerHTML = '⏳'; button.disabled = true; }
 
-        const data = await response.json();
+    const response = await fetch('/api/strava/sync', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
 
-        if (data.success) {
-            alert(`✅ Synced ${data.count} activities from Strava!`);
-            // Refresh the workout history widget
-            this.renderStravaWorkoutHistory('workout-history-container');
-        } else {
-            alert('❌ Failed to sync Strava: ' + data.message);
-        }
+    const data = await response.json();
 
-        button.innerHTML = '🔄';
-        button.disabled = false;
-    } catch (error) {
-        console.error('Sync error:', error);
-        alert('❌ Failed to sync Strava');
-        event.target.innerHTML = '🔄';
-        event.target.disabled = false;
+    if (data.success) {
+      alert(`✅ Synced ${data.count} activities from Strava!`);
+      await this.renderStravaWorkoutHistory('workout-history-container');
+    } else {
+      alert('❌ Failed to sync Strava: ' + data.message);
     }
+  } catch (error) {
+    console.error('Sync error:', error);
+    alert('❌ Failed to sync Strava');
+  } finally {
+    if (button) { button.innerHTML = '🔄 Sync'; button.disabled = false; }
+  }
 }
 
 
@@ -1372,7 +1366,7 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
         // 4. Click Handler & Cursor Style
         // Ensure window.openWorkoutModal exists in your code or replace with window.openWorkoutDetails
         const clickAction = (workout.id && !isRest) 
-            ? `onclick="window.openWorkoutDetails ? window.openWorkoutDetails('${day}', '${workout.id}') : console.log('Details not implemented')"` 
+            ? `onclick="window.openWorkoutModal ? window.openWorkoutModal('${day}', '${workout.id}') : console.log('Details not implemented')"` 
             : ``;
         
         const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
@@ -1948,6 +1942,18 @@ window.openWorkoutModal = async function(workoutId) {
     const body = document.getElementById('workout-modal-body');
     modal.style.display = 'flex';
     body.innerHTML = '<div style="display:flex; justify-content:center; padding:40px;"><div class="loading-spinner"></div></div>';
+
+    if (String(workoutId).startsWith('json-week-')) {
+    body.innerHTML = `
+      <div style="padding:16px; color:#374151;">
+        <p style="margin:0 0 10px 0;"><strong>This workout isn’t saved yet.</strong></p>
+        <p style="margin:0; font-size:14px; color:#6b7280;">
+          Go to Current Week once (so workouts get written to DB), then refresh and try again.
+        </p>
+      </div>
+    `;
+    return;
+  }
 
     try {
         // 3. Fetch Workout Details

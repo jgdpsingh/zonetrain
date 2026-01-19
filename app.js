@@ -2729,18 +2729,46 @@ app.get('/api/workouts/calendar', authenticateToken, async (req, res) => {
   }
 });
 
+async function completeWorkoutForUser(db, workoutId, userId) {
+  const workoutRef = db.collection('workouts').doc(workoutId);
+  const workoutSnap = await workoutRef.get();
+
+  if (!workoutSnap.exists) {
+    return { ok: false, status: 404, body: { success: false, error: 'Workout not found' } };
+  }
+
+  const w = workoutSnap.data();
+  if (w.userId !== userId) {
+    return { ok: false, status: 403, body: { success: false, error: 'Unauthorized' } };
+  }
+
+  const now = new Date();
+  await workoutRef.update({
+    completed: true,          // keep for analytics queries that filter on completed [file:65]
+    status: 'completed',      // keep for UI/logic that uses status [file:65]
+    completedAt: now,
+    updatedAt: now
+  });
+
+  return { ok: true, status: 200, body: { success: true, message: 'Workout marked as complete' } };
+}
+
 
 app.post('/api/workouts/complete', authenticateToken, async (req, res) => {
-    try {
-        const { workoutId } = req.body;
-        await db.collection('workouts').doc(workoutId).update({
-            completed: true,
-            completedAt: new Date()
-        });
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ success: false });
+  try {
+    const userId = req.user.userId;
+    const workoutId = req.body?.workoutId;
+
+    if (!workoutId) {
+      return res.status(400).json({ success: false, error: 'workoutId is required' });
     }
+
+    const result = await completeWorkoutForUser(db, workoutId, userId);
+    return res.status(result.status).json(result.body);
+  } catch (e) {
+    console.error('Error completing workout (alias):', e);
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // In app.js
@@ -5230,6 +5258,50 @@ const workoutDate =
     }
 });
 
+// Put this AFTER app.get('/api/workouts/calendar') and app.get('/api/workouts/latest-analysis')
+app.get('/api/workouts/:workoutId', authenticateToken, async (req, res) => {
+  try {
+    const { workoutId } = req.params;
+    const userId = req.user.userId;
+
+    // Optional: if you keep this safety, always respond (do NOT just `return;`)
+    if (workoutId === 'calendar' || workoutId === 'latest-analysis') {
+      return res.status(404).json({ success: false, error: 'Not found' });
+    }
+
+    const doc = await db.collection('workouts').doc(workoutId).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Workout not found' });
+    }
+
+    const data = doc.data();
+
+    // Security: ensure user owns it (matches your complete endpoint pattern)
+    if (data.userId !== userId) {
+      return res.status(403).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const toIso = (v) => (v?.toDate ? v.toDate().toISOString() : (v instanceof Date ? v.toISOString() : v));
+
+    return res.json({
+      success: true,
+      workout: {
+        id: doc.id,
+        ...data,
+        // normalize likely timestamp fields
+        scheduledDate: toIso(data.scheduledDate || data.date),
+        completedAt: toIso(data.completedAt),
+        createdAt: toIso(data.createdAt),
+        updatedAt: toIso(data.updatedAt),
+        analyzedAt: toIso(data.analyzedAt)
+      }
+    });
+  } catch (error) {
+    console.error('Get single workout error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 
 // Adjust training plan
@@ -7022,72 +7094,16 @@ app.get('/notifications', (req, res) => {
 
 // Mark workout as complete
 app.post('/api/workouts/:workoutId/complete', authenticateToken, async (req, res) => {
-    try {
-        const { workoutId } = req.params;
-        const userId = req.user.userId;
+  try {
+    const { workoutId } = req.params;
+    const userId = req.user.userId;
 
-        // Verify workout belongs to user
-        const workoutRef = db.collection('workouts').doc(workoutId);
-        const workout = await workoutRef.get();
-
-        if (!workout.exists || workout.data().userId !== userId) {
-            return res.status(404).json({ success: false, error: 'Workout not found' });
-        }
-
-        // Update workout status
-        await workoutRef.update({
-            status: 'completed',
-            completedAt: new Date(),
-            updatedAt: new Date()
-        });
-
-        res.json({
-            success: true,
-            message: 'Workout marked as complete'
-        });
-    } catch (error) {
-        console.error('Error completing workout:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get Single Workout Details (for Modal)
-app.get('/api/workouts/:workoutId', authenticateToken, async (req, res) => {
-    try {
-        const { workoutId } = req.params;
-        const userId = req.user.userId;
-
-        // Skip if looking for special keywords like 'calendar' or 'latest-analysis'
-        // (Express usually handles this by route ordering, but good safety)
-        if (workoutId === 'calendar' || workoutId === 'latest-analysis') return;
-
-        const doc = await db.collection('workouts').doc(workoutId).get();
-
-        if (!doc.exists) {
-            return res.status(404).json({ success: false, error: 'Workout not found' });
-        }
-
-        const data = doc.data();
-
-        // Security Check: Ensure user owns this workout
-        if (data.userId !== userId) {
-            return res.status(403).json({ success: false, error: 'Unauthorized' });
-        }
-
-        // Return the workout data
-        res.json({
-            success: true,
-            workout: {
-                id: doc.id,
-                ...data,
-                // Ensure date is serializable
-                date: data.date && data.date.toDate ? data.date.toDate() : data.date
-            }
-        });
-    } catch (error) {
-        console.error('Get single workout error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+    const result = await completeWorkoutForUser(db, workoutId, userId);
+    return res.status(result.status).json(result.body);
+  } catch (e) {
+    console.error('Error completing workout:', e);
+    return res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 
