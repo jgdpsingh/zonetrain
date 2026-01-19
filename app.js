@@ -5197,66 +5197,242 @@ app.get('/api/ai/weekly-analysis/:week', authenticateToken, async (req, res) => 
 
 // In app.js
 
+// Latest workout analysis for Dashboard widget
 app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        
-        // Find the most recent COMPLETED workout
-        // NOTE: This query requires a Composite Index: (userId ASC, completed ASC, date DESC)
-        const snapshot = await db.collection('workouts')
-            .where('userId', '==', userId)
-            .where('completed', '==', true)
-            .where('analyzedAt', '>=', new Date(0))   // only docs that actually have analyzedAt
-            .orderBy('analyzedAt', 'desc') 
-            .limit(1)
-            .get();
+  try {
+    const userId = req.user.userId;
 
-        if (snapshot.empty) {
-            return res.json({ success: false, message: "No analyzed workouts found" });
-        }
+    // 1) Find the most recent COMPLETED workout by date (NOT by analyzedAt)
+    // NOTE: Composite index likely needed: userId ASC, completed ASC, scheduledDate DESC
+    const snap = await db.collection('workouts')
+      .where('userId', '==', userId)
+      .where('completed', '==', true)
+      .orderBy('scheduledDate', 'desc')
+      .limit(1)
+      .get();
 
-        const doc = snapshot.docs[0];
-        const data = doc.data();
-
-        // Check if analysis exists
-        if (!data.aiAnalysis) {
-             // Fallback: If latest workout has no analysis, we might want to return that info
-             // rather than a generic error, so the UI can show "Analysis Pending"
-             return res.json({ 
-                 success: false, 
-                 message: "Latest workout waiting for analysis",
-                 waiting: true 
-             });
-        }
-
-        // Safe Date Handling
-       // Safe Date Handling
-const d = data.scheduledDate || data.date || data.analyzedAt;
-const workoutDate =
-  d?.toDate ? d.toDate() :
-  d ? new Date(d) :
-  new Date();
-
-
-        res.json({
-            success: true,
-            analysis: data.aiAnalysis, // { match_score, feedback, tip }
-            date: workoutDate,
-            activityName: data.title || "Workout"
-        });
-
-    } catch (error) {
-        console.error("Latest analysis error:", error);
-        // If error is index related, log specifically
-        if (error.code === 9 || error.message.includes('index')) {
-             return res.status(500).json({ 
-                 success: false, 
-                 error: "Database index building. Please try again in a few minutes." 
-             });
-        }
-        res.status(500).json({ success: false, error: error.message });
+    if (snap.empty) {
+      return res.json({ success: false, message: 'No completed workouts found' });
     }
+
+    const doc = snap.docs[0];
+    const data = doc.data() || {};
+
+    const d = data.scheduledDate || data.date || null;
+    const workoutDate = d?.toDate ? d.toDate() : (d ? new Date(d) : new Date());
+
+    // 2) If analysis not ready, return waiting=true for the MOST RECENT workout day
+    if (!data.aiAnalysis) {
+      return res.json({
+        success: false,
+        waiting: true,
+        message: 'Latest workout waiting for analysis',
+        date: workoutDate,
+        activityName: data.title || data.workoutTitle || 'Workout'
+      });
+    }
+
+    // 3) Return analysis in the exact shape your widget uses (matchscore)
+    return res.json({
+      success: true,
+      analysis: {
+        matchscore: data.aiAnalysis.matchscore ?? data.aiAnalysis.match_score ?? null,
+        feedback: data.aiAnalysis.feedback ?? null,
+        tip: data.aiAnalysis.tip ?? null,
+        generatedBy: data.aiAnalysis.generatedBy ?? null,
+        generatedAt: data.aiAnalysis.generatedAt ?? null
+      },
+      date: workoutDate,
+      activityName: data.title || data.workoutTitle || 'Workout',
+      workoutId: doc.id
+    });
+  } catch (error) {
+    console.error('Latest analysis error:', error);
+
+    if (error.code === 9 || String(error.message || '').toLowerCase().includes('index')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Database index building. Please try again in a few minutes.'
+      });
+    }
+
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
+
+
+// Past insights for Coach Insight modal
+// GET /api/workouts/insights?days=7
+app.get('/api/workouts/insights', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const days = Math.max(1, Math.min(parseInt(req.query.days || '7', 10) || 7, 30));
+    const gapMinutes = Math.max(5, Math.min(parseInt(req.query.gapMinutes || '30', 10) || 30, 120));
+    const maxDocs = Math.max(50, Math.min(parseInt(req.query.maxDocs || '200', 10) || 200, 500));
+
+    const now = new Date();
+    const since = new Date(now);
+    since.setDate(now.getDate() - days - 2); // small buffer so we can still form sessions
+
+    const snap = await db.collection('workouts')
+      .where('userId', '==', userId)
+      .where('analyzedAt', '>=', since)
+      .orderBy('analyzedAt', 'desc')
+      .limit(maxDocs)
+      .get();
+
+    if (snap.empty) return res.json({ success: true, insights: [] });
+
+    const toJsDate = (v) => {
+      if (!v) return null;
+      if (typeof v.toDate === 'function') return v.toDate();     // Firestore Timestamp
+      if (v.seconds) return new Date(v.seconds * 1000);          // Timestamp-like
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const toDayKeyUTC = (d) => d.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const rows = snap.docs.map(doc => {
+      const w = doc.data() || {};
+
+      // Prefer an "actual activity time" if you store it, otherwise fall back.
+      const when =
+        toJsDate(w.completedAt) ||
+        toJsDate(w.startDate) ||
+        toJsDate(w.analyzedAt) ||
+        toJsDate(w.date) ||
+        toJsDate(w.scheduledDate);
+
+      return {
+        workoutId: doc.id,
+        when,
+        title: w.title || w.workoutTitle || w.name || 'Workout',
+        distance: typeof w.distance === 'number' ? w.distance : (typeof w.distanceKm === 'number' ? w.distanceKm : null),
+        duration: typeof w.movingTime === 'number' ? w.movingTime : (typeof w.duration === 'number' ? w.duration : null),
+        ai: w.aiAnalysis || null
+      };
+    }).filter(r => r.when && r.ai);
+
+    // Sort newest -> oldest by the best available timestamp
+    rows.sort((a, b) => b.when - a.when);
+
+    // Cluster into sessions
+    const sessions = [];
+    const gapMs = gapMinutes * 60 * 1000;
+
+    for (const r of rows) {
+      const dayKey = toDayKeyUTC(r.when);
+
+      const last = sessions[sessions.length - 1];
+      if (!last) {
+        sessions.push({
+          dayKey,
+          start: r.when,  // newest within session (because we iterate desc)
+          end: r.when,
+          parts: [r]
+        });
+        continue;
+      }
+
+      const sameDay = last.dayKey === dayKey;
+      const withinGap = (last.end - r.when) <= gapMs; // last.end is currently the "oldest" time seen in that session
+      if (sameDay && withinGap) {
+        last.end = r.when;
+        last.parts.push(r);
+      } else {
+        sessions.push({
+          dayKey,
+          start: r.when,
+          end: r.when,
+          parts: [r]
+        });
+      }
+    }
+
+    const scoreAgg = (parts) => {
+      // weighted average by duration (preferred) then distance; fallback = simple average
+      const scored = parts
+        .map(p => ({
+          score: (typeof p.ai?.matchscore === 'number') ? p.ai.matchscore : null,
+          weight: (typeof p.duration === 'number' && p.duration > 0) ? p.duration :
+                  (typeof p.distance === 'number' && p.distance > 0) ? p.distance : 1
+        }))
+        .filter(x => x.score !== null);
+
+      if (scored.length === 0) return null;
+
+      const wSum = scored.reduce((s, x) => s + x.weight, 0);
+      const sSum = scored.reduce((s, x) => s + x.score * x.weight, 0);
+      return wSum > 0 ? Math.round((sSum / wSum) * 10) / 10 : null;
+    };
+
+    const buildSessionInsight = (session, index) => {
+      const parts = session.parts;
+
+      const primary = parts.reduce((best, cur) => {
+        const bestKey = (best.duration ?? best.distance ?? 0);
+        const curKey = (cur.duration ?? cur.distance ?? 0);
+        return curKey > bestKey ? cur : best;
+      }, parts[0]);
+
+      const totalDistance = parts.reduce((s, p) => s + (typeof p.distance === 'number' ? p.distance : 0), 0);
+      const totalDuration = parts.reduce((s, p) => s + (typeof p.duration === 'number' ? p.duration : 0), 0);
+
+      const count = parts.length;
+      const activityName = count === 1
+        ? primary.title
+        : `${primary.title} (${count} parts)`;
+
+      // choose feedback/tip from the primary part (simple + readable)
+      const feedback = primary.ai?.feedback ?? null;
+      const tip = primary.ai?.tip ?? null;
+
+      return {
+        sessionId: `${session.dayKey}-${index}`,     // stable within this response
+        date: session.start.toISOString(),           // newest timestamp in the session
+        activityName,
+        matchscore: scoreAgg(parts),
+        feedback,
+        tip,
+
+        // helpful metadata for debugging / future “open details”
+        meta: {
+          parts: count,
+          workoutIds: parts.map(p => p.workoutId),
+          totalDistance: totalDistance || null,
+          totalDuration: totalDuration || null,
+          start: session.start.toISOString(),
+          end: session.end.toISOString(),
+          gapMinutes
+        }
+      };
+    };
+
+    // Return the most recent N sessions
+    const insights = sessions
+      .slice(0, days)
+      .map((s, idx) => buildSessionInsight(s, idx))
+      // keep only useful
+      .filter(x => x.matchscore !== null || x.feedback || x.tip);
+
+    return res.json({ success: true, insights });
+  } catch (error) {
+    console.error('Insights error:', error);
+
+    if (error.code === 9 || String(error.message || '').toLowerCase().includes('index')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Database index building. Please try again in a few minutes.'
+      });
+    }
+
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
 
 // Put this AFTER app.get('/api/workouts/calendar') and app.get('/api/workouts/latest-analysis')
 app.get('/api/workouts/:workoutId', authenticateToken, async (req, res) => {
@@ -10771,9 +10947,9 @@ app.get('/api/training/weekly-plan', authenticateToken, async (req, res) => {
 app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const offset = parseInt(req.query.offset || 0);
+    const offset = parseInt(req.query.offset || 0, 10) || 0;
 
-    // 1. STRICT: Only active race plan
+    // 1) STRICT: Only active race plan
     const planDoc = await db.collection('trainingplans')
       .where('userId', '==', userId)
       .where('isActive', '==', true)
@@ -10785,7 +10961,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       return res.json({
         success: false,
         message: 'No active race plan found.',
-        weeklyPlan: null, 
+        weeklyPlan: null,
         plan: null
       });
     }
@@ -10793,7 +10969,7 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     const planId = planDoc.docs[0].id;
     const plan = planDoc.docs[0].data();
 
-    // 2. Compute the requested week (Mon-Sun)
+    // 2) Compute requested week (Mon–Sun)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const currentDay = today.getDay() || 7; // 0=Sun -> 7
@@ -10807,110 +10983,189 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
-    // 3. Pull workouts for this plan/week
+    // Helpers
+    const daysOfWeek = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const toJsDate = (v) => (v?.toDate ? v.toDate() : (v ? new Date(v) : null));
+    const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    // 3) Compute meta (weekNumber, totalWeeks, phase, optional phase week-of)
+    const weeksArr = plan.planData?.weeks || [];
+    const totalWeeks = Array.isArray(weeksArr) && weeksArr.length ? weeksArr.length : 16;
+
+    const planStartDate = toJsDate(plan.createdAt) || new Date();
+    planStartDate.setHours(0,0,0,0);
+
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const diffTime = weekStart.getTime() - planStartDate.getTime();
+    let weekIndex = Math.floor(diffTime / msPerWeek);
+    if (weekIndex < 0) weekIndex = 0;
+    if (weekIndex > totalWeeks - 1) weekIndex = totalWeeks - 1;
+
+    const weekNumber = weekIndex + 1;
+
+    const phase =
+      (weeksArr?.[weekIndex]?.focus || weeksArr?.[weekIndex]?.phase || weeksArr?.[weekIndex]?.theme) ||
+      plan.phase ||
+      'Base Building';
+
+    // Optional: week X of Y within the same phase label
+    let phaseWeekNumber = null;
+    let phaseTotalWeeks = null;
+    if (Array.isArray(weeksArr) && weeksArr.length) {
+      const phaseKey = String(phase);
+      const phaseKeys = weeksArr.map(w => String(w?.focus || w?.phase || w?.theme || ''));
+      const phaseIndices = phaseKeys.map((k, i) => (k === phaseKey ? i : -1)).filter(i => i >= 0);
+      phaseTotalWeeks = phaseIndices.length || null;
+      phaseWeekNumber = phaseIndices.length ? (phaseIndices.indexOf(weekIndex) + 1) : null;
+    }
+
+    // 4) Pull workouts for this plan/week
     const workoutsSnap = await db.collection('workouts')
       .where('userId', '==', userId)
       .where('planId', '==', planId)
       .where('scheduledDate', '>=', weekStart)
       .where('scheduledDate', '<=', weekEnd)
-      .orderBy('scheduledDate', 'asc') // <--- FIX 1: Enforce Order
+      .orderBy('scheduledDate', 'asc')
       .get();
 
     let days = [];
 
     // =========================================================
-    // OPTION A: Workouts exist in DB (Happy Path)
+    // OPTION A: Workouts exist in DB (build a FULL 7-day grid)
     // =========================================================
     if (!workoutsSnap.empty) {
-        days = workoutsSnap.docs.map(doc => {
-            const w = doc.data();
-            const dateObj = w.scheduledDate?.toDate ? w.scheduledDate.toDate() : (w.scheduledDate ? new Date(w.scheduledDate) : null);
+      const workouts = workoutsSnap.docs.map(doc => {
+        const w = doc.data();
+        const d = toJsDate(w.scheduledDate);
+        return {
+          id: doc.id,
+          ...w,
+          _date: d
+        };
+      }).filter(w => w._date);
 
-            return {
-                date: dateObj ? dateObj.toISOString() : null,
-                label: w.dayName ? (w.dayName.charAt(0).toUpperCase() + w.dayName.slice(1).toLowerCase()) : null,
-                workout: {
-                    id: doc.id,
-                    title: w.title || w.workoutTitle || 'Workout',
-                    description: w.description || '',
-                    duration: w.duration || 0,
-                    distance: w.distance ?? null,
-                    intensity: w.intensity || 'easy',
-                    zones: w.zones || null,
-                    completed: w.completed || false,
-                    type: w.type || 'run'
-                }
-            };
+      const byDate = new Map();
+      workouts.forEach(w => byDate.set(dateKey(w._date), w));
+
+      days = daysOfWeek.map((label, idx) => {
+        const d = new Date(weekStart);
+        d.setDate(weekStart.getDate() + idx);
+
+        const hit = byDate.get(dateKey(d));
+        if (hit) {
+          return {
+            date: d.toISOString(),
+            label,
+            workout: {
+              id: hit.id,
+              title: hit.title || hit.workoutTitle || 'Workout',
+              description: hit.description || '',
+              duration: hit.duration || 0,
+              distance: hit.distance ?? null,
+              intensity: hit.intensity || 'easy',
+              zones: hit.zones || null,
+              completed: hit.completed || false,
+              type: hit.type || 'run'
+            }
+          };
+        }
+
+        // Fill missing days so frontend never crashes
+        return {
+          date: d.toISOString(),
+          label,
+          workout: {
+            id: `rest-${dateKey(d)}`,
+            title: 'Rest',
+            description: 'Rest and recovery.',
+            duration: 0,
+            distance: 0,
+            intensity: 'rest',
+            zones: null,
+            completed: false,
+            type: 'rest'
+          }
+        };
+      });
+    }
+
+    // =========================================================
+    // OPTION B: Lazy Repair (DB empty, JSON exists)
+    // =========================================================
+    else if (plan.planData && Array.isArray(plan.planData.weeks)) {
+      console.log(`⚠️ Workouts missing in DB for user ${userId} (Week Offset ${offset}). Repairing...`);
+
+      const weekData = plan.planData.weeks[weekIndex];
+      if (weekData && Array.isArray(weekData.days)) {
+        const batch = db.batch();
+
+        days = weekData.days.map((day, idx) => {
+          const wDate = new Date(weekStart);
+          wDate.setDate(weekStart.getDate() + idx);
+
+          const workoutData = {
+            userId,
+            planId,
+            title: day.type || 'Workout',
+            description: day.description || '',
+            distance: day.distanceKm || 0,
+            duration: day.durationMin || 0,
+            intensity: day.intensity || 'easy',
+            type: day.type || 'run',
+            dayName: day.dayName || daysOfWeek[idx],
+            scheduledDate: wDate,
+            completed: false,
+            createdAt: new Date(),
+            isRepaired: true
+          };
+
+          const newDocRef = db.collection('workouts').doc();
+          batch.set(newDocRef, workoutData);
+
+          return {
+            date: wDate.toISOString(),
+            label: daysOfWeek[idx], // normalize labels to Monday..Sunday
+            workout: {
+              id: newDocRef.id,
+              title: workoutData.title,
+              description: workoutData.description,
+              duration: workoutData.duration,
+              distance: workoutData.distance,
+              intensity: workoutData.intensity,
+              zones: null,
+              completed: false,
+              type: workoutData.type
+            }
+          };
         });
-    } 
-    // =========================================================
-    // OPTION B: "Lazy Repair" - JSON Exists but DB is empty
-    // =========================================================
-    else if (plan.planData && plan.planData.weeks) {
-        
-        console.log(`⚠️ Workouts missing in DB for user ${userId} (Week Offset ${offset}). Repairing...`);
 
-        // 1. Calculate which week index we are in RELATIVE TO PLAN START
-        const planStartDate = plan.createdAt.toDate ? plan.createdAt.toDate() : new Date(plan.createdAt);
-        
-        // FIX 2: Use weekStart (the requested week) instead of today
-        // This ensures if we ask for Next Week, we get Next Week's content
-        const diffTime = weekStart.getTime() - planStartDate.getTime(); 
-        
-        // Use Math.floor to get full weeks elapsed
-        let currentWeekIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-
-        // Bounds Check
-        if (currentWeekIndex < 0) currentWeekIndex = 0;
-        if (currentWeekIndex >= plan.planData.weeks.length) {
-            // Optional: If they ask for a week beyond the plan, show empty or maintenance
-            // For now, capping at the last week is a safe fallback
-            currentWeekIndex = plan.planData.weeks.length - 1;
-        }
-
-        const weekData = plan.planData.weeks[currentWeekIndex];
-
-        if (weekData && Array.isArray(weekData.days)) {
-            const batch = db.batch();
-            
-            days = weekData.days.map((day, idx) => {
-                const wDate = new Date(weekStart);
-                wDate.setDate(weekStart.getDate() + idx);
-                
-                const workoutData = {
-                    userId: userId,
-                    planId: planId,
-                    title: day.type || 'Workout',
-                    description: day.description || '',
-                    distance: day.distanceKm || 0,
-                    duration: day.durationMin || 0,
-                    intensity: day.intensity || 'easy',
-                    type: day.type || 'run',
-                    dayName: day.dayName || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][idx],
-                    scheduledDate: wDate,
-                    completed: false,
-                    createdAt: new Date(),
-                    isRepaired: true 
-                };
-
-                const newDocRef = db.collection('workouts').doc();
-                batch.set(newDocRef, workoutData);
-
-                return {
-                    date: wDate.toISOString(),
-                    label: workoutData.dayName,
-                    workout: {
-                        id: newDocRef.id,
-                        ...workoutData,
-                        zones: null
-                    }
-                };
+        // Ensure 7 days even if AI weekData.days is short
+        if (days.length < 7) {
+          for (let i = days.length; i < 7; i++) {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
+            days.push({
+              date: d.toISOString(),
+              label: daysOfWeek[i],
+              workout: {
+                id: `rest-${dateKey(d)}`,
+                title: 'Rest',
+                description: 'Rest and recovery.',
+                duration: 0,
+                distance: 0,
+                intensity: 'rest',
+                zones: null,
+                completed: false,
+                type: 'rest'
+              }
             });
-
-            batch.commit()
-                .then(() => console.log(`✅ Repaired week index ${currentWeekIndex} for user ${userId}`))
-                .catch(err => console.error("❌ Database repair failed", err));
+          }
         }
+
+        batch.commit()
+          .then(() => console.log(`✅ Repaired week index ${weekIndex} for user ${userId}`))
+          .catch(err => console.error('❌ Database repair failed', err));
+      }
     }
 
     return res.json({
@@ -10921,7 +11176,14 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
         coachType: plan.planData?.coachType || 'race',
         createdAt: plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt
       },
-      weeklyPlan: { days }
+      weeklyPlan: {
+        weekNumber,
+        totalWeeks,
+        phase,
+        phaseWeekNumber,
+        phaseTotalWeeks,
+        days
+      }
     });
 
   } catch (error) {

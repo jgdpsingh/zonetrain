@@ -1193,239 +1193,310 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
 
     // ADVANCED Weekly Plan for Race
-         async renderWeeklyPlanWidget(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+        async renderWeeklyPlanWidget(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
 
-    // Check flag for initial generation
-    const isGenerating = this.isPlanGenerating();
-    
-    // Ensure currentWeekOffset is initialized (add this to your constructor if missing)
-    if (typeof this.currentWeekOffset === 'undefined') {
-        this.currentWeekOffset = 0;
+  const isGenerating = this.isPlanGenerating();
+  if (typeof this.currentWeekOffset === 'undefined') this.currentWeekOffset = 0;
+
+  try {
+    const response = await fetch(`/api/race/weekly-plan?offset=${this.currentWeekOffset}`, {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await response.json();
+
+    // Generating state
+    if ((!data.success || !data.weeklyPlan) && isGenerating) {
+      container.innerHTML = `
+        <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+          <h3 class="text-lg font-bold text-gray-700 animate-pulse">Generating Schedule...</h3>
+          <p class="text-sm text-gray-500 mb-4">Please wait while we finalize your weekly workouts.</p>
+        </div>`;
+      return;
     }
 
-    try {
-        // Fetch with offset parameter
-        const response = await fetch(`/api/race/weekly-plan?offset=${this.currentWeekOffset}`, {
-            headers: { 'Authorization': `Bearer ${this.token}` }
+    // Success
+    if (data.success && data.weeklyPlan) {
+      // Normalize weeklyPlan.days -> planMap
+      let planMap = {};
+      if (Array.isArray(data.weeklyPlan.days)) {
+        data.weeklyPlan.days.forEach(day => {
+          if (day.label) planMap[day.label] = day;
         });
-        const data = await response.json();
+      } else if (data.weeklyPlan && typeof data.weeklyPlan === 'object') {
+        planMap = data.weeklyPlan;
+      }
 
-        // --- HANDLING GENERATING STATE ---
-        if ((!data.success || !data.weeklyPlan) && isGenerating) {
-             container.innerHTML = `
-                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-                    <h3 class="text-lg font-bold text-gray-700 animate-pulse">Generating Schedule...</h3>
-                    <p class="text-sm text-gray-500 mb-4">Please wait while we finalize your weekly workouts.</p>
-                </div>`;
-             return;
-        }
-
-        // --- SUCCESS CASE ---
-        if (data.success && data.weeklyPlan) {
-            console.log('✅ Plan found. Rendering RACE weekly schedule.');
-
-            // Normalize data structure
-            let planMap = {};
-            if (data.weeklyPlan.days && Array.isArray(data.weeklyPlan.days)) {
-                data.weeklyPlan.days.forEach(day => {
-                    if (day.label) planMap[day.label] = day;
-                });
-            } else if (Object.keys(data.weeklyPlan).length > 0) {
-                planMap = data.weeklyPlan;
-            }
-
-            if (Object.keys(planMap).length > 0) {
-                this.clearPlanGenerating();
-
-                // Navigation Header
-                const dateRange = data.weekRange || 'Current Week';
-                const navHeader = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding: 0 5px;">
-                        <button onclick="window.dashboardWidgets.changeWeek(-1)" 
-                                style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px;">
-                                &larr; Prev Week
-                        </button>
-                        <span style="font-weight:700; color:#374151; font-size:14px;">${dateRange}</span>
-                        <button onclick="window.dashboardWidgets.changeWeek(1)" 
-                                style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px;">
-                                Next Week &rarr;
-                        </button>
-                    </div>
-                `;
-
-                // Combine Nav + Grid
-                container.innerHTML = navHeader + this.raceWeeklyTemplate(planMap);
-                return;
-            }
-        } 
-
-        // --- FALLBACK: CHECK IF PLAN EXISTS BUT WEEK FAILED ---
-        try {
-          const planRes = await fetch('/api/race-goals/plan/current', {
-            headers: { 'Authorization': `Bearer ${this.token}` }
-          });
-
-          if (planRes.ok) {
-            const planData = await planRes.json();
-            if (planData.success && planData.plan) {
-              this.clearPlanGenerating();
-              container.innerHTML = `
-                <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-                  <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
-                  <p class="text-sm text-gray-500 mb-4">
-                    Your race plan exists, but this week's layout couldn't be loaded right now.
-                  </p>
-                  <button onclick="window.dashboardWidgets.renderWeeklyPlanWidget('${containerId}')"
-                    class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-                    Retry
-                  </button>
-                </div>`;
-              return;
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-
-        // --- EMPTY STATE (No Plan) ---
-        container.innerHTML = `
-          <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
-            <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
-            <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
-            <button onclick="window.location.href='/ai-onboarding.html'"
-              class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
-              Create Race Plan
-            </button>
-          </div>`;
-          
+      if (Object.keys(planMap).length > 0) {
         this.clearPlanGenerating();
 
-    } catch (error) {
-        console.error("Race Plan Error", error);
-        container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
+        // IMPORTANT: inject nav context into meta so raceWeeklyTemplate renders it
+        const meta = {
+          ...data.weeklyPlan,
+          containerId, // so Prev/Next can re-render the right widget
+          weekOffset: this.currentWeekOffset,
+          dateRangeLabel: this.getWeekRangeLabel(this.currentWeekOffset)
+        };
+
+        // NO external navHeader anymore
+        container.innerHTML = this.raceWeeklyTemplate(planMap, meta);
+        return;
+      }
+
+      // weeklyPlan exists but empty
+      this.clearPlanGenerating();
     }
+
+    // Fallback: plan exists but weekly view failed
+    try {
+      const planRes = await fetch('/api/race-goals/plan/current', {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+
+      if (planRes.ok) {
+        const planData = await planRes.json();
+        if (planData.success && planData.plan) {
+          this.clearPlanGenerating();
+          container.innerHTML = `
+            <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+              <h3 class="text-lg font-bold text-gray-700">Weekly view unavailable</h3>
+              <p class="text-sm text-gray-500 mb-4">
+                Your race plan exists, but this week's layout couldn't be loaded right now.
+              </p>
+              <button onclick="window.dashboardWidgets.renderWeeklyPlanWidget('${containerId}')"
+                class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+                Retry
+              </button>
+            </div>`;
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Empty state (no plan)
+    container.innerHTML = `
+      <div class="text-center py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl">
+        <h3 class="text-lg font-bold text-gray-700">Ready to Race?</h3>
+        <p class="text-sm text-gray-500 mb-4">Set your target race to generate your plan.</p>
+        <button onclick="window.location.href='/ai-onboarding.html'"
+          class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700">
+          Create Race Plan
+        </button>
+      </div>`;
+
+    this.clearPlanGenerating();
+  } catch (error) {
+    console.error('Race Plan Error', error);
+    container.innerHTML = `<p class="text-red-500 text-center">Failed to load plan.</p>`;
   }
+}
 
-  // Helper method for navigation
-  changeWeek(delta) {
-      if (typeof this.currentWeekOffset === 'undefined') this.currentWeekOffset = 0;
-      this.currentWeekOffset += delta;
-      // Re-render the specific container
-      this.renderWeeklyPlanWidget('weekly-plan-container');
-  }
+// --- Helpers (inside class) ---
+
+getWeekRangeLabel(offset = 0) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const jsDay = today.getDay() || 7; // 1..7
+  const diffToMon = 1 - jsDay;
+
+  const start = new Date(today);
+  start.setDate(today.getDate() + diffToMon + (offset * 7));
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  const fmt = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+changeWeek(delta, containerId = 'weekly-plan-container') {
+  if (typeof this.currentWeekOffset === 'undefined') this.currentWeekOffset = 0;
+  this.currentWeekOffset += delta;
+  this.renderWeeklyPlanWidget(containerId);
+}
 
 
 
+raceWeeklyTemplate(planMap, meta = {}) {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-  raceWeeklyTemplate(planMap) {
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    
-    // Explicit Grid Style for Desktop (7 columns)
-    const gridStyle = `
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 12px;
-        width: 100%;
-        margin-top: 10px;
+  // --- Header meta (safe defaults) ---
+  const weekNumber = meta.weekNumber ?? null;
+  const totalWeeks = meta.totalWeeks ?? null;
+  const phase = meta.phase ?? null;
+
+  const phaseWeekNumber = meta.phaseWeekNumber ?? null;
+  const phaseTotalWeeks = meta.phaseTotalWeeks ?? null;
+
+  // NEW: navigation context
+  const containerId = meta.containerId || 'weekly-plan-container';
+  const dateRangeLabel = meta.dateRangeLabel || 'Current Week';
+
+  const weekText =
+    (weekNumber && totalWeeks) ? `Week ${weekNumber} of ${totalWeeks}` :
+    (weekNumber ? `Week ${weekNumber}` : '');
+
+  const phaseText =
+    (phase && phaseWeekNumber && phaseTotalWeeks)
+      ? `${phase} (Week ${phaseWeekNumber} of ${phaseTotalWeeks})`
+      : (phase ? String(phase) : '');
+
+  const headerLine = [weekText, phaseText].filter(Boolean).join(' • ');
+
+  // Explicit Grid Style for Desktop (7 columns)
+  const gridStyle = `
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 12px;
+    width: 100%;
+    margin-top: 10px;
+  `;
+
+  const items = days.map(day => {
+    const data = planMap[day] || {};
+    const workout = data.workout || {};
+
+    // 1) Determine type
+    const title = workout.title ? workout.title.toLowerCase() : 'rest';
+    const type = workout.type ? workout.type.toLowerCase() : '';
+    const isRest = title.includes('rest');
+
+    // 2) Assign CSS class + strip color
+    let typeClass = 'type-easy';
+    let stripColor = '#3b82f6';
+
+    if (isRest) {
+      typeClass = 'type-rest';
+      stripColor = '#9ca3af';
+    } else if (title.includes('long') || type === 'long_run') {
+      typeClass = 'type-long';
+      stripColor = '#8b5cf6';
+    } else if (title.includes('interval') || title.includes('tempo') || title.includes('speed')) {
+      typeClass = 'type-quality';
+      stripColor = '#f97316';
+    }
+
+    // 3) Format volume
+    let volumeDisplay = '-';
+    if (workout.distance) volumeDisplay = `${workout.distance} km`;
+    else if (workout.duration) volumeDisplay = `${workout.duration} min`;
+
+    // 4) Click handler
+    const clickAction = (workout.id && !isRest)
+      ? `onclick="window.openWorkoutModal ? window.openWorkoutModal('${day}', '${workout.id}') : console.log('Details not implemented')"`
+      : ``;
+
+    const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
+
+    // 5) Card styles
+    const cardStyle = `
+      ${cursorStyle}
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 110px;
+      position: relative;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      transition: transform 0.2s;
     `;
 
-    const items = days.map(day => {
-        const data = planMap[day] || {};
-        const workout = data.workout || {};
-        
-        // 1. Determine Type
-        const title = workout.title ? workout.title.toLowerCase() : 'rest';
-        const type = workout.type ? workout.type.toLowerCase() : '';
-        const isRest = title.includes('rest');
-        
-        // 2. Assign CSS Class based on logic
-        let typeClass = 'type-easy'; // Default fallback
-        let stripColor = '#3b82f6'; // Default blue
-        
-        if (isRest) {
-            typeClass = 'type-rest';
-            stripColor = '#9ca3af'; // Grey
-        } else if (title.includes('long') || type === 'long_run') {
-            typeClass = 'type-long';
-            stripColor = '#8b5cf6'; // Purple
-        } else if (title.includes('interval') || title.includes('tempo') || title.includes('speed')) {
-            typeClass = 'type-quality';
-            stripColor = '#f97316'; // Orange
-        }
-        
-        // 3. Format Volume
-        let volumeDisplay = '-';
-        if (workout.distance) {
-            volumeDisplay = `${workout.distance} km`;
-        } else if (workout.duration) {
-            volumeDisplay = `${workout.duration} min`;
-        }
+    return `
+      <div ${clickAction} class="race-card ${typeClass}" style="${cardStyle}">
+        <div class="race-strip" style="position:absolute; left:0; top:0; bottom:0; width:4px; background:${stripColor};"></div>
 
-        // 4. Click Handler & Cursor Style
-        // Ensure window.openWorkoutModal exists in your code or replace with window.openWorkoutDetails
-        const clickAction = (workout.id && !isRest) 
-            ? `onclick="window.openWorkoutModal ? window.openWorkoutModal('${day}', '${workout.id}') : console.log('Details not implemented')"` 
-            : ``;
-        
-        const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
+        <div style="padding:10px 10px 10px 14px; display:flex; flex-direction:column; height:100%;">
+          <div class="race-day-label" style="font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; margin-bottom:4px;">
+            ${day.substring(0, 3)}
+          </div>
 
-        // 5. Card Inline Styles
-        const cardStyle = `
-            ${cursorStyle}
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            min-height: 110px;
-            position: relative;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            transition: transform 0.2s;
-        `;
+          <div class="race-title" style="font-size:13px; font-weight:600; color:#111827; line-height:1.3; margin-bottom:auto;">
+            ${workout.title || 'Rest'}
+          </div>
 
-        // 6. Render Card
-        return `
-            <div ${clickAction} class="race-card ${typeClass}" style="${cardStyle}">
-                <!-- Colored Strip -->
-                <div class="race-strip" style="position:absolute; left:0; top:0; bottom:0; width:4px; background:${stripColor};"></div>
-                
-                <div style="padding: 10px 10px 10px 14px; display:flex; flex-direction:column; height:100%;">
-                    <!-- Day Label -->
-                    <div class="race-day-label" style="font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; margin-bottom:4px;">
-                        ${day.substring(0, 3)}
-                    </div>
-                    
-                    <!-- Title -->
-                    <div class="race-title" style="font-size:13px; font-weight:600; color:#111827; line-height:1.3; margin-bottom:auto;">
-                        ${workout.title || 'Rest'}
-                    </div>
-                    
-                    <!-- Stats Badge -->
-                    <div class="race-stats" style="margin-top:8px;">
-                        <span class="race-badge" style="background:${isRest ? '#f3f4f6' : '#eff6ff'}; color:${isRest ? '#9ca3af' : '#1d4ed8'}; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;">
-                            ${volumeDisplay}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    // Responsive Wrapper: Mobile Stacking
-    const responsiveStyle = `
-        <style>
-            @media (max-width: 768px) {
-                .race-weekly-grid { grid-template-columns: repeat(1, 1fr) !important; }
-            }
-        </style>
+          <div class="race-stats" style="margin-top:8px;">
+            <span class="race-badge"
+              style="background:${isRest ? '#f3f4f6' : '#eff6ff'}; color:${isRest ? '#9ca3af' : '#1d4ed8'}; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;">
+              ${volumeDisplay}
+            </span>
+          </div>
+        </div>
+      </div>
     `;
+  }).join('');
 
-    return `${responsiveStyle}<div class="race-weekly-grid" style="${gridStyle}">${items}</div>`;
-  }
+  const responsiveStyle = `
+    <style>
+      @media (max-width: 768px) {
+        .race-weekly-grid { grid-template-columns: repeat(1, 1fr) !important; }
 
+        .weekly-plan-header {
+          flex-direction: column !important;
+          align-items: stretch !important;
+        }
+
+        .weekly-plan-actions {
+          justify-content: space-between !important;
+          width: 100% !important;
+        }
+
+        .weekly-plan-range {
+          text-align: center !important;
+          flex: 1 !important;
+        }
+      }
+    </style>
+  `;
+
+  // Header contains: title/meta + prev/next/dateRange + calendar button
+  const headerHtml = `
+    <div class="widget-header weekly-plan-header"
+         style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:8px;">
+
+      <div style="flex:1; min-width:0;">
+        <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <h3 style="margin:0; font-size:16px; font-weight:800; color:#111827;">Weekly Plan</h3>
+          ${headerLine ? `<div style="font-size:12px; color:#6b7280;">${headerLine}</div>` : ``}
+        </div>
+
+        <div class="weekly-plan-actions"
+             style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+          <button onclick="window.dashboardWidgets.changeWeek(-1, '${containerId}')"
+            style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px; padding:0;">
+            &larr; Prev
+          </button>
+
+          <span class="weekly-plan-range"
+            style="font-weight:700; color:#374151; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${dateRangeLabel}
+          </span>
+
+          <button onclick="window.dashboardWidgets.changeWeek(1, '${containerId}')"
+            style="background:none; border:none; color:#6b7280; font-weight:600; cursor:pointer; font-size:14px; padding:0;">
+            Next &rarr;
+          </button>
+        </div>
+      </div>
+
+      <button onclick="window.toggleCalendar(event)" class="btn-secondary" style="white-space:nowrap;">
+        View Full Calendar
+      </button>
+    </div>
+  `;
+
+  return `
+    ${responsiveStyle}
+    <div class="widget">
+      ${headerHtml}
+      <div class="race-weekly-grid" style="${gridStyle}">${items}</div>
+    </div>
+  `;
+}
 
 
 
@@ -1697,7 +1768,7 @@ async renderAIInsightWidget(containerId) {
                 </div>
                 
                 <div style="margin-top:16px; text-align:right;">
-                     <button onclick="loadPreviousInsights()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:12px; font-weight:600; text-decoration:underline;">
+                     <button onclick="window.dashboardWidgets.loadPreviousInsights()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:12px; font-weight:600; text-decoration:underline;">
                         View Past 7 Days
                      </button>
                 </div>
@@ -1724,6 +1795,253 @@ async renderAIInsightWidget(containerId) {
             `;
         }
     }
+}
+
+// --- Coach Insight: Past 7 Days (Modal + List) ---
+
+ensureInsightsModal() {
+  if (document.getElementById('insights-modal')) return;
+
+  const style = document.createElement('style');
+  style.id = 'insights-modal-styles';
+  style.textContent = `
+    #insights-modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: none; align-items: center; justify-content: center;
+      z-index: 99999;
+    }
+    #insights-modal .modal-card {
+      width: min(680px, 92vw);
+      max-height: 80vh;
+      overflow: auto;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 20px 70px rgba(0,0,0,0.25);
+      border: 1px solid #e5e7eb;
+    }
+    #insights-modal .modal-header {
+      display:flex; justify-content: space-between; align-items:center;
+      padding: 14px 16px; border-bottom: 1px solid #e5e7eb;
+    }
+    #insights-modal .modal-title { font-weight: 800; font-size: 14px; color:#111827; }
+    #insights-modal .modal-close {
+      border: none; background: transparent; cursor: pointer;
+      font-size: 20px; line-height: 1; color:#6b7280;
+    }
+    #insights-modal .modal-body { padding: 12px 16px 16px; }
+    #insights-modal .insight-row {
+      display:flex; justify-content: space-between; gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #e5e7eb; border-radius: 10px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      background: #fafafa;
+    }
+    #insights-modal .insight-row:hover { background: #f3f4f6; }
+    #insights-modal .insight-left { display:flex; flex-direction: column; gap: 2px; }
+    #insights-modal .insight-date { font-size: 12px; font-weight: 700; color:#374151; }
+    #insights-modal .insight-name { font-size: 12px; color:#6b7280; }
+    #insights-modal .insight-score {
+      font-size: 12px; font-weight: 900; padding: 2px 8px;
+      border-radius: 999px; border: 1px solid #e5e7eb;
+      color:#111827; background:#fff;
+      height: fit-content;
+    }
+    #insights-modal .empty { color:#6b7280; font-size: 13px; padding: 12px 0; }
+  `;
+  document.head.appendChild(style);
+
+  const modalHtml = `
+    <div id="insights-modal" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title">Coach Insights — Past 7 Days</div>
+          <button class="modal-close" onclick="window.dashboardWidgets.closeInsightsModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="insights-modal-content" class="empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  // close modal when clicking backdrop
+  const modal = document.getElementById('insights-modal');
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) this.closeInsightsModal();
+  });
+
+  // close on Esc
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') this.closeInsightsModal();
+  });
+}
+
+openInsightsModal() {
+  this.ensureInsightsModal();
+  const modal = document.getElementById('insights-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+closeInsightsModal() {
+  const modal = document.getElementById('insights-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+escapeHtml(str = '') {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+// Reuse this to render the main Coach Insight card for any selected day
+renderCoachInsightCard(insight = {}) {
+  // Support BOTH:
+  // 1) old: { activityName, date, analysis: { matchscore, feedback, tip } }
+  // 2) new: { activityName, date, matchscore, feedback, tip, meta }
+  const activityName = insight.activityName || insight.activity || 'Workout';
+  const date = insight.date;
+
+  const matchscore =
+    (typeof insight.matchscore === 'number') ? insight.matchscore :
+    (typeof insight.analysis?.matchscore === 'number') ? insight.analysis.matchscore :
+    null;
+
+  const feedback =
+    insight.feedback ??
+    insight.analysis?.feedback ??
+    null;
+
+  const tip =
+    insight.tip ??
+    insight.analysis?.tip ??
+    null;
+
+  const dateStr = date
+    ? new Date(date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+    : '';
+
+  // Color logic: only if we have a real numeric score
+  let scoreColor = '#10b981';
+  if (typeof matchscore === 'number') {
+    if (matchscore < 5) scoreColor = '#ef4444';
+    else if (matchscore < 8) scoreColor = '#f59e0b';
+  }
+
+  const scoreText = (typeof matchscore === 'number') ? `${matchscore}/10` : '—';
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:600;color:#6b7280;background:#f3f4f6;padding:4px 8px;border-radius:12px">
+        ${this.escapeHtml(activityName)} • ${this.escapeHtml(dateStr)}
+      </span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#6b7280;font-weight:600">Score</span>
+        <span style="font-size:14px;font-weight:800;color:${scoreColor};border:1px solid ${scoreColor};padding:2px 6px;border-radius:6px">
+          ${this.escapeHtml(scoreText)}
+        </span>
+      </span>
+    </div>
+
+    <div style="background:#f9fafb;border-radius:8px;padding:12px;margin-bottom:12px;border:1px solid #e5e7eb">
+      <p style="margin:0;font-size:14px;color:#374151;line-height:1.5">
+        ${this.escapeHtml(feedback || 'No feedback available.')}
+      </p>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <span style="font-size:16px">💡</span>
+      <p style="margin:0;font-size:13px;color:#4b5563;font-style:italic;line-height:1.4">
+        <strong>Tip:</strong> ${this.escapeHtml(tip || 'Keep consistent!')}
+      </p>
+    </div>
+
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="window.dashboardWidgets.loadPreviousInsights()" style="background:none;border:none;color:#667eea;cursor:pointer;font-size:12px;font-weight:600;text-decoration:underline">
+        View Past 7 Days
+      </button>
+    </div>
+  `;
+}
+
+
+async loadPreviousInsights() {
+  this.openInsightsModal();
+
+  const content = document.getElementById('insights-modal-content');
+  if (content) content.innerHTML = `<div class="empty">Loading…</div>`;
+
+  try {
+    const res = await fetch(`/api/workouts/insights?days=7&gapMinutes=30`, {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+
+    const data = await res.json();
+
+    if (!data?.success || !Array.isArray(data.insights) || data.insights.length === 0) {
+      if (content) content.innerHTML = `<div class="empty">No insights found for the past 7 days.</div>`;
+      return;
+    }
+
+    // Cache so we don't inline JSON into onclick
+    this._cachedInsights = data.insights;
+
+    const rowsHtml = data.insights.map((it, idx) => {
+      const dateStr = it.date
+        ? new Date(it.date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+        : 'Unknown date';
+
+      const scoreVal = (typeof it.matchscore === 'number') ? it.matchscore : null;
+      const scoreText = (scoreVal === null) ? '—' : `${scoreVal}/10`;
+
+      return `
+        <div class="insight-row" data-idx="${idx}">
+          <div class="insight-left">
+            <div class="insight-date">${this.escapeHtml(dateStr)}</div>
+            <div class="insight-name">${this.escapeHtml(it.activityName || 'Workout')}</div>
+          </div>
+          <div class="insight-score">${this.escapeHtml(scoreText)}</div>
+        </div>
+      `;
+    }).join('');
+
+    if (content) content.innerHTML = rowsHtml;
+
+    // Attach click handlers after DOM insert
+    content.querySelectorAll('.insight-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const idx = parseInt(row.getAttribute('data-idx'), 10);
+        this.selectInsightFromModalIndex(idx);
+      });
+    });
+
+  } catch (err) {
+    console.error('loadPreviousInsights error:', err);
+    if (content) content.innerHTML = `<div class="empty">Failed to load past insights. Check console.</div>`;
+  }
+}
+
+
+// Called from inline onclick (kept simple, uses JSON payload)
+selectInsightFromModalIndex(idx) {
+  try {
+    const insight = Array.isArray(this._cachedInsights) ? this._cachedInsights[idx] : null;
+    if (!insight) return;
+
+    const main = document.getElementById('ai-insight-content');
+    if (main) {
+      main.style.display = 'block';
+      main.innerHTML = this.renderCoachInsightCard(insight);
+    }
+
+    this.closeInsightsModal();
+  } catch (e) {
+    console.error('selectInsightFromModalIndex error:', e);
+  }
 }
 
 
