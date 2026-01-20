@@ -11360,23 +11360,20 @@ app.get('/api/training-plan/recovery-suggestion', authenticateToken, async (req,
 
 
 // Update Training Preferences (e.g. Long Run Day)
+
 app.post('/api/training-plan/update-preferences', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { longRunDay, daysPerWeek } = req.body; // e.g., "Sunday"
+  try {
+    const userId = req.user.userId;
+    const { longRunDay, daysPerWeek } = req.body;
 
-        // Call service to regenerate or shift the current plan
-        const result = await trainingPlanService.updateSchedulePreferences(
-            userId,
-            { longRunDay, daysPerWeek }
-        );
-
-        res.json({ success: true, message: "Plan updated successfully", plan: result });
-    } catch (error) {
-        console.error('Update preferences error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
+    const result = await trainingPlanService.updateSchedulePreferences(userId, { longRunDay, daysPerWeek });
+    return res.json({ success: true, message: "Plan updated successfully", plan: result });
+  } catch (error) {
+    console.error("Update preferences error", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
 });
+
 
 
 console.log('✅ Strava analytics and notification routes initialized');
