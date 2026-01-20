@@ -22,6 +22,8 @@ class RaceDashboardWidgets {
   this.renderPersonalRecords('personal-records-container');
   this.renderTrainingPlanOverview('training-plan-container', 'race');
 
+  this.renderHRVWidget('hrv-widget-container');
+
         // Render Widgets
         this.renderRaceCountdown('race-countdown-widget'); 
         this.renderWeeklyPlanWidget('weekly-plan-container');
@@ -177,6 +179,38 @@ clearPlanGenerating() {
         </div>
     `;
 }
+
+
+renderHRVWidget(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="widget hrv-widget">
+                <div class="widget-header" style="margin-bottom: 15px; border-bottom: none; padding-bottom: 0;">
+                    <h3>❤️ Log HRV</h3>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input 
+                        type="number" 
+                        id="hrv-input" 
+                        min="1" 
+                        max="300" 
+                        placeholder="e.g. 55" 
+                        style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 16px; width: 100%;"
+                    />
+                    <button 
+                        onclick="window.dashboardWidgets.logHRV()" 
+                        style="padding: 10px 16px; border-radius: 8px; border: none; background: #10b981; color: white; font-weight: 600; cursor: pointer; transition: background 0.2s;">
+                        Save
+                    </button>
+                </div>
+                <div id="hrv-status" style="margin-top: 8px; font-size: 13px; color: #6b7280; min-height: 20px;">
+                    Enter your morning HRV score.
+                </div>
+            </div>
+        `;
+    }
 
     // --- NEW METHOD: POPULATE TOP STATS ---
     async updateDashboardStats() {

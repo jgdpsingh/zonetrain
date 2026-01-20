@@ -1114,3 +1114,46 @@
 }
 
 }
+
+/* --- NEW DASHBOARD LAYOUT --- */
+
+/* Zone 1: Active (Today's Focus) */
+.dashboard-section-active {
+    display: grid;
+    grid-template-columns: 2fr 1fr; /* 2/3 for Workout, 1/3 for Sidebar */
+    gap: 24px;
+    margin-bottom: 24px;
+    align-items: start;
+}
+
+.active-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Zone 2: Planning */
+.dashboard-section-planning {
+    margin-bottom: 24px;
+}
+
+/* Zone 3: Analytics (Keep existing grid but ensure spacing) */
+.dashboard-section-analytics {
+    margin-top: 24px;
+}
+
+/* Responsive: Stack columns on tablets/mobile */
+@media (max-width: 1024px) {
+    .dashboard-section-active {
+        grid-template-columns: 1fr; /* Stack vertically */
+    }
+    
+    /* On mobile, put the Sidebar (Insight/Weather) ABOVE the workout? 
+       Usually workout first is better, so default stacking order works. */
+}
+
+/* Fix for Sidebar Widgets to look compact */
+.active-sidebar .widget {
+    margin-bottom: 0; /* Let flex gap handle spacing */
+    padding: 20px;    /* Slightly tighter padding */
+}
