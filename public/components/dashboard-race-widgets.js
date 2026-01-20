@@ -1385,9 +1385,10 @@ raceWeeklyTemplate(planMap, meta = {}) {
     else if (workout.duration) volumeDisplay = `${workout.duration} min`;
 
     // 4) Click handler
-    const clickAction = (workout.id && !isRest)
-      ? `onclick="window.openWorkoutModal ? window.openWorkoutModal('${day}', '${workout.id}') : console.log('Details not implemented')"`
-      : ``;
+    const clickAction =
+  workout.id && !isRest
+    ? `onclick="window.openWorkoutModal('${workout.id}')"`
+    : "";
 
     const cursorStyle = (workout.id && !isRest) ? 'cursor: pointer;' : 'cursor: default;';
 

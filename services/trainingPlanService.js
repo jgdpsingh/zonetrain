@@ -398,37 +398,36 @@ async getCurrentPlan(userId) {
     }
 
     // trainingPlanService.js
-async updateSchedulePreferences(userId, preferences) {
-  const { longRunDay, daysPerWeek } = preferences || {};
+async updateSchedulePreferences(userId, preferences = {}) {
+  const { longRunDay, daysPerWeek } = preferences;
+
   const daysOfWeek = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
   const targetDayIndex = daysOfWeek.indexOf(longRunDay);
   if (targetDayIndex === -1) throw new Error("Invalid day selected");
 
-  // 1) Get active plan using the canonical logic (trainingplans + isActive)
+  // Active plan (canonical)
   const plan = await this.getCurrentPlan(userId);
   if (!plan?.id) throw new Error("No active plan found");
   const planId = plan.id;
 
-  // 2) Fetch future workouts (use scheduledDate, not date)
-  const workoutsRef = this.db.collection("workouts");
-  const today = new Date(); today.setHours(0,0,0,0);
+  const planRef = this.db.collection("trainingplans").doc(planId);
 
-  const futureSnap = await workoutsRef
+  // Build preference update WITHOUT undefined
+  const prefUpdate = { longRunDay };
+  if (Number.isFinite(daysPerWeek)) prefUpdate.daysPerWeek = daysPerWeek;
+
+  // Future workouts (canonical field name)
+  const today = new Date(); today.setHours(0,0,0,0);
+  const futureSnap = await this.db.collection("workouts")
     .where("userId", "==", userId)
     .where("planId", "==", planId)
     .where("scheduledDate", ">=", today)
     .orderBy("scheduledDate", "asc")
     .get();
 
-  // Always persist preference even if we don't reshuffle anything
-  const planRef = this.db.collection("trainingplans").doc(planId);
-
+  // If no workouts, just save prefs (merge)
   if (futureSnap.empty) {
-    await planRef.set({
-      preferences: { longRunDay, daysPerWeek },
-      updatedAt: new Date()
-    }, { merge: true });
-
+    await planRef.set({ preferences: prefUpdate, updatedAt: new Date() }, { merge: true });
     return { success: true, message: "Preferences saved (no future workouts to update)." };
   }
 
@@ -439,25 +438,23 @@ async updateSchedulePreferences(userId, preferences) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 
-  // Group by Monday of each week (based on scheduledDate)
+  // Group docs by Monday of their week
   const byWeek = {};
   for (const doc of futureSnap.docs) {
     const d = toJsDate(doc.data().scheduledDate);
     if (!d) continue;
-    const day = d.getDay(); // 0=Sun,1=Mon,...
+    const day = d.getDay(); // 0=Sun
     const diffToMon = day === 0 ? -6 : 1 - day;
     const monday = new Date(d);
     monday.setHours(0,0,0,0);
     monday.setDate(monday.getDate() + diffToMon);
-    const key = monday.toISOString(); // stable key
-    if (!byWeek[key]) byWeek[key] = [];
-    byWeek[key].push(doc);
+    const key = monday.toISOString();
+    (byWeek[key] ||= []).push(doc);
   }
 
   const batch = this.db.batch();
 
   for (const [weekStartStr, weeklyDocs] of Object.entries(byWeek)) {
-    // Identify key sessions
     let longRunDoc = null;
     let qualityDoc = null;
 
@@ -468,13 +465,8 @@ async updateSchedulePreferences(userId, preferences) {
 
       const isLong = title.includes("long") || type.includes("long");
       const isQuality =
-        title.includes("interval") ||
-        title.includes("tempo") ||
-        title.includes("threshold") ||
-        title.includes("fartlek") ||
-        type.includes("interval") ||
-        type.includes("tempo") ||
-        type.includes("threshold");
+        title.includes("interval") || title.includes("tempo") || title.includes("threshold") || title.includes("fartlek") ||
+        type.includes("interval") || type.includes("tempo") || type.includes("threshold");
 
       if (isLong) longRunDoc = doc;
       else if (isQuality) qualityDoc = doc;
@@ -484,7 +476,6 @@ async updateSchedulePreferences(userId, preferences) {
 
     const weekStart = new Date(weekStartStr);
 
-    // Target dates within that week
     const newLongRunDate = new Date(weekStart);
     newLongRunDate.setDate(weekStart.getDate() + targetDayIndex);
 
@@ -496,10 +487,15 @@ async updateSchedulePreferences(userId, preferences) {
 
     const longRunDate = toJsDate(longRunDoc.data().scheduledDate);
 
-    // 1) Move Long Run by swapping content with target day doc
+    // Track which doc becomes the "new long run day" after swapping
+    let longRunTargetDocId = longRunDoc.id;
+
+    // (1) Move Long Run by swapping workout CONTENT
     if (longRunDate && !isSameDate(longRunDate, newLongRunDate)) {
       const targetDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newLongRunDate));
       if (targetDoc && targetDoc.id !== longRunDoc.id) {
+        longRunTargetDocId = targetDoc.id;
+
         const src = longRunDoc.data();
 
         batch.update(targetDoc.ref, {
@@ -524,7 +520,7 @@ async updateSchedulePreferences(userId, preferences) {
       }
     }
 
-    // 2) Move Quality if it ends up adjacent to the (new) long run
+    // (2) Move Quality if it ends up adjacent to the NEW long run day
     if (qualityDoc) {
       const qDate = toJsDate(qualityDoc.data().scheduledDate);
       const diffDays = (qDate && newLongRunDate)
@@ -533,7 +529,12 @@ async updateSchedulePreferences(userId, preferences) {
 
       if (diffDays < 2) {
         const targetQDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newQualityDate));
-        if (targetQDoc && targetQDoc.id !== qualityDoc.id && targetQDoc.id !== longRunDoc.id) {
+        if (
+          targetQDoc &&
+          targetQDoc.id !== qualityDoc.id &&
+          targetQDoc.id !== longRunDoc.id &&
+          targetQDoc.id !== longRunTargetDocId
+        ) {
           const srcQ = qualityDoc.data();
 
           batch.update(targetQDoc.ref, {
@@ -560,23 +561,12 @@ async updateSchedulePreferences(userId, preferences) {
     }
   }
 
+  // Save preferences in the SAME commit as reshuffle
+  batch.set(planRef, { preferences: prefUpdate, updatedAt: new Date() }, { merge: true });
+
   await batch.commit();
-
-const prefUpdate = { longRunDay };
-
-// only include if it exists (and is a valid number)
-if (Number.isFinite(preferences?.daysPerWeek)) {
-  prefUpdate.daysPerWeek = preferences.daysPerWeek;
+  return { success: true, message: "Preferences saved and schedule updated." };
 }
-
-await planRef.set(
-  {
-    preferences: prefUpdate,
-    updatedAt: new Date()
-  },
-  { merge: true }
-)}
-
 
     // --- Helpers ---
 
