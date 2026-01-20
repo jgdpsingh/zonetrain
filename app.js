@@ -5277,8 +5277,8 @@ app.get('/api/workouts/insights', authenticateToken, async (req, res) => {
 
     const snap = await db.collection('workouts')
       .where('userId', '==', userId)
-      .where('analyzedAt', '>=', since)
-      .orderBy('analyzedAt', 'desc')
+      .where('scheduledDate', '>=', since)
+      .orderBy('scheduledDate', 'desc')
       .limit(maxDocs)
       .get();
 

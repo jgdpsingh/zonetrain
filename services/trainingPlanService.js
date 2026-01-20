@@ -427,7 +427,15 @@ async updateSchedulePreferences(userId, preferences = {}) {
 
   // If no workouts, just save prefs (merge)
   if (futureSnap.empty) {
-    await planRef.set({ preferences: prefUpdate, updatedAt: new Date() }, { merge: true });
+    await planRef.set({
+        preferences: { 
+            longRunDay: longRunDay,
+             // Only include daysPerWeek if it's defined
+            ...(Number.isFinite(daysPerWeek) ? { daysPerWeek } : {})
+        },
+        updatedAt: new Date()
+    }, { merge: true });
+    await batch.commit();
     return { success: true, message: "Preferences saved (no future workouts to update)." };
   }
 
@@ -474,11 +482,24 @@ async updateSchedulePreferences(userId, preferences = {}) {
 
     if (!longRunDoc) continue;
 
-    const weekStart = new Date(weekStartStr);
+    const dayMap = {
+        "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, 
+        "Thursday": 4, "Friday": 5, "Saturday": 6
+    };
+    
+    const targetDayIndex = dayMap[longRunDay]; // e.g. Saturday = 6
+
+    // Calculate the difference from weekStart (Monday) to Target (Saturday)
+    // If weekStart is Monday (1), and target is Saturday (6): diff = 5 days
+    const weekStartDayIndex = weekStart.getDay(); // Should be 1 (Monday) based on your grouping logic
+    
+    // Robust diff calculation that handles wrapping if needed
+    let daysToAdd = targetDayIndex - weekStartDayIndex;
+    if (daysToAdd < 0) daysToAdd += 7; // e.g. Mon(1) to Sun(0) -> -1 + 7 = 6 days later
 
     const newLongRunDate = new Date(weekStart);
-    newLongRunDate.setDate(weekStart.getDate() + targetDayIndex);
-
+    newLongRunDate.setDate(weekStart.getDate() + daysToAdd);
+    
     let qualityDayIndex = (targetDayIndex + 3) % 7;
     if (Math.abs(qualityDayIndex - targetDayIndex) < 2) qualityDayIndex = (targetDayIndex + 4) % 7;
 
