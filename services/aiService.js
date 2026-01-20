@@ -478,6 +478,51 @@ ACTUAL: ${actualDistance} in ${movingTimeMinutes}min @ ${actualPace}. HR: ${avgH
             };
         }
     }
+
+// services/aiService.js
+
+  async generateAdaptiveWeek(userProfile, weekStats, nextWeekTemplate) {
+    const prompt = `
+      ACT AS: Elite Running Coach.
+      TASK: Adapt Week ${weekStats.weekNumber + 1} of a training plan based on Week ${weekStats.weekNumber} performance.
+
+      ATHLETE PROFILE:
+      - Name: ${userProfile.name}
+      - Goal: ${userProfile.raceGoal || 'General Fitness'}
+      - Status: ${weekStats.feeling || 'Good'}
+
+      PERFORMANCE REPORT (WEEK ${weekStats.weekNumber}):
+      - Planned Distance: ${weekStats.plannedDistance} km
+      - Actual Distance: ${weekStats.actualDistance} km
+      - Completion Rate: ${weekStats.completionRate}%
+      - Key Insight: ${weekStats.insight || 'Training volume met.'}
+
+      ORIGINAL PLAN FOR NEXT WEEK (WEEK ${weekStats.weekNumber + 1}):
+      ${JSON.stringify(nextWeekTemplate)}
+
+      INSTRUCTIONS:
+      1. Analyze the performance. If the user missed workouts or struggled, reduce volume/intensity for next week. If they excelled easily, maintain or slightly optimize.
+      2. Generate a valid JSON object for the NEW Week ${weekStats.weekNumber + 1}.
+      3. Keep the same structure: { "weekNumber": ${weekStats.weekNumber + 1}, "focus": "...", "days": [...] }
+      4. Ensure "days" array has exactly 7 days.
+
+      RESPONSE FORMAT: JSON ONLY. No markdown.
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const responseText = result.response.text();
+      // Clean markdown if present
+      const cleaned = responseText.replace(/```json|```/g, '').trim();
+      return JSON.parse(cleaned);
+    } catch (error) {
+      console.error("AI Adaptive Gen Error:", error);
+      // Fallback: return the original template if AI fails
+      return nextWeekTemplate;
+    }
+  }
+
+
 }
 
 module.exports = { AIService };

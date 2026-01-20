@@ -801,6 +801,193 @@ async regenerateScheduleFromDate(userId, planId, startDate) {
     return true;
 }
 
+// services/trainingPlanService.js
+
+// ... inside the class ...
+
+  /**
+   * Main Trigger: Checks if the week is done and regenerates the next week if needed.
+   */
+  async checkAndAdaptSchedule(userId) {
+    console.log(`🤖 Checking adaptive schedule triggers for user: ${userId}`);
+
+    // 1. Get Active Plan
+    const plan = await this.getCurrentPlan(userId);
+    if (!plan) return;
+
+    // 2. Determine Current Week boundaries based on *today*
+    const today = new Date();
+    // Normalize to Monday-Sunday week
+    const currentDay = today.getDay() || 7; 
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - currentDay + 1); // Monday
+    weekStart.setHours(0,0,0,0);
+    
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+    weekEnd.setHours(23,59,59,999);
+
+    // 3. Check for UNFINISHED workouts in the current week
+    const pendingSnapshot = await this.db.collection('workouts')
+      .where('userId', '==', userId)
+      .where('planId', '==', plan.id)
+      .where('scheduledDate', '>=', weekStart)
+      .where('scheduledDate', '<=', weekEnd)
+      .where('completed', '==', false) // Find incomplete ones
+      .get();
+
+    // If there are still workouts left this week (and it's not Sunday night), don't regenerate yet
+    // OPTIONAL: You can make this stricter (e.g., only trigger on Sunday)
+    if (!pendingSnapshot.empty && today.getDay() !== 0) { 
+      console.log("⏳ Week not finished yet. Skipping adaptation.");
+      return; 
+    }
+
+    // 4. Check if we already adapted this week (Prevent loops)
+    // We store a flag like 'lastAdaptedWeekIndex' on the plan
+    const currentWeekIndex = this._calculateWeekIndex(plan.createdAt, today);
+    if (plan.lastAdaptedWeekIndex === currentWeekIndex) {
+        console.log("✅ Week already adapted. Skipping.");
+        return;
+    }
+
+    // 5. Gather Stats for the finished week
+    const weekStats = await this._getWeekStats(userId, plan.id, weekStart, weekEnd);
+    weekStats.weekNumber = currentWeekIndex + 1;
+
+    // 6. Get Template for NEXT Week
+    const nextWeekIndex = currentWeekIndex + 1;
+    const nextWeekTemplate = plan.planData.weeks[nextWeekIndex];
+
+    if (!nextWeekTemplate) {
+        console.log("🏁 End of plan reached. No next week to adapt.");
+        return;
+    }
+
+    // 7. Call AI
+    const userProfileDoc = await this.db.collection('users').doc(userId).get();
+    const userProfile = userProfileDoc.data();
+    
+    console.log(`⚡ Generating adaptive plan for Week ${nextWeekIndex + 1}...`);
+    const newWeekData = await this.aiService.generateAdaptiveWeek(
+        { name: userProfile.firstName, raceGoal: plan.planType },
+        weekStats,
+        nextWeekTemplate
+    );
+
+    // 8. Overwrite Future Workouts
+    await this._overwriteFutureWeek(userId, plan.id, nextWeekIndex, newWeekData);
+
+    // 9. Mark flag so we don't re-run
+    await this.db.collection('trainingplans').doc(plan.id).update({
+        lastAdaptedWeekIndex: currentWeekIndex
+    });
+
+    console.log(`🚀 Successfully adapted Week ${nextWeekIndex + 1} based on performance!`);
+  }
+
+  // --- Helpers ---
+
+  _calculateWeekIndex(planStart, current) {
+      const start = planStart.toDate ? planStart.toDate() : new Date(planStart);
+      const diff = current - start;
+      return Math.floor(diff / (1000 * 60 * 60 * 24 * 7));
+  }
+
+  async _getWeekStats(userId, planId, start, end) {
+      const snap = await this.db.collection('workouts')
+          .where('userId', '==', userId)
+          .where('planId', '==', planId)
+          .where('scheduledDate', '>=', start)
+          .where('scheduledDate', '<=', end)
+          .get();
+
+      let plannedDist = 0;
+      let actualDist = 0;
+      let completedCount = 0;
+      let totalCount = 0;
+
+      snap.forEach(doc => {
+          const w = doc.data();
+          totalCount++;
+          plannedDist += (w.distance || 0);
+          if (w.completed) {
+              completedCount++;
+              // Assume if completed, they did the distance (or use actual Strava data if you sync it to 'actualDistance')
+              actualDist += (w.distance || 0); 
+          }
+      });
+
+      return {
+          plannedDistance: plannedDist,
+          actualDistance: actualDist,
+          completionRate: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+      };
+  }
+
+  async _overwriteFutureWeek(userId, planId, weekIndex, newWeekData) {
+      // 1. Calculate dates for next week
+      const planDoc = await this.db.collection('trainingplans').doc(planId).get();
+      const planStart = planDoc.data().createdAt.toDate();
+      
+      const nextWeekStart = new Date(planStart);
+      nextWeekStart.setDate(nextWeekStart.getDate() + (weekIndex * 7));
+      nextWeekStart.setHours(0,0,0,0); // Normalize
+
+      const nextWeekEnd = new Date(nextWeekStart);
+      nextWeekEnd.setDate(nextWeekStart.getDate() + 7);
+
+      // 2. DELETE existing scheduled workouts for that week
+      // (Only delete if they are NOT completed, just in case)
+      const futureDocs = await this.db.collection('workouts')
+          .where('userId', '==', userId)
+          .where('planId', '==', planId)
+          .where('scheduledDate', '>=', nextWeekStart)
+          .where('scheduledDate', '<', nextWeekEnd)
+          .where('completed', '==', false) 
+          .get();
+
+      const batch = this.db.batch();
+      futureDocs.forEach(doc => batch.delete(doc.ref));
+
+      // 3. INSERT new workouts
+      if (newWeekData.days && Array.isArray(newWeekData.days)) {
+          newWeekData.days.forEach((day, dayIdx) => {
+              const workoutDate = new Date(nextWeekStart);
+              workoutDate.setDate(nextWeekStart.getDate() + dayIdx);
+
+              const ref = this.db.collection('workouts').doc();
+              batch.set(ref, {
+                  userId,
+                  planId,
+                  title: day.type || 'Workout',
+                  type: day.type || 'run',
+                  description: day.description || '',
+                  distance: day.distanceKm || 0,
+                  duration: day.durationMin || 0,
+                  intensity: day.intensity || 'easy',
+                  scheduledDate: workoutDate,
+                  date: workoutDate, // Legacy field support
+                  completed: false,
+                  weekNumber: weekIndex + 1,
+                  isAdaptive: true, // Flag to show "AI Adapted" badge in UI
+                  createdAt: new Date()
+              });
+          });
+      }
+
+      // 4. Update the Plan JSON blob too (so the calendar fallback works)
+      // This is tricky with Firestore deeply nested updates, but we can try:
+      // Note: This might be optional if your widgets rely mostly on the 'workouts' collection
+      /* const planData = planDoc.data().planData;
+      if(planData.weeks[weekIndex]) {
+          planData.weeks[weekIndex] = newWeekData;
+          batch.update(planDoc.ref, { planData: planData });
+      }
+      */
+
+      await batch.commit();
+  }
 
     
 }

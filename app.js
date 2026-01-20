@@ -2025,9 +2025,10 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
       if (typeof WorkoutAnalyticsService === 'function') {
         // await new WorkoutAnalyticsService(db).processNewActivity(userId, normalized);
       }
-      if (typeof TrainingPlanService === 'function') {
-        // await new TrainingPlanService(db).handleNewActivity(userId, normalized);
-      }
+      if (typeof trainingPlanService !== 'undefined') {
+        // We call our new method here
+        await trainingPlanService.checkAndAdaptSchedule(userId);
+    }
     } catch (serviceErr) {
       console.warn('Non-fatal error in analytics/training services:', serviceErr.message);
     }
