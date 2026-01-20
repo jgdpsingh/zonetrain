@@ -997,7 +997,9 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
 <div class="dashboard-section-analytics widgets-grid">
     <div id="progress-chart-container"></div>
     <div id="personal-records-container"></div>
+    <div id="performance-chart-container" class="widget"></div>
     <div id="workout-history-container"></div>
+    <div id="training-plan-container"></div>
     
     <div class="widget">
         <div class="widget-header">
@@ -1014,9 +1016,9 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
                 <h3>🏁 Race Planning</h3>
                 <span style="color: #6d28d9; font-weight: 700; font-size: 14px;">RACE COACH EXCLUSIVE</span>
             </div>
-            <div id="race-planning" style="padding: 20px; color: #6b7280;">
-                <p>Advanced race planning features coming soon...</p>
-            </div>
+            <div id="race-planning-container" style="padding: 20px;">
+        <p class="text-gray-500">Loading race tools...</p>
+    </div>
         </div>
 
         <!-- Performance Analytics -->
@@ -1024,8 +1026,8 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
             <div class="widget-header">
                 <h3>📊 Performance Analytics</h3>
             </div>
-            <div id="performance-analytics" style="padding: 20px; color: #6b7280;">
-                <p>Detailed performance analytics coming soon...</p>
+            <div id="performance-analytics-container" style="padding: 20px; color: #6b7280;">
+                <p class="text-gray-500">Loading analytics...</p>
             </div>
         </div>
     </div>

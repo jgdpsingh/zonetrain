@@ -28,7 +28,9 @@ class RaceDashboardWidgets {
         this.renderRaceCountdown('race-countdown-widget'); 
         this.renderWeeklyPlanWidget('weekly-plan-container');
         this.renderPerformanceChart('performance-chart-container');
+        this.renderRacePlanningWidget('race-planning-container');
         this.renderAIInsightWidget('ai-insight-widget-container');
+        this.renderPerformanceAnalyticsWidget('performance-analytics-container');
         
         // Subscription & Downgrade Logic
         this.loadSubscriptionDetails();
@@ -1549,12 +1551,76 @@ raceWeeklyTemplate(planMap, meta = {}) {
 
 
 
-renderPerformanceChart(containerId) {
-        const container = document.getElementById(containerId);
-        if (container) {
-            container.innerHTML = `<div class="h-32 flex items-center justify-center text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed">Performance Chart Loading...</div>`;
+async renderPerformanceChart(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Use a loading state that fits the container
+    container.innerHTML = `
+        <div class="widget-header"><h3>⚡ Performance Trend</h3></div>
+        <div style="height: 200px; display:flex; align-items:center; justify-content:center;">
+            <div class="loading-spinner"></div>
+        </div>`;
+
+    try {
+        // Fetch last 30 days of workout history
+        const response = await fetch('/api/analytics/workout-history?days=30', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await response.json();
+
+        if (!data.success || !data.workouts || data.workouts.length === 0) {
+            container.innerHTML = `
+                <div class="widget-header"><h3>⚡ Performance Trend</h3></div>
+                <div class="empty-state-widget"><p>No running data yet to analyze.</p></div>`;
+            return;
         }
+
+        // Filter for runs with Pace data
+        const runs = data.workouts
+            .filter(w => w.type === 'Run' && w.averagePace)
+            .reverse(); // Oldest to newest
+
+        // Render the graph (Pace on Y-axis, Date on X-axis)
+        // We calculate bar heights relative to the fastest/slowest pace
+        const maxPace = Math.max(...runs.map(r => this.parsePace(r.averagePace)));
+        const chartHeight = 150;
+        
+        const barsHtml = runs.map((run, i) => {
+            const paceVal = this.parsePace(run.averagePace);
+            const height = (paceVal / maxPace) * 100; // Simplified scaling
+            // Invert height because lower pace (min/km) is faster/better? 
+            // For simplicity, let's just show raw bars.
+            
+            return `
+                <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:8px; gap:4px;" 
+                     title="${new Date(run.startDate).toLocaleDateString()}: ${run.averagePace}/km">
+                    <div style="width:60%; background:#8b5cf6; border-radius:4px; height:${height}%; opacity:0.8;"></div>
+                </div>`;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="widget-header"><h3>⚡ Pace Trend (Last 30 Runs)</h3></div>
+            <div style="height: ${chartHeight}px; display: flex; align-items: flex-end; justify-content: space-between; gap: 2px; padding: 10px 0;">
+                ${barsHtml}
+            </div>
+            <div style="text-align:center; font-size:11px; color:#6b7280; margin-top:10px;">
+                Consistent training builds speed over time.
+            </div>
+        `;
+
+    } catch (e) {
+        console.error("Chart error", e);
+        container.innerHTML = `<p style="color:red; padding:20px;">Could not load performance chart.</p>`;
     }
+}
+
+// Helper to parse "5:30" to 5.5
+parsePace(paceStr) {
+    if(!paceStr) return 0;
+    const [min, sec] = paceStr.split(':').map(Number);
+    return min + (sec / 60);
+}
 
 
         setupDowngradeListeners() {
@@ -2093,6 +2159,70 @@ selectInsightFromModalIndex(idx) {
   }
 }
 
+async renderRacePlanningWidget(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Use current race goal logic you already have
+    container.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <button onclick="openSetNewRaceModal()" 
+                style="padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; text-align: left; transition: all 0.2s;">
+                <div style="font-size: 24px; margin-bottom: 5px;">🎯</div>
+                <div style="font-weight: 700; color: #1e40af;">Update Goals</div>
+                <div style="font-size: 12px; color: #60a5fa;">Adjust distance or date</div>
+            </button>
+
+            <button onclick="alert('Pacing Calculator feature is coming in the next update!')" 
+                style="padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: left; transition: all 0.2s;">
+                <div style="font-size: 24px; margin-bottom: 5px;">⏱️</div>
+                <div style="font-weight: 700; color: #166534;">Race Pacing</div>
+                <div style="font-size: 12px; color: #4ade80;">Calculate splits</div>
+            </button>
+        </div>
+        <div style="margin-top: 15px; padding: 12px; background: #faf5ff; border-radius: 8px; border: 1px solid #e9d5ff;">
+            <h4 style="margin:0 0 5px 0; color: #6b21a8; font-size: 14px;">💡 Coach Tip</h4>
+            <p style="margin:0; font-size: 13px; color: #7e22ce;">
+                At this stage of training, prioritize hitting your weekly long run distance over speed.
+            </p>
+        </div>
+    `;
+}
+
+async renderPerformanceAnalyticsWidget(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // We can reuse the personal records endpoint or stats
+    try {
+        const response = await fetch('/api/analytics/personal-records', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await response.json();
+        
+        if(data.success) {
+            const r = data.records;
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee;">
+                        <span style="color: #666;">Total Runs</span>
+                        <span style="font-weight: 700; color: #333;">${r.totalRuns || 0}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee;">
+                        <span style="color: #666;">Total Distance</span>
+                        <span style="font-weight: 700; color: #333;">${r.totalDistance || 0} km</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px;">
+                        <span style="color: #666;">Longest Run</span>
+                        <span style="font-weight: 700; color: #333;">${r.longestRun?.distance || 0} km</span>
+                    </div>
+                </div>
+            `;
+        }
+    } catch(e) {
+        container.innerHTML = `<p style="color:#999; font-style:italic;">Analytics unavailable.</p>`;
+    }
+}
 
 
 }
