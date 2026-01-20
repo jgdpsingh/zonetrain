@@ -1219,10 +1219,24 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
     // Success
     if (data.success && data.weeklyPlan) {
       // Normalize weeklyPlan.days -> planMap
-      let planMap = {};
+     let planMap = {};
       if (Array.isArray(data.weeklyPlan.days)) {
         data.weeklyPlan.days.forEach(day => {
-          if (day.label) planMap[day.label] = day;
+          if (day.label) {
+             // 1. Store original label
+             planMap[day.label] = day;
+
+             // 2. Add robust mapping for abbreviations (Mon, Tue...) and lowercase
+             // This ensures 'Sat' from backend matches 'Saturday' in the frontend template
+             const shortName = day.label.trim().substring(0, 3).toLowerCase();
+             const map = {
+                 'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday', 
+                 'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday', 'sun': 'Sunday'
+             };
+             if (map[shortName]) {
+                 planMap[map[shortName]] = day;
+             }
+          }
         });
       } else if (data.weeklyPlan && typeof data.weeklyPlan === 'object') {
         planMap = data.weeklyPlan;
