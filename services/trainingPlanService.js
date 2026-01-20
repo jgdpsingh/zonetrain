@@ -562,14 +562,20 @@ async updateSchedulePreferences(userId, preferences) {
 
   await batch.commit();
 
-  // Persist the preference on the real plan doc
-  await planRef.set({
-    preferences: { longRunDay, daysPerWeek },
-    updatedAt: new Date()
-  }, { merge: true });
+const prefUpdate = { longRunDay };
 
-  return { success: true };
+// only include if it exists (and is a valid number)
+if (Number.isFinite(preferences?.daysPerWeek)) {
+  prefUpdate.daysPerWeek = preferences.daysPerWeek;
 }
+
+await planRef.set(
+  {
+    preferences: prefUpdate,
+    updatedAt: new Date()
+  },
+  { merge: true }
+)}
 
 
     // --- Helpers ---
