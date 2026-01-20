@@ -398,177 +398,171 @@ async getCurrentPlan(userId) {
     }
 
     // trainingPlanService.js
-async updateSchedulePreferences(userId, preferences = {}) {
-  const { longRunDay, daysPerWeek } = preferences;
+// services/trainingPlanService.js
 
-  const daysOfWeek = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-  const targetDayIndex = daysOfWeek.indexOf(longRunDay);
-  if (targetDayIndex === -1) throw new Error("Invalid day selected");
+  async updateSchedulePreferences(userId, preferences = {}) {
+    const { longRunDay, daysPerWeek } = preferences;
 
-  // Active plan (canonical)
-  const plan = await this.getCurrentPlan(userId);
-  if (!plan?.id) throw new Error("No active plan found");
-  const planId = plan.id;
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const targetDayIndex = daysOfWeek.indexOf(longRunDay);
+    if (targetDayIndex === -1) throw new Error("Invalid day selected");
 
-  const planRef = this.db.collection("trainingplans").doc(planId);
+    // Active plan (canonical)
+    const plan = await this.getCurrentPlan(userId);
+    if (!plan?.id) throw new Error("No active plan found");
+    const planId = plan.id;
 
-  // Build preference update WITHOUT undefined
-  const prefUpdate = { longRunDay };
-  if (Number.isFinite(daysPerWeek)) prefUpdate.daysPerWeek = daysPerWeek;
+    const planRef = this.db.collection("trainingplans").doc(planId);
 
-  // Future workouts (canonical field name)
-  const today = new Date(); today.setHours(0,0,0,0);
-  const futureSnap = await this.db.collection("workouts")
-    .where("userId", "==", userId)
-    .where("planId", "==", planId)
-    .where("scheduledDate", ">=", today)
-    .orderBy("scheduledDate", "asc")
-    .get();
+    // Build preference update WITHOUT undefined
+    const prefUpdate = { longRunDay };
+    if (Number.isFinite(daysPerWeek)) prefUpdate.daysPerWeek = daysPerWeek;
 
-  // If no workouts, just save prefs (merge)
-  if (futureSnap.empty) {
-    await planRef.set({
-        preferences: { 
-            longRunDay: longRunDay,
-             // Only include daysPerWeek if it's defined
-            ...(Number.isFinite(daysPerWeek) ? { daysPerWeek } : {})
+    // Future workouts (canonical field name)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const futureSnap = await this.db.collection("workouts")
+      .where("userId", "==", userId)
+      .where("planId", "==", planId)
+      .where("scheduledDate", ">=", today)
+      .orderBy("scheduledDate", "asc")
+      .get();
+
+    const batch = this.db.batch();
+
+    // If no workouts, just save prefs (merge)
+    if (futureSnap.empty) {
+      await planRef.set({
+        preferences: {
+          longRunDay: longRunDay,
+          ...(Number.isFinite(daysPerWeek) ? { daysPerWeek } : {})
         },
         updatedAt: new Date()
-    }, { merge: true });
-    await batch.commit();
-    return { success: true, message: "Preferences saved (no future workouts to update)." };
-  }
-
-  const toJsDate = (v) => (v?.toDate ? v.toDate() : (v ? new Date(v) : null));
-  const isSameDate = (a, b) =>
-    a && b &&
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-
-  // Group docs by Monday of their week
-  const byWeek = {};
-  for (const doc of futureSnap.docs) {
-    const d = toJsDate(doc.data().scheduledDate);
-    if (!d) continue;
-    const day = d.getDay(); // 0=Sun
-    const diffToMon = day === 0 ? -6 : 1 - day;
-    const monday = new Date(d);
-    monday.setHours(0,0,0,0);
-    monday.setDate(monday.getDate() + diffToMon);
-    const key = monday.toISOString();
-    (byWeek[key] ||= []).push(doc);
-  }
-
-  const batch = this.db.batch();
-
-  for (const [weekStartStr, weeklyDocs] of Object.entries(byWeek)) {
-    let longRunDoc = null;
-    let qualityDoc = null;
-
-    for (const doc of weeklyDocs) {
-      const data = doc.data();
-      const type = String(data.type || "").toLowerCase();
-      const title = String(data.title || "").toLowerCase();
-
-      const isLong = title.includes("long") || type.includes("long");
-      const isQuality =
-        title.includes("interval") || title.includes("tempo") || title.includes("threshold") || title.includes("fartlek") ||
-        type.includes("interval") || type.includes("tempo") || type.includes("threshold");
-
-      if (isLong) longRunDoc = doc;
-      else if (isQuality) qualityDoc = doc;
+      }, { merge: true });
+      await batch.commit();
+      return { success: true, message: "Preferences saved (no future workouts to update)." };
     }
 
-    if (!longRunDoc) continue;
+    const toJsDate = (v) => (v?.toDate ? v.toDate() : (v ? new Date(v) : null));
+    const isSameDate = (a, b) =>
+      a && b &&
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
 
-    const dayMap = {
-        "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, 
+    // Group docs by Monday of their week
+    const byWeek = {};
+    for (const doc of futureSnap.docs) {
+      const d = toJsDate(doc.data().scheduledDate);
+      if (!d) continue;
+      const day = d.getDay(); // 0=Sun
+      const diffToMon = day === 0 ? -6 : 1 - day;
+      const monday = new Date(d);
+      monday.setHours(0, 0, 0, 0);
+      monday.setDate(monday.getDate() + diffToMon);
+      const key = monday.toISOString();
+      (byWeek[key] ||= []).push(doc);
+    }
+
+    for (const [weekStartStr, weeklyDocs] of Object.entries(byWeek)) {
+      // Re-parse weekStart from key to ensure accuracy
+      const weekStart = new Date(weekStartStr);
+      
+      let longRunDoc = null;
+      let qualityDoc = null;
+
+      for (const doc of weeklyDocs) {
+        const data = doc.data();
+        const type = String(data.type || "").toLowerCase();
+        const title = String(data.title || "").toLowerCase();
+
+        const isLong = title.includes("long") || type.includes("long");
+        const isQuality =
+          title.includes("interval") || title.includes("tempo") || title.includes("threshold") || title.includes("fartlek") ||
+          type.includes("interval") || type.includes("tempo") || type.includes("threshold");
+
+        if (isLong) longRunDoc = doc;
+        else if (isQuality) qualityDoc = doc;
+      }
+
+      if (!longRunDoc) continue;
+
+      const dayMap = {
+        "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3,
         "Thursday": 4, "Friday": 5, "Saturday": 6
-    };
-    
-    const targetDayIndex = dayMap[longRunDay]; // e.g. Saturday = 6
+      };
 
-    // Calculate the difference from weekStart (Monday) to Target (Saturday)
-    // If weekStart is Monday (1), and target is Saturday (6): diff = 5 days
-    const weekStartDayIndex = weekStart.getDay(); // Should be 1 (Monday) based on your grouping logic
-    
-    // Robust diff calculation that handles wrapping if needed
-    let daysToAdd = targetDayIndex - weekStartDayIndex;
-    if (daysToAdd < 0) daysToAdd += 7; // e.g. Mon(1) to Sun(0) -> -1 + 7 = 6 days later
+      const targetIdx = dayMap[longRunDay]; // e.g. Saturday = 6
 
-    const newLongRunDate = new Date(weekStart);
-    newLongRunDate.setDate(weekStart.getDate() + daysToAdd);
-    
-    let qualityDayIndex = (targetDayIndex + 3) % 7;
-    if (Math.abs(qualityDayIndex - targetDayIndex) < 2) qualityDayIndex = (targetDayIndex + 4) % 7;
+      // Calculate new Long Run Date
+      const weekStartDayIndex = 1; // We grouped by Monday, so start is always 1
+      let daysToAdd = targetIdx - weekStartDayIndex;
+      if (daysToAdd < 0) daysToAdd += 7; // Handle Sunday (0) wrapping
 
-    const newQualityDate = new Date(weekStart);
-    newQualityDate.setDate(weekStart.getDate() + qualityDayIndex);
+      const newLongRunDate = new Date(weekStart);
+      newLongRunDate.setDate(weekStart.getDate() + daysToAdd);
 
-    const longRunDate = toJsDate(longRunDoc.data().scheduledDate);
+      // Calculate Quality Date (usually mid-week relative to long run)
+      let qualityDayIndex = (targetIdx + 3) % 7;
+      if (Math.abs(qualityDayIndex - targetIdx) < 2) qualityDayIndex = (targetIdx + 4) % 7;
+      
+      // Fix quality date calculation relative to Monday start
+      let qDaysToAdd = qualityDayIndex - 1;
+      if (qDaysToAdd < 0) qDaysToAdd += 7;
 
-    // Track which doc becomes the "new long run day" after swapping
-    let longRunTargetDocId = longRunDoc.id;
+      const newQualityDate = new Date(weekStart);
+      newQualityDate.setDate(weekStart.getDate() + qDaysToAdd);
 
-    // (1) Move Long Run by swapping workout CONTENT
-    if (longRunDate && !isSameDate(longRunDate, newLongRunDate)) {
-      const targetDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newLongRunDate));
-      if (targetDoc && targetDoc.id !== longRunDoc.id) {
-        longRunTargetDocId = targetDoc.id;
+      const longRunDate = toJsDate(longRunDoc.data().scheduledDate);
+      let longRunTargetDocId = longRunDoc.id;
+
+      // ============================================================
+      // (1) FIX: Move Long Run (Handle missing destination doc)
+      // ============================================================
+      if (longRunDate && !isSameDate(longRunDate, newLongRunDate)) {
+        const targetDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newLongRunDate));
 
         const src = longRunDoc.data();
 
-        batch.update(targetDoc.ref, {
-          type: src.type,
-          title: src.title,
-          description: src.description,
-          distance: src.distance ?? 0,
-          duration: src.duration ?? 0,
-          intensity: src.intensity ?? "easy",
-          isKeyWorkout: true
-        });
+        if (targetDoc && targetDoc.id !== longRunDoc.id) {
+          // A. Destination Exists: Swap as usual
+          longRunTargetDocId = targetDoc.id;
 
-        batch.update(longRunDoc.ref, {
-          type: "rest",
-          title: "Rest Day",
-          description: "Rest and recovery.",
-          distance: 0,
-          duration: 0,
-          intensity: "rest",
-          isKeyWorkout: false
-        });
-      }
-    }
-
-    // (2) Move Quality if it ends up adjacent to the NEW long run day
-    if (qualityDoc) {
-      const qDate = toJsDate(qualityDoc.data().scheduledDate);
-      const diffDays = (qDate && newLongRunDate)
-        ? Math.abs((newLongRunDate - qDate) / (1000 * 60 * 60 * 24))
-        : 999;
-
-      if (diffDays < 2) {
-        const targetQDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newQualityDate));
-        if (
-          targetQDoc &&
-          targetQDoc.id !== qualityDoc.id &&
-          targetQDoc.id !== longRunDoc.id &&
-          targetQDoc.id !== longRunTargetDocId
-        ) {
-          const srcQ = qualityDoc.data();
-
-          batch.update(targetQDoc.ref, {
-            type: srcQ.type,
-            title: srcQ.title,
-            description: srcQ.description,
-            distance: srcQ.distance ?? 0,
-            duration: srcQ.duration ?? 0,
-            intensity: srcQ.intensity ?? "moderate",
+          batch.update(targetDoc.ref, {
+            type: src.type,
+            title: src.title,
+            description: src.description,
+            distance: src.distance ?? 0,
+            duration: src.duration ?? 0,
+            intensity: src.intensity ?? "easy",
             isKeyWorkout: true
           });
 
-          batch.update(qualityDoc.ref, {
+          batch.update(longRunDoc.ref, {
+            type: "rest",
+            title: "Rest Day",
+            description: "Rest and recovery.",
+            distance: 0,
+            duration: 0,
+            intensity: "rest",
+            isKeyWorkout: false
+          });
+
+        } else if (!targetDoc) {
+          // B. Destination Missing: CREATE NEW DOC [This fixes your bug]
+          const newDocRef = this.db.collection('workouts').doc();
+          
+          batch.set(newDocRef, {
+             ...src,
+             userId: userId, // Ensure critical fields are present
+             planId: planId,
+             scheduledDate: newLongRunDate,
+             date: newLongRunDate,
+             createdAt: new Date()
+          });
+
+          // Set the OLD day to Rest
+          batch.update(longRunDoc.ref, {
             type: "rest",
             title: "Rest Day",
             description: "Rest and recovery.",
@@ -579,15 +573,72 @@ async updateSchedulePreferences(userId, preferences = {}) {
           });
         }
       }
+
+      // ============================================================
+      // (2) Move Quality Workout
+      // ============================================================
+      if (qualityDoc) {
+        const qDate = toJsDate(qualityDoc.data().scheduledDate);
+        const diffDays = (qDate && newLongRunDate)
+          ? Math.abs((newLongRunDate - qDate) / (1000 * 60 * 60 * 24))
+          : 999;
+
+        // Only move if it's too close to the NEW long run date (< 2 days)
+        if (diffDays < 2) {
+          const targetQDoc = weeklyDocs.find(d => isSameDate(toJsDate(d.data().scheduledDate), newQualityDate));
+          
+          if (targetQDoc && targetQDoc.id !== qualityDoc.id && targetQDoc.id !== longRunDoc.id && targetQDoc.id !== longRunTargetDocId) {
+            const srcQ = qualityDoc.data();
+            batch.update(targetQDoc.ref, {
+              type: srcQ.type,
+              title: srcQ.title,
+              description: srcQ.description,
+              distance: srcQ.distance ?? 0,
+              duration: srcQ.duration ?? 0,
+              intensity: srcQ.intensity ?? "moderate",
+              isKeyWorkout: true
+            });
+            batch.update(qualityDoc.ref, {
+              type: "rest",
+              title: "Rest Day",
+              description: "Rest and recovery.",
+              distance: 0,
+              duration: 0,
+              intensity: "rest",
+              isKeyWorkout: false
+            });
+          } else if (!targetQDoc) {
+             // Create new Quality Doc if destination missing
+             const newQRef = this.db.collection('workouts').doc();
+             const srcQ = qualityDoc.data();
+             batch.set(newQRef, {
+                ...srcQ,
+                userId: userId,
+                planId: planId,
+                scheduledDate: newQualityDate,
+                date: newQualityDate,
+                createdAt: new Date()
+             });
+             batch.update(qualityDoc.ref, {
+               type: "rest",
+               title: "Rest Day",
+               description: "Rest and recovery.",
+               distance: 0,
+               duration: 0,
+               intensity: "rest",
+               isKeyWorkout: false
+             });
+          }
+        }
+      }
     }
+
+    // Save preferences
+    batch.set(planRef, { preferences: prefUpdate, updatedAt: new Date() }, { merge: true });
+
+    await batch.commit();
+    return { success: true, message: "Preferences saved and schedule updated." };
   }
-
-  // Save preferences in the SAME commit as reshuffle
-  batch.set(planRef, { preferences: prefUpdate, updatedAt: new Date() }, { merge: true });
-
-  await batch.commit();
-  return { success: true, message: "Preferences saved and schedule updated." };
-}
 
     // --- Helpers ---
 
