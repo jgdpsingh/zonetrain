@@ -2808,6 +2808,76 @@ app.post('/api/workouts/skip', authenticateToken, async (req, res) => {
 });
 
 
+
+// ✅ NEW: Manual Trigger for Missed Analysis
+app.post('/api/workouts/analyze-missed', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`🔍 Manual analysis trigger received for user: ${userId}`);
+
+        // 1. Find recent completed runs (last 14 days) that lack analysis
+        const since = new Date();
+        since.setDate(since.getDate() - 14);
+
+        const snapshot = await db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('scheduledDate', '>=', since)
+            .get();
+
+        const toAnalyze = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // Check criteria: Is Run, Is Completed/Synced, Missing Analysis
+            const isRun = (data.type === 'Run' || data.type === 'run');
+            const isDone = data.completed || data.stravaActivityId;
+            const hasAnalysis = !!data.aiAnalysis;
+
+            if (isRun && isDone && !hasAnalysis) {
+                // Construct a normalized object similar to what Strava sends
+                // This ensures the service can read it properly
+                toAnalyze.push({
+                    ...data,
+                    id: doc.id, // Pass ID so service knows which doc to update
+                    // Ensure essential fields exist for AI
+                    distance: data.distance || 0,
+                    movingTime: data.movingTime || data.duration || 0,
+                    averagePace: data.averagePace || null,
+                    averageHeartrate: data.averageHeartrate || null
+                });
+            }
+        });
+
+        if (toAnalyze.length === 0) {
+            return res.json({ success: true, message: "All recent runs are already analyzed." });
+        }
+
+        console.log(`⚡ Processing ${toAnalyze.length} missed workouts...`);
+
+        // 2. Process them one by one
+        let count = 0;
+        for (const workout of toAnalyze) {
+            // Use the existing analytics service
+            // Note: We use 'workout' as the payload. The service should handle it.
+            if (typeof analyticsService !== 'undefined') {
+                await analyticsService.processNewActivity(userId, workout);
+                count++;
+            }
+        }
+
+        // 3. Trigger Plan Adaptation (in case these runs affect next week)
+        if (count > 0 && typeof trainingPlanService !== 'undefined') {
+            await trainingPlanService.checkAndAdaptSchedule(userId);
+        }
+
+        res.json({ success: true, count, message: `Successfully analyzed ${count} workouts.` });
+
+    } catch (error) {
+        console.error('❌ Manual analysis error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
 // Cookie Consent Logging (GDPR/DPDP Compliance)
 app.post('/api/cookie-consent', async (req, res) => {
     try {

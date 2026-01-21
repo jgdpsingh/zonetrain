@@ -565,7 +565,24 @@ async renderStravaWorkoutHistory(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    container.innerHTML = '<div class="loading">Loading workout history...</div>';
+    // 1. Initial Loading State (Header + Button + Loading Text)
+    container.innerHTML = `
+        <div class="widget workout-history-widget">
+            <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>📜 Workout History</h3>
+                <div style="display:flex; gap:8px;">
+                    <button onclick="window.dashboardWidgets.triggerManualAnalysis()" 
+                        id="btn-analyze-missed"
+                        style="font-size:11px; padding:6px 12px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:4px;">
+                        <span>⚡ Analyze Missed</span>
+                    </button>
+                    </div>
+            </div>
+            <div id="history-list-content" style="min-height: 100px;">
+                <div style="text-align:center; padding:20px; color:#6b7280;">Loading history...</div>
+            </div>
+        </div>
+    `;
 
     try {
         const response = await fetch('/api/analytics/workout-history?days=30', {
@@ -573,17 +590,23 @@ async renderStravaWorkoutHistory(containerId) {
         });
 
         const data = await response.json();
-
-        if (!data.success || data.workouts.length === 0) {
+        
+        // 2. Error / Empty State
+        if (!data.success || !data.workouts || data.workouts.length === 0) {
             container.innerHTML = `
                 <div class="widget empty-state-widget">
-                    <p>🏃‍♂️ No workouts found</p>
-                    <p style="font-size: 14px; color: #666; margin-top: 8px;">
-                        ${data.source === 'strava' ? 'Connect Strava to see your workout history' : 'Sync your Strava activities'}
-                    </p>
-                    <button onclick="window.location.href='/auth/strava'" class="btn-primary" style="margin-top: 15px;">
-                        Connect Strava
-                    </button>
+                    <div class="widget-header">
+                        <h3>📜 Workout History</h3>
+                    </div>
+                    <div style="padding: 20px; text-align: center;">
+                        <p>🏃‍♂️ No workouts found</p>
+                        <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                            ${data.source === 'strava' ? 'Connect Strava to see your workout history' : 'Sync your Strava activities'}
+                        </p>
+                        <button onclick="window.location.href='/auth/strava'" class="btn-primary" style="margin-top: 15px;">
+                            Connect Strava
+                        </button>
+                    </div>
                 </div>
             `;
             return;
@@ -591,63 +614,73 @@ async renderStravaWorkoutHistory(containerId) {
 
         const { workouts, stats } = data;
 
+        // 3. Final Render (Preserving the Button!)
+        // We overwrite the container again, but this time we INCLUDE the button in the header.
         container.innerHTML = `
             <div class="widget workout-history-widget">
-                <div class="widget-header">
-                    <h3>📊 Workout History (Last 30 Days)</h3>
-                    <button onclick="window.dashboardWidgets.syncStrava()" class="btn-sync" title="Sync Strava">
-                        🔄 Sync
-                    </button>
+                <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3>📊 Workout History <span style="font-size:12px; color:#6b7280; font-weight:400;">(Last 30 Days)</span></h3>
+                    <div style="display:flex; gap:8px;">
+                         <button onclick="window.dashboardWidgets.triggerManualAnalysis()" 
+                            id="btn-analyze-missed"
+                            title="Force analysis for recent runs"
+                            style="font-size:11px; padding:6px 12px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:4px;">
+                            <span>⚡ Analyze</span>
+                        </button>
+                        <button onclick="window.dashboardWidgets.syncStrava()" class="btn-sync" title="Sync Strava" style="font-size:16px; padding:4px 8px;">
+                            🔄
+                        </button>
+                    </div>
                 </div>
                 
-                <div class="stats-summary">
-                    <div class="stat-card">
-                        <div class="stat-value">${stats.totalWorkouts}</div>
-                        <div class="stat-label">Workouts</div>
+                <div class="stats-summary" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:15px;">
+                    <div class="stat-card" style="text-align:center; padding:10px; background:#f9fafb; border-radius:8px;">
+                        <div class="stat-value" style="font-weight:700; color:#1f2937;">${stats.totalWorkouts}</div>
+                        <div class="stat-label" style="font-size:11px; color:#6b7280;">Runs</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${stats.totalDistance.toFixed(1)}</div>
-                        <div class="stat-label">km</div>
+                    <div class="stat-card" style="text-align:center; padding:10px; background:#f9fafb; border-radius:8px;">
+                        <div class="stat-value" style="font-weight:700; color:#3b82f6;">${stats.totalDistance.toFixed(1)}</div>
+                        <div class="stat-label" style="font-size:11px; color:#6b7280;">km</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${Math.round(stats.totalDuration)}</div>
-                        <div class="stat-label">minutes</div>
+                    <div class="stat-card" style="text-align:center; padding:10px; background:#f9fafb; border-radius:8px;">
+                        <div class="stat-value" style="font-weight:700; color:#8b5cf6;">${Math.round(stats.totalDuration / 60)}</div>
+                        <div class="stat-label" style="font-size:11px; color:#6b7280;">Hrs</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${stats.averagePace || 'N/A'}</div>
-                        <div class="stat-label">min/km</div>
+                    <div class="stat-card" style="text-align:center; padding:10px; background:#f9fafb; border-radius:8px;">
+                        <div class="stat-value" style="font-weight:700; color:#10b981;">${stats.averagePace || '-'}</div>
+                        <div class="stat-label" style="font-size:11px; color:#6b7280;">/km</div>
                     </div>
                 </div>
 
-                <div class="trend-indicator trend-${stats.progressTrend}">
-                    ${stats.progressTrend === 'improving' ? '📈 Improving trend' : 
-                      stats.progressTrend === 'declining' ? '📉 Volume decreasing' : 
-                      '➡️ Maintaining consistency'}
-                </div>
-
-                <div class="workout-list">
-                    ${workouts.slice(0, 5).map(w => `
-                        <div class="workout-item">
-                            <div class="workout-icon">${this.getWorkoutIcon(w.type)}</div>
-                            <div class="workout-info">
-                                <div class="workout-name">${w.name || w.type}</div>
-                                <div class="workout-meta">
-                                    ${new Date(w.startDate).toLocaleDateString()} • 
-                                    ${w.distance.toFixed(2)} km • 
-                                    ${Math.round(w.movingTime)} min
+                <div class="workout-list" style="display:flex; flex-direction:column; gap:10px;">
+                    ${workouts.slice(0, 5).map(w => {
+                         const hasAi = !!w.aiAnalysis;
+                         return `
+                        <div class="workout-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px; background:#fff; border:1px solid #f3f4f6; border-radius:10px;">
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <div style="font-size:20px;">${this.getWorkoutIcon(w.type)}</div>
+                                <div class="workout-info">
+                                    <div class="workout-name" style="font-size:14px; font-weight:600; color:#374151;">${w.name || w.type}</div>
+                                    <div class="workout-meta" style="font-size:12px; color:#6b7280;">
+                                        ${new Date(w.startDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})} • 
+                                        ${w.distance.toFixed(1)} km • 
+                                        ${w.averagePace ? w.averagePace + '/km' : ''}
+                                    </div>
                                 </div>
                             </div>
-                            ${w.averageHeartrate ? `
-                                <div class="workout-hr">
-                                    <span title="Average Heart Rate">❤️ ${Math.round(w.averageHeartrate)}</span>
-                                </div>
-                            ` : ''}
+                            
+                            <div style="text-align:right;">
+                                ${hasAi 
+                                    ? `<span style="font-size:10px; background:#ecfdf5; color:#059669; padding:2px 6px; border-radius:4px;">Analyzed</span>` 
+                                    : `<span style="font-size:10px; background:#fef2f2; color:#dc2626; padding:2px 6px; border-radius:4px;">Pending</span>`
+                                }
+                            </div>
                         </div>
-                    `).join('')}
+                    `}).join('')}
                 </div>
 
-                <div class="widget-footer">
-                    <small>Data from Strava • Last synced: ${data.lastSync ? new Date(data.lastSync).toLocaleTimeString() : 'Just now'}</small>
+                <div class="widget-footer" style="margin-top:15px; text-align:center;">
+                    <small style="color:#9ca3af;">Last synced: ${data.lastSync ? new Date(data.lastSync).toLocaleTimeString() : 'Just now'}</small>
                 </div>
             </div>
         `;
@@ -663,6 +696,43 @@ async renderStravaWorkoutHistory(containerId) {
         `;
     }
 }
+
+// dashboard-race-widgets.js
+
+    async triggerManualAnalysis() {
+        const btn = document.getElementById('btn-analyze-missed');
+        if(btn) {
+            btn.innerHTML = `<span>⏳ Processing...</span>`;
+            btn.disabled = true;
+        }
+
+        try {
+            const res = await fetch('/api/workouts/analyze-missed', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                if (data.count > 0) {
+                    alert(`✅ Success! Analyzed ${data.count} missed workouts. The dashboard will refresh.`);
+                    window.location.reload(); // Reload to show new stats/insights
+                } else {
+                    alert("✅ All recent workouts are already analyzed.");
+                }
+            } else {
+                alert("❌ Error: " + data.message);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("❌ Network error. Please try again.");
+        } finally {
+            if(btn) {
+                btn.innerHTML = `<span>⚡ Analyze Missed</span>`;
+                btn.disabled = false;
+            }
+        }
+    }
 
 getWorkoutIcon(type) {
     const icons = {
