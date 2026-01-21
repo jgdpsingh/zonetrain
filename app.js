@@ -2021,14 +2021,20 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
 });
 
     // 5) Optional: trigger analytics / training-plan updates
+    // 5) Optional: trigger analytics / training-plan updates
     try {
-      if (typeof WorkoutAnalyticsService === 'function') {
-        // await new WorkoutAnalyticsService(db).processNewActivity(userId, normalized);
+      // ✅ Enable Analytics (Generates Coach Insights)
+      if (typeof analyticsService !== 'undefined') {
+         await analyticsService.processNewActivity(userId, normalized);
+      } else if (typeof WorkoutAnalyticsService === 'function') {
+         const analytics = new WorkoutAnalyticsService(db, aiService);
+         await analytics.processNewActivity(userId, normalized);
       }
+
+      // ✅ Enable Plan Adaptation (Updates Weekly Schedule)
       if (typeof trainingPlanService !== 'undefined') {
-        // We call our new method here
-        await trainingPlanService.checkAndAdaptSchedule(userId);
-    }
+         await trainingPlanService.checkAndAdaptSchedule(userId);
+      }
     } catch (serviceErr) {
       console.warn('Non-fatal error in analytics/training services:', serviceErr.message);
     }
