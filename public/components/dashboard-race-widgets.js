@@ -1553,109 +1553,102 @@ raceWeeklyTemplate(planMap, meta = {}) {
 
 // ✅ FIX: Robust Pace Chart Calculator
 async renderPerformanceChart(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    // Loading state
-    container.innerHTML = `
-        <div class="widget-header"><h3>⚡ Pace Trend (Last 30 Runs)</h3></div>
-        <div style="height: 200px; display:flex; align-items:center; justify-content:center;">
-            <div class="loading-spinner"></div>
-        </div>`;
-
-    try {
-        const response = await fetch('/api/analytics/workout-history?days=30', {
-            headers: { 'Authorization': `Bearer ${this.token}` }
-        });
-        const data = await response.json();
-
-        if (!data.success || !data.workouts || data.workouts.length === 0) {
-            container.innerHTML = `
-                <div class="widget-header"><h3>⚡ Pace Trend</h3></div>
-                <div class="empty-state-widget"><p>No runs found in the last 30 days.</p></div>`;
-            return;
-        }
-
-        // 1. Filter Runs & Calculate Pace (min/km)
-        const runs = data.workouts
-            .filter(w => (w.type === 'Run' || w.type === 'run') && w.distance > 0)
-            .map(w => {
-                // Use existing pace string OR calculate from dist/time
-                let paceVal = 0;
-                if (w.averagePace) {
-                    paceVal = this.parsePace(w.averagePace);
-                } else if (w.movingTime && w.distance) {
-                    // Calculate: Minutes / Km
-                    paceVal = w.movingTime / w.distance;
-                }
-                
-                return {
-                    date: new Date(w.startDate || w.scheduledDate),
-                    paceVal: paceVal, 
-                    paceStr: this.formatPace(paceVal)
-                };
-            })
-            .filter(r => r.paceVal > 0 && r.paceVal < 20) // Filter out anomalies (e.g. walks > 20min/km)
-            .reverse(); // Oldest to Newest
-
-        if (runs.length === 0) {
-             container.innerHTML = `
-                <div class="widget-header"><h3>⚡ Pace Trend</h3></div>
-                <div class="empty-state-widget"><p>No pace data available.</p></div>`;
-            return;
-        }
-
-        // 2. Chart Scaling (Faster = Taller bar)
-        // We invert the visual: Lower Pace Number (Faster) = Higher Bar
-        const minPace = Math.min(...runs.map(r => r.paceVal)); // Fastest
-        const maxPace = Math.max(...runs.map(r => r.paceVal)); // Slowest
-        
-        // Dynamic baseline: set the floor slightly below the fastest pace to accentuate differences
-        const baseline = maxPace * 1.1; 
-        const chartHeight = 150;
-
-        const barsHtml = runs.map((run) => {
-            // Normalization logic for height
-            let pct = 0;
-            if (maxPace !== minPace) {
-                // Inverted logic: faster (lower val) -> higher %
-                pct = ((maxPace - run.paceVal) / (maxPace - minPace)) * 0.7 + 0.3; // Min 30% height
-            } else {
-                pct = 0.8; // Flat line if all same
-            }
-            
-            const heightPx = Math.floor(pct * chartHeight);
-            
-            // Color coding: Fast = Purple, Slow = Light Purple
-            const opacity = 0.5 + (0.5 * pct); 
-
-            return `
-                <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; group;" 
-                     title="${run.date.toLocaleDateString()}: ${run.paceStr}/km">
-                    <div style="width:70%; background:#8b5cf6; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:${opacity}; transition:all 0.2s;"></div>
-                </div>`;
-        }).join('');
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
         container.innerHTML = `
-            <div class="widget-header"><h3>⚡ Pace Trend (Last 30 Runs)</h3></div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 5px; margin-bottom:5px; font-size:11px; color:#6b7280;">
-                <span>Slower</span>
-                <span>Faster</span>
+            <div class="widget-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <h3>⚡ Pace Trend</h3>
+                    <span style="font-size:11px; background:#f3f4f6; padding:2px 6px; border-radius:4px; color:#6b7280;">Last 30 Runs</span>
+                </div>
             </div>
-            <div style="height: ${chartHeight}px; display: flex; align-items: flex-end; justify-content: space-between; gap: 2px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;">
-                ${barsHtml}
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#9ca3af;">
-                <span>${runs[0].date.toLocaleDateString()}</span>
-                <span>${runs[runs.length-1].date.toLocaleDateString()}</span>
-            </div>
-        `;
+            <div style="height: 180px; display:flex; align-items:center; justify-content:center;">
+                <div class="loading-spinner"></div>
+            </div>`;
 
-    } catch (e) {
-        console.error("Chart error", e);
-        container.innerHTML = `<p style="color:red; padding:20px;">Could not load chart data.</p>`;
+        try {
+            const response = await fetch('/api/analytics/workout-history?days=30', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await response.json();
+
+            if (!data.success || !data.workouts || data.workouts.length === 0) {
+                container.innerHTML = `<div class="widget-header"><h3>⚡ Pace Trend</h3></div><div class="empty-state-widget"><p>No running data available.</p></div>`;
+                return;
+            }
+
+            // Filter & Process Data
+            const runs = data.workouts
+                .filter(w => (w.type === 'Run' || w.type === 'run') && w.distance > 0)
+                .map(w => {
+                    let paceVal = 0;
+                    if (w.averagePace) {
+                        paceVal = this.parsePace(w.averagePace);
+                    } else if (w.movingTime && w.distance) {
+                        paceVal = w.movingTime / w.distance;
+                    }
+                    return {
+                        date: new Date(w.startDate || w.scheduledDate),
+                        paceVal: paceVal, 
+                        paceStr: this.formatPace(paceVal),
+                        distance: (w.distance || 0).toFixed(1)
+                    };
+                })
+                .filter(r => r.paceVal > 0 && r.paceVal < 20) // Filter outliers
+                .reverse(); // Oldest to newest
+
+            if (runs.length === 0) {
+                container.innerHTML = `<div class="widget-header"><h3>⚡ Pace Trend</h3></div><div class="empty-state-widget"><p>No pace data found.</p></div>`;
+                return;
+            }
+
+            // Scaling
+            const minPace = Math.min(...runs.map(r => r.paceVal));
+            const maxPace = Math.max(...runs.map(r => r.paceVal));
+            const chartHeight = 140;
+
+            const barsHtml = runs.map((run) => {
+                // Inverted Logic: Faster (lower pace) = Taller Bar
+                // Baseline is maxPace (slowest). 
+                // Height is proportional to how much faster this run was than the slowest run.
+                let pct = 0;
+                if (maxPace !== minPace) {
+                    pct = ((maxPace - run.paceVal) / (maxPace - minPace)) * 0.6 + 0.2; // Scale between 20% and 80% height
+                } else {
+                    pct = 0.5;
+                }
+                
+                const heightPx = Math.floor(pct * chartHeight);
+                const opacity = 0.4 + (0.6 * pct); 
+
+                // ✅ HOVER VALUE: Added detailed title attribute
+                return `
+                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; cursor: help;" 
+                         title="📅 ${run.date.toLocaleDateString()}\n⚡ Pace: ${run.paceStr}/km\n📏 Dist: ${run.distance}km">
+                        <div style="width:70%; background:#8b5cf6; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:${opacity}; transition:all 0.2s;"></div>
+                    </div>`;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="widget-header"><h3>⚡ Pace Trend (Last 30 Runs)</h3></div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 5px; margin-bottom:5px; font-size:10px; color:#6b7280;">
+                    <span>Slow (${this.formatPace(maxPace)})</span>
+                    <span>Fast (${this.formatPace(minPace)})</span>
+                </div>
+                <div style="height: ${chartHeight}px; display: flex; align-items: flex-end; justify-content: space-between; gap: 2px; padding: 0 0 10px 0; border-bottom: 1px solid #e5e7eb;">
+                    ${barsHtml}
+                </div>
+                <div style="text-align:center; font-size:11px; color:#6b7280; margin-top:5px;">
+                    Hover over bars to see details.
+                </div>
+            `;
+
+        } catch (e) {
+            console.error("Chart error", e);
+            container.innerHTML = `<p style="color:red; padding:20px;">Could not load chart data.</p>`;
+        }
     }
-}
 
 // 🛠️ Helper: Parse "5:30" or number to float
 parsePace(input) {
@@ -2213,84 +2206,174 @@ selectInsightFromModalIndex(idx) {
 }
 
 async renderRacePlanningWidget(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
-    // Use current race goal logic you already have
-    container.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-            <button onclick="openSetNewRaceModal()" 
-                style="padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; text-align: left; transition: all 0.2s;">
-                <div style="font-size: 24px; margin-bottom: 5px;">🎯</div>
-                <div style="font-weight: 700; color: #1e40af;">Update Goals</div>
-                <div style="font-size: 12px; color: #60a5fa;">Adjust distance or date</div>
-            </button>
+        // Fetch current goal to enable the button
+        let goalDistance = "42.2"; // Default
+        let goalTime = "4:00:00"; // Default
+        try {
+            const res = await fetch('/api/race-goals/current', { headers: { 'Authorization': `Bearer ${this.token}` }});
+            const d = await res.json();
+            if(d.success && d.raceGoal) {
+                goalDistance = d.raceGoal.distance;
+                goalTime = d.raceGoal.targetTime;
+            }
+        } catch(e) {}
 
-            <button onclick="alert('Pacing Calculator feature is coming in the next update!')" 
-                style="padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: left; transition: all 0.2s;">
-                <div style="font-size: 24px; margin-bottom: 5px;">⏱️</div>
-                <div style="font-weight: 700; color: #166534;">Race Pacing</div>
-                <div style="font-size: 12px; color: #4ade80;">Calculate splits</div>
-            </button>
-        </div>
-        <div style="margin-top: 15px; padding: 12px; background: #faf5ff; border-radius: 8px; border: 1px solid #e9d5ff;">
-            <h4 style="margin:0 0 5px 0; color: #6b21a8; font-size: 14px;">💡 Coach Tip</h4>
-            <p style="margin:0; font-size: 13px; color: #7e22ce;">
-                At this stage of training, prioritize hitting your weekly long run distance over speed.
-            </p>
-        </div>
-    `;
-}
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <button onclick="openSetNewRaceModal()" 
+                    style="padding: 15px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; text-align: left; transition: all 0.2s; cursor: pointer;">
+                    <div style="font-size: 24px; margin-bottom: 5px;">🎯</div>
+                    <div style="font-weight: 700; color: #1e40af;">Update Goals</div>
+                    <div style="font-size: 12px; color: #60a5fa;">Change target</div>
+                </button>
+
+                <button onclick="window.dashboardWidgets.openPacingModal('${goalDistance}', '${goalTime}')" 
+                    style="padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: left; transition: all 0.2s; cursor: pointer;">
+                    <div style="font-size: 24px; margin-bottom: 5px;">⏱️</div>
+                    <div style="font-weight: 700; color: #166534;">Race Pacing</div>
+                    <div style="font-size: 12px; color: #4ade80;">View Splits</div>
+                </button>
+            </div>
+            <div style="margin-top: 15px; padding: 12px; background: #faf5ff; border-radius: 8px; border: 1px solid #e9d5ff;">
+                <h4 style="margin:0 0 5px 0; color: #6b21a8; font-size: 14px;">💡 Strategy</h4>
+                <p style="margin:0; font-size: 13px; color: #7e22ce;">
+                    Aim for negative splits. Start the first 3km slightly slower than goal pace.
+                </p>
+            </div>
+        `;
+    }
+
+    openPacingModal(distance, timeStr) {
+        const modal = document.getElementById('racePacingModal');
+        if(!modal) return;
+
+        // 1. Parse Goal Time
+        const parts = timeStr.split(':').map(Number);
+        let totalMinutes = 0;
+        if(parts.length === 3) totalMinutes = parts[0]*60 + parts[1] + parts[2]/60;
+        else if(parts.length === 2) totalMinutes = parts[0] + parts[1]/60;
+        
+        const distKm = parseFloat(distance) || 42.2;
+        const avgPace = totalMinutes / distKm; // min/km
+
+        const paceMin = Math.floor(avgPace);
+        const paceSec = Math.round((avgPace - paceMin) * 60);
+        const paceStr = `${paceMin}:${String(paceSec).padStart(2,'0')}`;
+
+        // 2. Generate Table Rows
+        let html = '';
+        const checkpoints = [5, 10, 15, 20, 21.1, 25, 30, 35, 40, 42.2];
+        
+        checkpoints.forEach(km => {
+            if (km > distKm && Math.abs(km - distKm) > 0.1) return; // Skip if beyond race dist
+            
+            const timeAtKm = avgPace * km;
+            const h = Math.floor(timeAtKm / 60);
+            const m = Math.floor(timeAtKm % 60);
+            const s = Math.floor((timeAtKm * 60) % 60);
+            const timeFormatted = `${h > 0 ? h+':' : ''}${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            
+            html += `
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:8px;">${km} km</td>
+                    <td style="padding:8px; font-weight:600;">${timeFormatted}</td>
+                    <td style="padding:8px; color:#6b7280;">${paceStr}</td>
+                </tr>
+            `;
+        });
+
+        // 3. Inject into Modal
+        document.getElementById('pacingTableBody').innerHTML = html;
+        document.getElementById('pacingHeaderGoal').innerText = `Goal: ${timeStr} (${paceStr}/km)`;
+        
+        modal.style.display = 'flex';
+    }
 
 // ✅ FIX: Show "Recent Performance" (Last 30 Days) to differentiate from Personal Records
+
 async renderPerformanceAnalyticsWidget(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
-    try {
-        // Fetch HISTORY (30 days) instead of RECORDS (All time)
-        const response = await fetch('/api/analytics/workout-history?days=30', {
-            headers: { 'Authorization': `Bearer ${this.token}` }
-        });
-        const data = await response.json();
-        
-        if(data.success && data.stats) {
-            const s = data.stats;
+        try {
+            // ✅ IMPROVEMENT: Fetch 60 days to compare Current Month vs Last Month
+            const response = await fetch('/api/analytics/workout-history?days=60', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await response.json();
             
-            // Calculate Average Pace nicely
-            const avgPace = s.averagePace || (s.totalDistance > 0 ? (s.totalDuration / s.totalDistance).toFixed(2) : '0');
-            const paceDisplay = this.formatPace ? this.formatPace(this.parsePace(avgPace)) : avgPace;
+            if(data.success && data.workouts) {
+                // Split data into two 30-day buckets
+                const now = new Date();
+                const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(now.getDate() - 30);
+                
+                const currentPeriod = data.workouts.filter(w => new Date(w.startDate) >= thirtyDaysAgo);
+                const previousPeriod = data.workouts.filter(w => new Date(w.startDate) < thirtyDaysAgo);
 
-            container.innerHTML = `
-                <div class="widget-header">
-                    <h3>📅 Monthly Recap</h3>
-                    <span style="font-size:12px; color:#6b7280; background:#f3f4f6; padding:2px 8px; border-radius:10px;">Last 30 Days</span>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f3f4f6;">
-                        <span style="color: #666;">Runs Completed</span>
-                        <span style="font-weight: 700; color: #111827;">${s.totalWorkouts || 0}</span>
+                // Calculate Stats
+                const calcStats = (workouts) => {
+                    const dist = workouts.reduce((sum, w) => sum + (w.distance || 0), 0);
+                    const count = workouts.length;
+                    return { dist, count };
+                };
+
+                const curr = calcStats(currentPeriod);
+                const prev = calcStats(previousPeriod);
+
+                // Calculate Deltas
+                const getTrend = (current, previous) => {
+                    if (previous === 0) return current > 0 ? `<span style="color:#10b981;">+100%</span>` : `<span style="color:#6b7280;">-</span>`;
+                    const pct = ((current - previous) / previous) * 100;
+                    const color = pct >= 0 ? '#10b981' : '#ef4444'; // Green if up, Red if down
+                    const arrow = pct >= 0 ? '⬆️' : '⬇️';
+                    return `<span style="color:${color}; font-size:12px; font-weight:500;">${arrow} ${Math.abs(pct).toFixed(0)}%</span>`;
+                };
+
+                container.innerHTML = `
+                    <div class="widget-header">
+                        <h3>📊 Monthly Trends</h3>
+                        <span style="font-size:11px; color:#6b7280;">vs Last 30 Days</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f3f4f6;">
-                        <span style="color: #666;">Distance</span>
-                        <span style="font-weight: 700; color: #3b82f6;">${s.totalDistance.toFixed(1)} km</span>
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px;">
+                            <div>
+                                <div style="font-size:12px; color:#6b7280; margin-bottom:2px;">Total Distance</div>
+                                <div style="font-size:18px; font-weight:700; color:#1f2937;">${curr.dist.toFixed(1)} <span style="font-size:12px; font-weight:400;">km</span></div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:11px; color:#9ca3af;">Previous: ${prev.dist.toFixed(1)} km</div>
+                                <div>${getTrend(curr.dist, prev.dist)}</div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px;">
+                            <div>
+                                <div style="font-size:12px; color:#6b7280; margin-bottom:2px;">Workouts</div>
+                                <div style="font-size:18px; font-weight:700; color:#1f2937;">${curr.count}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:11px; color:#9ca3af;">Previous: ${prev.count}</div>
+                                <div>${getTrend(curr.count, prev.count)}</div>
+                            </div>
+                        </div>
+
+                        <div style="padding:10px; border-left:3px solid ${curr.dist >= prev.dist ? '#10b981' : '#f59e0b'}; background:#fff; font-size:12px; color:#4b5563; line-height:1.4;">
+                            ${curr.dist >= prev.dist 
+                                ? "🚀 <strong>Great job!</strong> You're building volume compared to last month." 
+                                : "💡 <strong>Recovery?</strong> Your volume is lower than last month."}
+                        </div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px;">
-                        <span style="color: #666;">Avg Pace</span>
-                        <span style="font-weight: 700; color: #8b5cf6;">${paceDisplay} /km</span>
-                    </div>
-                </div>
-            `;
-        } else {
-            container.innerHTML = `
-                <div class="widget-header"><h3>📅 Monthly Recap</h3></div>
-                <div class="empty-state-widget"><p>No recent activity.</p></div>`;
+                `;
+            }
+        } catch(e) {
+            console.error("Analytics Error", e);
+            container.innerHTML = `<p style="color:#999; font-style:italic; padding:20px;">Analytics unavailable.</p>`;
         }
-    } catch(e) {
-        console.error("Analytics Error", e);
-        container.innerHTML = `<p style="color:#999; font-style:italic; padding:20px;">Analytics unavailable.</p>`;
     }
-}
 
 
 }
