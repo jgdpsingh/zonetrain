@@ -18,9 +18,8 @@ class RaceDashboardWidgets {
         this.renderWeatherWidget('weather-widget-container');
   this.renderTodayWorkoutWidget('today-workout-container');
   this.renderStravaWorkoutHistory('workout-history-container');
-  this.renderProgressChart('progress-chart-container', 'distance');
+  this.renderProgressChart('progress-chart-container');
   this.renderPersonalRecords('personal-records-container');
-  this.renderTrainingPlanOverview('training-plan-container', 'race');
 
   this.renderHRVWidget('hrv-widget-container');
 
@@ -705,70 +704,110 @@ async syncStrava(evt) {
 }
 
 
-async renderProgressChart(containerId, metric = 'distance') {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+    // UPDATED: Weekly Training Load (Volume Trend)
+    async renderProgressChart(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
-    container.innerHTML = `
-            <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
-                <h3>📈 Volume Trend</h3>
-                <div id="progress-hover-display" style="font-size:12px; font-weight:600; color:#3b82f6;"></div>
+        // Header with display area for hover/click values
+        container.innerHTML = `
+            <div class="widget-header">
+                <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                    <h3>📊 Weekly Load</h3>
+                    <div id="load-display" style="font-size:12px; font-weight:600; color:#3b82f6; min-height:18px;">Last 12 Weeks</div>
+                </div>
             </div>
             <div style="height: 180px; display:flex; align-items:center; justify-content:center;">
                 <div class="loading-spinner"></div>
-            </div>
-        `;
+            </div>`;
 
-    try {
-        const response = await fetch(`/api/analytics/progress-chart?metric=${metric}&days=90`, {
-            headers: { 'Authorization': `Bearer ${this.token}` }
-        });
+        try {
+            // Fetch 12 weeks (~84 days) of history to aggregate locally
+            const response = await fetch('/api/analytics/workout-history?days=90', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await response.json();
 
-        const data = await response.json();
-
-        if (!data.success || !data.data || data.data.length === 0) {
-                container.innerHTML = `<div class="widget-header"><h3>📈 Volume Trend</h3></div><div class="empty-state-widget"><p>No data available.</p></div>`;
+            if (!data.success || !data.workouts || data.workouts.length === 0) {
+                container.innerHTML = `<div class="widget-header"><h3>📊 Weekly Load</h3></div><div class="empty-state-widget"><p>No data available.</p></div>`;
                 return;
             }
 
-            const chartData = data.data;
-            const maxValue = Math.max(...chartData.map(d => d.value)) || 10; // Avoid divide by zero
+            // --- Aggregation Logic: Group by Week (Monday Start) ---
+            const weeklyMap = new Map();
+            const getMonday = (d) => {
+                const date = new Date(d);
+                const day = date.getDay();
+                const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+                const monday = new Date(date.setDate(diff));
+                monday.setHours(0,0,0,0);
+                return monday.getTime();
+            };
+
+            data.workouts.forEach(w => {
+                if (!w.distance) return;
+                const dateObj = new Date(w.startDate || w.scheduledDate);
+                const weekKey = getMonday(dateObj);
+                
+                if (!weeklyMap.has(weekKey)) weeklyMap.set(weekKey, 0);
+                weeklyMap.set(weekKey, weeklyMap.get(weekKey) + (w.distance || 0));
+            });
+
+            // Convert to array and sort
+            const weeks = Array.from(weeklyMap.entries())
+                .map(([ts, dist]) => ({ date: new Date(ts), distance: dist }))
+                .sort((a, b) => a.date - b.date)
+                .slice(-12); // Last 12 weeks
+
+            if (weeks.length === 0) {
+                container.innerHTML = `<div class="widget-header"><h3>📊 Weekly Load</h3></div><div class="empty-state-widget"><p>No distance logged.</p></div>`;
+                return;
+            }
+
+            const maxDist = Math.max(...weeks.map(w => w.distance)) || 10;
             const chartHeight = 140;
 
-            const barsHtml = chartData.map(d => {
-                const heightPct = (d.value / maxValue) * 100;
-                const heightPx = Math.max(4, Math.floor((heightPct / 100) * chartHeight)); // Min 4px
-                const dateStr = new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            const barsHtml = weeks.map(week => {
+                const heightPct = (week.distance / maxDist) * 100;
+                const heightPx = Math.max(4, Math.floor((heightPct / 100) * chartHeight));
                 
+                // Format dates: "Jan 15"
+                const dateStr = week.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                const endOfWeek = new Date(week.date);
+                endOfWeek.setDate(endOfWeek.getDate() + 6);
+                const dateRange = `${dateStr} - ${endOfWeek.toLocaleDateString(undefined, { day: 'numeric' })}`;
+                
+                const labelText = `${dateRange}: ${week.distance.toFixed(1)} km`;
+
+                // ✅ Added onclick for mobile support
                 return `
-                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:4px; cursor:crosshair;"
-                         onmouseenter="document.getElementById('progress-hover-display').innerText = '${dateStr}: ${d.value.toFixed(1)} km';"
-                         onmouseleave="document.getElementById('progress-hover-display').innerText = '';">
-                        <div style="width:60%; background:#3b82f6; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:0.8; transition: height 0.3s ease;"></div>
+                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:4px; cursor:pointer;"
+                         onmouseenter="document.getElementById('load-display').innerText = '${labelText}'"
+                         onclick="document.getElementById('load-display').innerText = '${labelText}'"
+                         onmouseleave="document.getElementById('load-display').innerText = 'Last 12 Weeks'">
+                        <div style="width:70%; background:${week.distance > 0 ? '#3b82f6' : '#e5e7eb'}; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:0.8; transition: height 0.3s ease;"></div>
                     </div>
                 `;
             }).join('');
 
-            // X-Axis Labels (Show first and last date)
-            const firstDate = new Date(chartData[0].date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            const lastDate = new Date(chartData[chartData.length - 1].date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-
             container.innerHTML = `
-                <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <h3>📈 Volume Trend</h3>
-                    <div id="progress-hover-display" style="font-size:12px; font-weight:600; color:#3b82f6; min-height:18px;"></div>
+                <div class="widget-header">
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                        <h3>📊 Weekly Load</h3>
+                        <div id="load-display" style="font-size:11px; font-weight:600; color:#3b82f6;">Last 12 Weeks</div>
+                    </div>
                 </div>
                 <div style="height: ${chartHeight}px; display: flex; align-items: flex-end; justify-content: space-between; gap: 4px; padding-bottom: 5px; border-bottom: 1px solid #e5e7eb;">
                     ${barsHtml}
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#9ca3af;">
-                    <span>${firstDate}</span>
-                    <span>${lastDate}</span>
+                    <span>${weeks[0].date.toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                    <span>Current</span>
                 </div>
             `;
 
         } catch (error) {
-            console.error('Progress Chart Error:', error);
+            console.error('Weekly Load Chart Error:', error);
             container.innerHTML = `<p class="text-red-500 text-center">Failed to load chart.</p>`;
         }
     }
@@ -954,10 +993,8 @@ async renderTrainingPlanOverview(containerId, planType = null) { // <--- 1. Add 
 
         container.innerHTML = `
             <div class="widget training-plan-widget">
-                <div class="widget-header">
-                    <h3>📅 This Week's Training</h3>
-                </div>
                 
+            
                 <div class="plan-summary">
                     <div class="plan-info">
                         <span class="plan-week">Week ${plan.currentWeek || 1} of ${plan.totalWeeks || 12}</span>
@@ -1696,12 +1733,14 @@ async renderPerformanceChart(containerId) {
                 
                 const heightPx = Math.floor(pct * chartHeight);
                 const opacity = 0.4 + (0.6 * pct); 
+                const labelText = `${run.date.toLocaleDateString()}: ${run.paceStr}/km (${run.distance}km)`;
 
                 // ✅ HOVER VALUE: Added detailed title attribute
-               return `
-                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; cursor: crosshair;" 
-                         onmouseenter="document.getElementById('pace-hover-display').innerText = '${run.date.toLocaleDateString()}: ${run.paceStr}/km (${run.distance}km)';"
-                         onmouseleave="document.getElementById('pace-hover-display').innerText = '';">
+              return `
+                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; cursor:pointer;" 
+                         onmouseenter="document.getElementById('pace-hover-display').innerText = '${labelText}'"
+                         onclick="document.getElementById('pace-hover-display').innerText = '${labelText}'"
+                         onmouseleave="document.getElementById('pace-hover-display').innerText = 'Last 30 Runs'">
                         <div style="width:70%; background:#8b5cf6; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:${opacity}; transition:all 0.1s;"></div>
                     </div>`;
             }).join('');
@@ -1710,7 +1749,7 @@ async renderPerformanceChart(containerId) {
                 <div class="widget-header">
                     <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
                         <h3>⚡ Pace Trend</h3>
-                        <div id="pace-hover-display" style="font-size:11px; font-weight:600; color:#8b5cf6;"></div>
+                        <div id="pace-hover-display" style="font-size:11px; font-weight:600; color:#8b5cf6;">Last 30 Runs</div>
                     </div>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:0 5px; margin-bottom:5px; font-size:10px; color:#6b7280;">
