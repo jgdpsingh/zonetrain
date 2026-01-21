@@ -4407,6 +4407,30 @@ function generateComparisonRecommendation(implications, profile) {
 }
 
 
+// New Endpoint: Submit Race Question
+app.post('/api/support/race-question', authenticateToken, async (req, res) => {
+    try {
+        const { question } = req.body;
+        const userEmail = req.user.email; // From token
+        
+        // Use your existing email transporter
+        const mailOptions = {
+            from: process.env.ZOHO_EMAIL,
+            to: 'zonetrain@zohomail.in', // Your support inbox
+            replyTo: userEmail,
+            subject: `🏃 Race Question from User (${userEmail})`,
+            text: `User Question:\n\n${question}\n\n--\nUser ID: ${req.user.userId}`
+        };
+
+        await emailTransporter.sendMail(mailOptions);
+
+        res.json({ success: true, message: 'Question sent successfully' });
+    } catch (error) {
+        console.error('Race question email error:', error);
+        res.status(500).json({ success: false, message: 'Failed to send email' });
+    }
+});
+
 
 // ============================================
 // AI ONBOARDING ROUTES (Frontend Pages)
