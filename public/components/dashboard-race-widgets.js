@@ -2042,199 +2042,180 @@ attachWorkoutListeners() {
   // Safe no-op for now to prevent "is not a function" crashes.
 }
 
-// In dashboard-race-widgets.js
+// dashboard-race-widgets.js
 
-// In dashboard-race-widgets.js
-
+// 1. Render the Widget (Gradient Style)
 async renderAIInsightWidget(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Initial Loading State
-    container.innerHTML = `
-        <div class="widget">
-            <div class="widget-header" style="border-bottom:none; padding-bottom:10px;">
-                <h3 style="display:flex; align-items:center; font-size:18px;">
-                    <span style="font-size:20px; margin-right:8px;">🤖</span> Coach Insight
-                </h3>
-            </div>
-            <div id="ai-insight-content" style="min-height:100px; display:flex; align-items:center; justify-content:center;">
-                <div class="loading-spinner"></div>
-                <span style="margin-left:10px; color:#6b7280; font-size:14px;">Analyzing latest run...</span>
-            </div>
-        </div>
-    `;
-
     try {
-        const token = localStorage.getItem('userToken');
-        
-        // Call your real backend endpoint
-        // NOTE: You need to ensure you have a route like GET /api/workouts/latest-analysis
         const res = await fetch('/api/workouts/latest-analysis', {
-             headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${this.token}` }
         });
-        
         const data = await res.json();
 
-        const contentDiv = document.getElementById('ai-insight-content');
-        
-        if (data.success && data.analysis) {
-            // We have real AI data!
-            const analysis = data.analysis; // { match_score, feedback, tip }
-            const dateStr = new Date(data.date).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-            
-            // Score Color Logic
-            let scoreColor = '#10b981'; // Green
-            if (analysis.match_score < 5) scoreColor = '#ef4444'; // Red
-            else if (analysis.match_score < 8) scoreColor = '#f59e0b'; // Orange
+        // State: Analyzing
+        if (data.success === false && data.waiting) {
+             container.innerHTML = `
+                <div style="background:#fff; padding:20px; border-radius:12px; border:1px solid #e5e7eb; text-align:center;">
+                    <h3 style="margin:0 0 10px 0; font-size:16px;">Coach is Analyzing... 🧠</h3>
+                    <p style="color:#6b7280; font-size:13px;">Your latest run is being processed.</p>
+                    <button onclick="window.location.reload()" style="margin-top:10px; padding:6px 12px; background:#eff6ff; color:#1d4ed8; border:none; border-radius:6px; font-size:12px; cursor:pointer;">Refresh</button>
+                </div>`;
+             return;
+        }
 
-            contentDiv.style.display = 'block';
-            contentDiv.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <span style="font-size:12px; font-weight:600; color:#6b7280; background:#f3f4f6; padding:4px 8px; border-radius:12px;">
-                        ${data.activityName || 'Latest Run'} • ${dateStr}
-                    </span>
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <span style="font-size:12px; color:#6b7280; font-weight:600;">Score</span>
-                        <span style="font-size:14px; font-weight:800; color:${scoreColor}; border:1px solid ${scoreColor}; padding:2px 6px; border-radius:6px;">
-                            ${analysis.match_score || '-'}/10
-                        </span>
+        // State: No Data
+        if (!data.success || !data.analysis) {
+             container.innerHTML = `
+                <div style="background:#fff; padding:20px; border-radius:12px; border:1px solid #e5e7eb; text-align:center;">
+                    <h3 style="margin:0 0 10px 0; font-size:16px;">Ready to Train? 🏃‍♂️</h3>
+                    <p style="color:#6b7280; font-size:13px;">Complete a workout to get AI coaching insights.</p>
+                </div>`;
+             return;
+        }
+
+        // State: Success
+        const { analysis, activityName, date } = data;
+        const dateObj = new Date(date);
+        const isToday = dateObj.toDateString() === new Date().toDateString();
+        const dateDisplay = isToday ? 'Today' : dateObj.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+
+        container.innerHTML = `
+            <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; padding: 20px; border-radius: 16px; position: relative; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; position: relative; z-index: 2;">
+                    <div>
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; font-weight: 600;">Latest Insight</div>
+                        <div style="font-size: 14px; font-weight: 600; margin-top: 2px;">${activityName} <span style="opacity:0.7; font-weight:400;">• ${dateDisplay}</span></div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 13px;">
+                        ${analysis.matchscore || '?'} / 10
                     </div>
                 </div>
 
-                <div style="background:#f9fafb; border-radius:8px; padding:12px; margin-bottom:12px; border:1px solid #e5e7eb;">
-                    <p style="margin:0; font-size:14px; color:#374151; line-height:1.5;">
-                        ${analysis.feedback || "No feedback available."}
+                <div style="position: relative; z-index: 2;">
+                    <p style="font-size: 15px; line-height: 1.5; margin: 0 0 15px 0; font-weight: 500;">
+                        "${analysis.feedback}"
                     </p>
-                </div>
-
-                <div style="display:flex; gap:10px; align-items:start;">
-                    <span style="font-size:16px;">💡</span>
-                    <p style="margin:0; font-size:13px; color:#4b5563; font-style:italic; line-height:1.4;">
-                        <strong>Tip:</strong> ${analysis.tip || "Keep consistent!"}
-                    </p>
+                    ${analysis.tip ? `
+                    <div style="background: rgba(255,255,255,0.1); padding: 10px 12px; border-radius: 8px; border-left: 3px solid #fbbf24; font-size: 13px;">
+                        <strong style="color: #fbbf24;">💡 Coach Tip:</strong> ${analysis.tip}
+                    </div>
+                    ` : ''}
                 </div>
                 
-                <div style="margin-top:16px; text-align:right;">
-                     <button onclick="window.dashboardWidgets.loadPreviousInsights()" style="background:none; border:none; color:#667eea; cursor:pointer; font-size:12px; font-weight:600; text-decoration:underline;">
-                        View Past 7 Days
-                     </button>
-                </div>
-            `;
-        } else {
-            // No analysis found (Empty State)
-            contentDiv.innerHTML = `
-                <div style="text-align:center; padding:10px 0;">
-                    <p style="color:#9ca3af; font-size:14px; margin-bottom:8px;">No recent analyzed workouts found.</p>
-                    <small style="color:#d1d5db;">Complete a planned workout to see AI insights.</small>
-                </div>
-            `;
-        }
+                <button onclick="window.dashboardWidgets.openInsightsModal()" 
+                    style="position: relative; z-index: 2; margin-top: 15px; background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s;">
+                    View Past 7 Days
+                </button>
+
+                <div style="position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%; z-index: 1;"></div>
+                <div style="position: absolute; bottom: -40px; left: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.05); border-radius: 50%; z-index: 1;"></div>
+            </div>
+        `;
 
     } catch (error) {
-        console.error("AI Insight Error", error);
-        const contentDiv = document.getElementById('ai-insight-content');
-        if(contentDiv) {
-            contentDiv.innerHTML = `
-                <div style="text-align:center; padding:10px; color:#ef4444;">
-                    <p style="font-size:13px; margin:0;">Unable to load insights.</p>
-                    <button onclick="renderAIInsightWidget('${containerId}')" style="margin-top:8px; font-size:11px; padding:4px 8px;">Retry</button>
-                </div>
-            `;
-        }
+        console.error('Render Insight Error:', error);
+        container.innerHTML = `<p style="color: #6b7280; font-size: 13px;">Coach is offline momentarily.</p>`;
     }
 }
 
-// --- Coach Insight: Past 7 Days (Modal + List) ---
-
+// 2. Ensure Modal HTML/CSS Exists
 ensureInsightsModal() {
-  if (document.getElementById('insights-modal')) return;
+    if (document.getElementById('insights-modal')) return;
 
-  const style = document.createElement('style');
-  style.id = 'insights-modal-styles';
-  style.textContent = `
-    #insights-modal {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
-      display: none; align-items: center; justify-content: center;
-      z-index: 99999;
-    }
-    #insights-modal .modal-card {
-      width: min(680px, 92vw);
-      max-height: 80vh;
-      overflow: auto;
-      background: #fff;
-      border-radius: 14px;
-      box-shadow: 0 20px 70px rgba(0,0,0,0.25);
-      border: 1px solid #e5e7eb;
-    }
-    #insights-modal .modal-header {
-      display:flex; justify-content: space-between; align-items:center;
-      padding: 14px 16px; border-bottom: 1px solid #e5e7eb;
-    }
-    #insights-modal .modal-title { font-weight: 800; font-size: 14px; color:#111827; }
-    #insights-modal .modal-close {
-      border: none; background: transparent; cursor: pointer;
-      font-size: 20px; line-height: 1; color:#6b7280;
-    }
-    #insights-modal .modal-body { padding: 12px 16px 16px; }
-    #insights-modal .insight-row {
-      display:flex; justify-content: space-between; gap: 10px;
-      padding: 10px 12px;
-      border: 1px solid #e5e7eb; border-radius: 10px;
-      margin-bottom: 10px;
-      cursor: pointer;
-      background: #fafafa;
-    }
-    #insights-modal .insight-row:hover { background: #f3f4f6; }
-    #insights-modal .insight-left { display:flex; flex-direction: column; gap: 2px; }
-    #insights-modal .insight-date { font-size: 12px; font-weight: 700; color:#374151; }
-    #insights-modal .insight-name { font-size: 12px; color:#6b7280; }
-    #insights-modal .insight-score {
-      font-size: 12px; font-weight: 900; padding: 2px 8px;
-      border-radius: 999px; border: 1px solid #e5e7eb;
-      color:#111827; background:#fff;
-      height: fit-content;
-    }
-    #insights-modal .empty { color:#6b7280; font-size: 13px; padding: 12px 0; }
-  `;
-  document.head.appendChild(style);
+    const style = document.createElement('style');
+    style.id = 'insights-modal-styles';
+    style.textContent = `
+        #insights-modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            display: none; align-items: center; justify-content: center;
+            z-index: 99999;
+        }
+        #insights-modal .modal-card {
+            width: min(600px, 90vw);
+            max-height: 80vh;
+            overflow: auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        #insights-modal .modal-header {
+            display:flex; justify-content: space-between; align-items:center;
+            padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;
+        }
+        #insights-modal .modal-title { font-weight: 700; font-size: 16px; color:#1f2937; }
+        #insights-modal .modal-close {
+            border: none; background: transparent; cursor: pointer;
+            font-size: 24px; line-height: 1; color:#6b7280;
+        }
+        #insights-modal .modal-body { padding: 20px; }
+        .insight-row {
+            padding: 15px; border: 1px solid #e5e7eb; border-radius: 12px;
+            margin-bottom: 12px; background: #fff;
+        }
+        .insight-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .insight-date { font-size: 12px; color: #6b7280; font-weight: 600; }
+        .insight-score { font-size: 12px; font-weight: 700; color: #4f46e5; background: #e0e7ff; padding: 2px 8px; border-radius: 12px; }
+        .insight-text { font-size: 14px; color: #374151; line-height: 1.5; }
+    `;
+    document.head.appendChild(style);
 
-  const modalHtml = `
-    <div id="insights-modal" role="dialog" aria-modal="true">
-      <div class="modal-card">
-        <div class="modal-header">
-          <div class="modal-title">Coach Insights — Past 7 Days</div>
-          <button class="modal-close" onclick="window.dashboardWidgets.closeInsightsModal()">×</button>
+    const modalHtml = `
+        <div id="insights-modal">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div class="modal-title">Coach Insights — Past 7 Days</div>
+                    <button class="modal-close" onclick="window.dashboardWidgets.closeInsightsModal()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div id="insights-modal-content" style="text-align:center; color:#6b7280;">Loading...</div>
+                </div>
+            </div>
         </div>
-        <div class="modal-body">
-          <div id="insights-modal-content" class="empty">Loading…</div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-  // close modal when clicking backdrop
-  const modal = document.getElementById('insights-modal');
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) this.closeInsightsModal();
-  });
-
-  // close on Esc
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') this.closeInsightsModal();
-  });
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-openInsightsModal() {
-  this.ensureInsightsModal();
-  const modal = document.getElementById('insights-modal');
-  if (modal) modal.style.display = 'flex';
+// 3. Logic to Open Modal AND Fetch Data
+async openInsightsModal() {
+    this.ensureInsightsModal();
+    const modal = document.getElementById('insights-modal');
+    const content = document.getElementById('insights-modal-content');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    content.innerHTML = '<div class="loading-spinner"></div><p style="margin-top:10px;">Fetching history...</p>';
+
+    try {
+        const res = await fetch('/api/workouts/insights?days=7', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await res.json();
+
+        if (data.success && data.insights && data.insights.length > 0) {
+            content.innerHTML = data.insights.map(i => `
+                <div class="insight-row">
+                    <div class="insight-header">
+                        <span class="insight-date">${new Date(i.date).toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'})} • ${i.activityName}</span>
+                        <span class="insight-score">Score: ${i.matchscore || '-'}/10</span>
+                    </div>
+                    <div class="insight-text">"${i.feedback}"</div>
+                </div>
+            `).join('');
+        } else {
+            content.innerHTML = `<p>No insights found for the past 7 days.</p>`;
+        }
+    } catch (e) {
+        content.innerHTML = `<p style="color:red;">Failed to load insights.</p>`;
+    }
 }
 
+// 4. Close Logic
 closeInsightsModal() {
-  const modal = document.getElementById('insights-modal');
-  if (modal) modal.style.display = 'none';
+    const modal = document.getElementById('insights-modal');
+    if (modal) modal.style.display = 'none';
 }
 
 escapeHtml(str = '') {
