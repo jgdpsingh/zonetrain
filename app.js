@@ -5296,67 +5296,78 @@ app.get('/api/ai/weekly-analysis/:week', authenticateToken, async (req, res) => 
     }
 });
 
-// In app.js
 
-// Latest workout analysis for Dashboard widget
+// Fixed: Latest workout analysis (Ignores future test data)
 app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const now = new Date();
 
-    // 1) Find the most recent COMPLETED workout by date (NOT by analyzedAt)
-    // NOTE: Composite index likely needed: userId ASC, completed ASC, scheduledDate DESC
+    // 1) Find the most recent COMPLETED workout
+    // We fetch the last 5 to filter out future dates in code (avoids needing a complex Firestore index)
     const snap = await db.collection('workouts')
       .where('userId', '==', userId)
       .where('completed', '==', true)
       .orderBy('scheduledDate', 'desc')
-      .limit(1)
+      .limit(5) 
       .get();
 
     if (snap.empty) {
       return res.json({ success: false, message: 'No completed workouts found' });
     }
 
-    const doc = snap.docs[0];
-    const data = doc.data() || {};
+    // 2) Filter: Find the first workout that is NOT in the future
+    let validDoc = null;
+    let validData = null;
 
-    const d = data.scheduledDate || data.date || null;
+    for (const doc of snap.docs) {
+        const data = doc.data();
+        const d = data.scheduledDate || data.date;
+        const workoutDate = d?.toDate ? d.toDate() : (d ? new Date(d) : new Date());
+
+        // Check if date is valid and not in the future (allow small buffer for today)
+        if (workoutDate <= new Date(now.getTime() + 86400000)) { 
+            validDoc = doc;
+            validData = data;
+            break; // Found the latest valid one
+        }
+    }
+
+    if (!validDoc) {
+         return res.json({ success: false, message: 'No valid past workouts found' });
+    }
+
+    const d = validData.scheduledDate || validData.date || null;
     const workoutDate = d?.toDate ? d.toDate() : (d ? new Date(d) : new Date());
 
-    // 2) If analysis not ready, return waiting=true for the MOST RECENT workout day
-    if (!data.aiAnalysis) {
-      return res.json({
-        success: false,
-        waiting: true,
-        message: 'Latest workout waiting for analysis',
-        date: workoutDate,
-        activityName: data.title || data.workoutTitle || 'Workout'
+    // 3) If analysis not ready, return waiting
+    if (!validData.aiAnalysis) {
+      return res.json({ 
+        success: false, 
+        waiting: true, 
+        message: 'Latest workout waiting for analysis', 
+        date: workoutDate, 
+        activityName: validData.title || validData.workoutTitle || 'Workout' 
       });
     }
 
-    // 3) Return analysis in the exact shape your widget uses (matchscore)
+    // 4) Return analysis
     return res.json({
       success: true,
       analysis: {
-        matchscore: data.aiAnalysis.matchscore ?? data.aiAnalysis.match_score ?? null,
-        feedback: data.aiAnalysis.feedback ?? null,
-        tip: data.aiAnalysis.tip ?? null,
-        generatedBy: data.aiAnalysis.generatedBy ?? null,
-        generatedAt: data.aiAnalysis.generatedAt ?? null
+        matchscore: validData.aiAnalysis.matchscore ?? validData.aiAnalysis.match_score ?? null,
+        feedback: validData.aiAnalysis.feedback ?? null,
+        tip: validData.aiAnalysis.tip ?? null,
+        generatedBy: validData.aiAnalysis.generatedBy ?? null,
+        generatedAt: validData.aiAnalysis.generatedAt ?? null
       },
       date: workoutDate,
-      activityName: data.title || data.workoutTitle || 'Workout',
-      workoutId: doc.id
+      activityName: validData.title || validData.workoutTitle || 'Workout',
+      workoutId: validDoc.id
     });
+
   } catch (error) {
     console.error('Latest analysis error:', error);
-
-    if (error.code === 9 || String(error.message || '').toLowerCase().includes('index')) {
-      return res.status(500).json({
-        success: false,
-        error: 'Database index building. Please try again in a few minutes.'
-      });
-    }
-
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -5365,24 +5376,23 @@ app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => 
 // Past insights for Coach Insight modal
 // GET /api/workouts/insights?days=7
 
-// Fixed Insights Endpoint
+// Fixed: Insights Endpoint (Prevents 500 Errors)
 app.get('/api/workouts/insights', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const days = Math.max(1, Math.min(parseInt(req.query.days || '7', 10) || 7, 30));
-    const gapMinutes = Math.max(5, Math.min(parseInt(req.query.gapMinutes || '30', 10) || 30, 120));
-    const maxDocs = 50; // Limit to prevent memory issues
-
+    // Default to 14 days to ensure we get data
+    const days = Math.max(1, Math.min(parseInt(req.query.days || '14', 10), 30));
+    
     const now = new Date();
     const since = new Date(now);
-    since.setDate(now.getDate() - days - 2); 
+    since.setDate(now.getDate() - days); 
 
-    // Query: Get workouts with AI analysis
+    // Query
     const snap = await db.collection('workouts')
       .where('userId', '==', userId)
       .where('scheduledDate', '>=', since)
       .orderBy('scheduledDate', 'desc')
-      .limit(maxDocs)
+      .limit(20)
       .get();
 
     if (snap.empty) return res.json({ success: true, insights: [] });
@@ -5390,70 +5400,44 @@ app.get('/api/workouts/insights', authenticateToken, async (req, res) => {
     // Helper: Safely parse date
     const toJsDate = (v) => {
         if (!v) return null;
-        if (typeof v.toDate === 'function') return v.toDate(); // Firestore Timestamp
-        if (v._seconds) return new Date(v._seconds * 1000); // Raw JSON Timestamp
+        if (typeof v.toDate === 'function') return v.toDate(); 
+        if (v._seconds) return new Date(v._seconds * 1000); 
         const d = new Date(v);
         return isNaN(d.getTime()) ? null : d;
     };
 
-    const toDayKeyUTC = (d) => d.toISOString().slice(0, 10); 
+    const insights = [];
 
-    // Map & Filter valid rows
-    const rows = snap.docs.map(doc => {
-      const w = doc.data() || {};
-      
-      // Try multiple date fields
-      const when = toJsDate(w.completedAt) || toJsDate(w.startDate) || toJsDate(w.scheduledDate);
-      
-      // Require Analysis + Valid Date
-      if (!when || !w.aiAnalysis) return null;
+    snap.forEach(doc => {
+      try {
+          const w = doc.data() || {};
+          // Only include if it has AI analysis
+          if (!w.aiAnalysis) return;
 
-      return {
-        workoutId: doc.id,
-        when,
-        title: w.title || w.name || 'Workout',
-        distance: w.distance || 0,
-        duration: w.movingTime || w.duration || 0,
-        ai: w.aiAnalysis 
-      };
-    }).filter(r => r !== null); // Filter out nulls
+          const when = toJsDate(w.completedAt) || toJsDate(w.startDate) || toJsDate(w.scheduledDate);
+          if (!when) return;
 
-    // Sort by date (Newest first)
-    rows.sort((a, b) => b.when - a.when);
+          insights.push({
+            sessionId: doc.id,
+            date: when.toISOString(),
+            activityName: w.title || w.name || 'Workout',
+            matchscore: w.aiAnalysis.matchscore ?? w.aiAnalysis.match_score ?? null,
+            feedback: w.aiAnalysis.feedback || "No feedback available",
+            tip: w.aiAnalysis.tip || null
+          });
+      } catch (err) {
+          console.warn("Skipping corrupt workout doc:", doc.id);
+      }
+    });
 
-    // Grouping Logic (Simplified)
-    const sessions = [];
-    
-    // Grouping loop...
-    // (We treat every analyzed workout as a "session" for simplicity if gaps are large, 
-    // or group them if they are close together)
-    
-    // Simple version: Just return the list for the insights modal
-    // If you need session clustering, keep your loop, but ensure 'rows' is clean first (done above).
-    
-    // Re-implementing your session logic safely:
-    const gapMs = gapMinutes * 60 * 1000;
-    
-    // Reverse for chronological grouping, then flip back
-    // Actually, sticking to simple list for "Past 7 Days" modal is safer and cleaner UI-wise
-    const insights = rows.map((r, idx) => ({
-        sessionId: r.workoutId,
-        date: r.when.toISOString(),
-        activityName: r.title,
-        matchscore: r.ai.matchscore || null,
-        feedback: r.ai.feedback || "No feedback available",
-        tip: r.ai.tip || null,
-        meta: {
-            totalDistance: r.distance,
-            totalDuration: r.duration
-        }
-    }));
+    // Sort Newest -> Oldest
+    insights.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return res.json({ success: true, insights });
 
   } catch (error) {
     console.error('Insights error:', error);
-    // Return 200 with empty list so UI doesn't crash, but log error
+    // Return empty list instead of crashing
     return res.json({ success: false, error: error.message, insights: [] });
   }
 });

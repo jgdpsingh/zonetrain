@@ -2123,15 +2123,17 @@ async renderAIInsightWidget(containerId) {
 
 // 2. Ensure Modal HTML/CSS Exists
 ensureInsightsModal() {
+    // If it exists, just return (listeners are already attached)
     if (document.getElementById('insights-modal')) return;
 
+    // 1. Add Styles
     const style = document.createElement('style');
     style.id = 'insights-modal-styles';
     style.textContent = `
         #insights-modal {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
             display: none; align-items: center; justify-content: center;
-            z-index: 99999;
+            z-index: 99999; backdrop-filter: blur(2px);
         }
         #insights-modal .modal-card {
             width: min(600px, 90vw);
@@ -2140,21 +2142,11 @@ ensureInsightsModal() {
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.2s ease-out;
         }
-        #insights-modal .modal-header {
-            display:flex; justify-content: space-between; align-items:center;
-            padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;
-        }
-        #insights-modal .modal-title { font-weight: 700; font-size: 16px; color:#1f2937; }
-        #insights-modal .modal-close {
-            border: none; background: transparent; cursor: pointer;
-            font-size: 24px; line-height: 1; color:#6b7280;
-        }
-        #insights-modal .modal-body { padding: 20px; }
-        .insight-row {
-            padding: 15px; border: 1px solid #e5e7eb; border-radius: 12px;
-            margin-bottom: 12px; background: #fff;
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        /* ... existing styles ... */
+        .insight-row { padding: 15px; border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 12px; background: #fff; }
         .insight-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
         .insight-date { font-size: 12px; color: #6b7280; font-weight: 600; }
         .insight-score { font-size: 12px; font-weight: 700; color: #4f46e5; background: #e0e7ff; padding: 2px 8px; border-radius: 12px; }
@@ -2162,20 +2154,29 @@ ensureInsightsModal() {
     `;
     document.head.appendChild(style);
 
+    // 2. Add HTML
     const modalHtml = `
         <div id="insights-modal">
             <div class="modal-card">
-                <div class="modal-header">
-                    <div class="modal-title">Coach Insights — Past 7 Days</div>
-                    <button class="modal-close" onclick="window.dashboardWidgets.closeInsightsModal()">×</button>
+                <div style="display:flex; justify-content: space-between; align-items:center; padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
+                    <div style="font-weight: 700; font-size: 16px; color:#1f2937;">Coach Insights — Recent History</div>
+                    <button onclick="window.dashboardWidgets.closeInsightsModal()" style="border: none; background: transparent; cursor: pointer; font-size: 24px; line-height: 1; color:#6b7280;">&times;</button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="padding: 20px;">
                     <div id="insights-modal-content" style="text-align:center; color:#6b7280;">Loading...</div>
                 </div>
             </div>
         </div>
     `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 3. Attach Click Outside Listener
+    const modal = document.getElementById('insights-modal');
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            this.closeInsightsModal();
+        }
+    });
 }
 
 // 3. Logic to Open Modal AND Fetch Data
