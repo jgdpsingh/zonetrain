@@ -240,6 +240,8 @@ renderHRVWidget(containerId) {
                     let totalLoad = 0;
                     if (data.workouts && Array.isArray(data.workouts)) {
                         data.workouts.forEach(w => {
+                            const mins = (w.movingTime ?? w.actualDuration ?? w.duration ?? 0);
+totalLoad += (mins * rpe);
                             // Estimate RPE based on intensity label
                             let rpe = 3; // Default easy
                             const i = (w.intensity || '').toLowerCase();
@@ -247,9 +249,7 @@ renderHRVWidget(containerId) {
                             if (i === 'hard' || i === 'threshold') rpe = 7;
                             if (i === 'interval' || i === 'vo2max') rpe = 9;
                             
-                            // Use moving time or duration
-                            const mins = w.movingTime || w.duration || 0;
-                            totalLoad += mins * rpe;
+                            
                         });
                     }
                     loadEl.textContent = Math.round(totalLoad).toString();
@@ -654,8 +654,12 @@ async renderStravaWorkoutHistory(containerId) {
 
                 <div class="workout-list" style="display:flex; flex-direction:column; gap:10px;">
                     ${workouts.slice(0, 5).map(w => {
+                        const displayName = (w.name || w.title || w.type || 'Run');
                          const hasAi = !!w.aiAnalysis;
                          return `
+                         <div class="workout-name" style="font-size:14px; font-weight:600; color:#374151;">
+  ${displayName}
+</div>
                         <div class="workout-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px; background:#fff; border:1px solid #f3f4f6; border-radius:10px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <div style="font-size:20px;">${this.getWorkoutIcon(w.type)}</div>

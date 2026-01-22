@@ -2,6 +2,19 @@
 
 const StravaService = require('./stravaService');
 
+const RUN_TYPES = new Set(['run', 'trailrun', 'virtualrun']);
+
+function isRunType(t) {
+  return RUN_TYPES.has(String(t || '').trim().toLowerCase());
+}
+
+function toJsDate(v) {
+  if (!v) return null;
+  if (typeof v.toDate === 'function') return v.toDate();
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 class WorkoutAnalyticsService {
     constructor(db, aiService) {
         this.db = db;
@@ -13,83 +26,217 @@ class WorkoutAnalyticsService {
     // 1. DATA INGESTION & AI ANALYSIS
     // -------------------------------------------------------------------------
 
-    async processNewActivity(userId, activityData) {
-        console.log(`🧠 AI Analyzing Activity: ${activityData.name} (${activityData.distance}km)`);
+   // Inside services/workoutAnalyticsService.js (same class)
+// Drop-in replacement for async processNewActivity(userId, activityData)
 
-        try {
-            // 1. Find a matching scheduled workout (by date)
-            const activityDate = new Date(activityData.startDate);
-            const startOfDay = new Date(activityDate); startOfDay.setHours(0,0,0,0);
-            const endOfDay = new Date(activityDate); endOfDay.setHours(23,59,59,999);
+async processNewActivity(userId, activityData) {
+  const stravaId = activityData.stravaActivityId || activityData.id;
 
-            const scheduledSnap = await this.db.collection('workouts')
-                .where('userId', '==', userId)
-                .where('scheduledDate', '>=', startOfDay)
-                .where('scheduledDate', '<=', endOfDay)
-                .limit(1)
-                .get();
+  // ---- Normalize units defensively ----
+  let distanceKm = Number(activityData.distance ?? activityData.actualDistance ?? 0);
+  // Heuristic: if it's huge, it's probably meters
+  if (distanceKm > 500) distanceKm = distanceKm / 1000;
 
-            let workoutId = null;
-            let plannedWorkout = null;
-            let docRef = null;
+  let movingMin = Number(
+    activityData.movingTime ?? activityData.actualDuration ?? activityData.duration ?? 0
+  );
+  // Heuristic: if it's huge, it's probably seconds
+  if (movingMin > 1000) movingMin = movingMin / 60;
 
-            if (!scheduledSnap.empty) {
-                // Case A: Found a scheduled workout - Update it!
-                const doc = scheduledSnap.docs[0];
-                workoutId = doc.id;
-                plannedWorkout = doc.data();
-                docRef = doc.ref;
-                console.log(`✅ Matched with scheduled workout: ${workoutId}`);
-            } else {
-                // Case B: Unplanned Run - Create new
-                console.log(`🆕 Unplanned run detected. Creating new workout entry...`);
-                docRef = this.db.collection('workouts').doc();
-                workoutId = docRef.id;
-                
-                plannedWorkout = {
-                    userId,
-                    title: activityData.name,
-                    type: 'Run',
-                    description: 'Unplanned activity synced from Strava',
-                    distance: 0,
-                    duration: 0,
-                    scheduledDate: activityDate,
-                    createdAt: new Date()
-                };
-            }
+  const activityDate = new Date(activityData.startDate || activityData.scheduledDate || Date.now());
+  const startOfDay = new Date(activityDate); startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(activityDate);   endOfDay.setHours(23, 59, 59, 999);
 
-            // 2. Generate AI Analysis
-            if (!this.aiService) throw new Error("AI Service not initialized");
-            
-            const analysis = await this.aiService.analyzeWorkoutPerformance(plannedWorkout, activityData);
+  console.log(`🧠 AI Analyzing Activity: ${activityData.name || 'Run'} (${distanceKm}km)`);
 
-            // 3. Update DB
-            await docRef.set({
-                ...plannedWorkout,
-                completed: true,
-                completedAt: new Date(),
-                stravaActivityId: activityData.stravaActivityId || activityData.id,
-                actualDistance: activityData.distance,
-                actualDuration: activityData.movingTime,
-                averagePace: this.calculatePace(activityData.movingTime, activityData.distance),
-                averageHeartrate: activityData.averageHeartrate,
-                aiAnalysis: {
-                    matchscore: analysis.matchScore,
-                    feedback: analysis.feedback,
-                    tip: analysis.tip,
-                    generatedAt: new Date()
-                },
-                type: 'Run' 
-            }, { merge: true });
+  const looksRestWorkout = (w = {}) => {
+    const t = String(w.type || '').toLowerCase();
+    const title = String(w.title || w.name || '').toLowerCase();
+    return t.includes('rest') || title.includes('rest');
+  };
 
-            console.log(`💾 Analysis saved to workouts/${workoutId}`);
-            return { success: true, workoutId };
+  try {
+    let workoutId = null;
+    let plannedWorkout = null;
+    let docRef = null;
 
-        } catch (error) {
-            console.error('❌ Error processing activity:', error);
-            return { success: false, error: error.message };
-        }
+    // ------------------------------------------------------------------
+    // 1) BEST MATCH: existing workout already linked to this Strava activity
+    // ------------------------------------------------------------------
+    if (stravaId) {
+      const byStravaSnap = await this.db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('stravaActivityId', '==', stravaId)
+        .limit(1)
+        .get();
+
+      if (!byStravaSnap.empty) {
+        const doc = byStravaSnap.docs[0];
+        workoutId = doc.id;
+        plannedWorkout = doc.data();
+        docRef = doc.ref;
+        console.log(`✅ Matched by stravaActivityId: ${workoutId}`);
+      }
     }
+
+    // ------------------------------------------------------------------
+    // 2) FALLBACK MATCH: same-day scheduled workout (but NEVER a Rest day)
+    // ------------------------------------------------------------------
+    if (!docRef) {
+      const scheduledSnap = await this.db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('scheduledDate', '>=', startOfDay)
+        .where('scheduledDate', '<=', endOfDay)
+        .limit(10) // grab a few; we'll pick the best client-side
+        .get();
+
+      if (!scheduledSnap.empty) {
+        // Prefer non-rest workouts (and ideally non-completed ones)
+        const candidates = scheduledSnap.docs
+          .map(d => ({ id: d.id, ref: d.ref, data: d.data() }))
+          .filter(x => !looksRestWorkout(x.data));
+
+        // Choose: not completed first, else any
+        const best =
+          candidates.find(x => !x.data.completed && x.data.status !== 'skipped') ||
+          candidates[0];
+
+        if (best) {
+          workoutId = best.id;
+          plannedWorkout = best.data;
+          docRef = best.ref;
+          console.log(`✅ Matched with scheduled workout (non-rest): ${workoutId}`);
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 3) CREATE: no suitable scheduled workout (or only rest days existed)
+    // ------------------------------------------------------------------
+    if (!docRef) {
+      console.log(`🆕 No suitable scheduled workout found (or only Rest). Creating new workout entry...`);
+      docRef = this.db.collection('workouts').doc();
+      workoutId = docRef.id;
+
+      plannedWorkout = {
+        userId,
+        title: activityData.name || 'Strava Run',
+        type: 'Run',
+        description: 'Unplanned activity synced from Strava',
+        distance: 0,
+        duration: 0,
+        scheduledDate: activityDate,
+        createdAt: new Date(),
+      };
+    }
+
+    // If a scheduled workout somehow still looks like Rest, do NOT overwrite it.
+    // Create a new run instead (protects planned rest days).
+    if (plannedWorkout && looksRestWorkout(plannedWorkout)) {
+      console.log(`⚠️ Scheduled workout looked like Rest. Creating a separate run workout instead.`);
+      docRef = this.db.collection('workouts').doc();
+      workoutId = docRef.id;
+
+      plannedWorkout = {
+        userId,
+        title: activityData.name || 'Strava Run',
+        type: 'Run',
+        description: 'Run detected on a planned rest day (synced from Strava)',
+        distance: 0,
+        duration: 0,
+        scheduledDate: activityDate,
+        createdAt: new Date(),
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // 4) AI analysis
+    // ------------------------------------------------------------------
+    if (!this.aiService) throw new Error('AI Service not initialized');
+
+    const analysis = await this.aiService.analyzeWorkoutPerformance(plannedWorkout, {
+      ...activityData,
+      distance: distanceKm,
+      movingTime: movingMin,
+      stravaActivityId: stravaId,
+      startDate: activityDate,
+    });
+
+    // Decide what title to store on the workout doc
+    const resolvedTitle =
+      (plannedWorkout?.title && !looksRestWorkout(plannedWorkout))
+        ? plannedWorkout.title
+        : (activityData.name || plannedWorkout?.title || 'Run');
+
+    // ------------------------------------------------------------------
+    // 5) Save to workouts
+    // ------------------------------------------------------------------
+    await docRef.set(
+      {
+        ...plannedWorkout,
+
+        // identity + display
+        title: resolvedTitle,
+        name: activityData.name || plannedWorkout?.name || resolvedTitle,
+        type: 'Run',
+
+        // completion/linkage
+        completed: true,
+        completedAt: activityDate, // IMPORTANT: use activity date, not "now"
+        stravaActivityId: stravaId || null,
+
+        // actuals (normalized)
+        actualDistance: distanceKm,
+        actualDuration: movingMin,
+        averagePace: this.calculatePace(movingMin, distanceKm),
+        averageHeartrate: activityData.averageHeartrate ?? null,
+
+        // analysis
+        aiAnalysis: {
+          matchscore: analysis.matchScore,
+          feedback: analysis.feedback,
+          tip: analysis.tip,
+          generatedAt: new Date(),
+        },
+
+        updatedAt: new Date(),
+      },
+      { merge: true }
+    );
+
+    // ------------------------------------------------------------------
+    // 6) Best-effort: mirror aiAnalysis back into stravaactivities for UI
+    // Note: your stravaactivities doc id pattern is `${userId}${activity.id}`
+    // ------------------------------------------------------------------
+    if (stravaId) {
+      try {
+        const stravaDocId = `${userId}${stravaId}`;
+        await this.db.collection('stravaactivities').doc(stravaDocId).set(
+          {
+            aiAnalysis: {
+              matchscore: analysis.matchScore,
+              feedback: analysis.feedback,
+              tip: analysis.tip,
+              generatedAt: new Date(),
+            },
+            aiAnalyzedAt: new Date(),
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+      } catch (mirrorErr) {
+        console.warn('⚠️ Could not mirror aiAnalysis to stravaactivities:', mirrorErr.message);
+      }
+    }
+
+    console.log(`💾 Analysis saved to workouts/${workoutId}`);
+    return { success: true, workoutId };
+  } catch (error) {
+    console.error('❌ Error processing activity:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 
     calculatePace(minutes, km) {
         if (!km || km === 0) return '0:00';
@@ -119,77 +266,84 @@ class WorkoutAnalyticsService {
 
     // Shared method for fetching from DB (Hybrid: Workouts + Strava Activities)
     async fetchLocalWorkoutHistory(userId, days) {
-        try {
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - days);
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
 
-            // 1. Fetch AI-Analyzed Workouts (Rich Data)
-            const workoutsSnap = await this.db.collection('workouts')
-                .where('userId', '==', userId)
-                .where('scheduledDate', '>=', startDate)
-                .where('completed', '==', true)
-                .orderBy('scheduledDate', 'desc')
-                .get();
+      const workoutsSnap = await this.db.collection('workouts')
+        .where('userId', '==', userId)
+        .where('scheduledDate', '>=', startDate)
+        .where('completed', '==', true)
+        .orderBy('scheduledDate', 'desc')
+        .get();
 
-            // 2. Fetch Raw Strava Activities (Historical Data)
-            const stravaSnap = await this.db.collection('strava_activities')
-                .where('userId', '==', userId)
-                .where('startDate', '>=', startDate)
-                .orderBy('startDate', 'desc')
-                .get();
+      const stravaSnap = await this.db.collection('stravaactivities')
+        .where('userId', '==', userId)
+        .where('startDate', '>=', startDate)
+        .orderBy('startDate', 'desc')
+        .get();
 
-            // 3. Merge & Deduplicate
-            const processedIds = new Set();
-            const mergedWorkouts = [];
+      const processedIds = new Set();
+      const mergedWorkouts = [];
 
-            // Add Analyzed Workouts First
-            workoutsSnap.forEach(doc => {
-                const data = doc.data();
-                const stravaId = data.stravaActivityId;
-                if (stravaId) processedIds.add(String(stravaId));
-                
-                mergedWorkouts.push({
-                    id: doc.id,
-                    ...data,
-                    startDate: data.scheduledDate?.toDate(), 
-                    source: 'workout_db'
-                });
-            });
+      // A) Workouts DB (AI-analyzed) — normalize for UI
+      workoutsSnap.forEach((doc) => {
+        const data = doc.data();
 
-            // Add Raw Strava Activities (if not already processed)
-            stravaSnap.forEach(doc => {
-                const data = doc.data();
-                const stravaId = data.stravaActivityId || data.id; 
-                
-                if (!processedIds.has(String(stravaId))) {
-                    mergedWorkouts.push({
-                        id: doc.id,
-                        ...data,
-                        title: data.name,
-                        distance: data.distance, // Strava raw (km if normalized in service, or raw meters / 1000 here)
-                        movingTime: data.movingTime, 
-                        startDate: data.startDate?.toDate(),
-                        source: 'strava_raw'
-                    });
-                }
-            });
+        // Filter: only keep run-like workouts in history
+        if (!isRunType(data.type) && !data.stravaActivityId) return;
 
-            // Sort merged list by date (newest first)
-            mergedWorkouts.sort((a, b) => b.startDate - a.startDate);
+        const stravaId = data.stravaActivityId;
+        if (stravaId) processedIds.add(String(stravaId));
 
-            const stats = this.calculateWorkoutStats(mergedWorkouts);
+        const distance = Number(data.actualDistance ?? data.distance ?? 0);
+        const movingTime = Number(data.actualDuration ?? data.movingTime ?? data.duration ?? 0);
+        const start = toJsDate(data.completedAt) || toJsDate(data.scheduledDate) || new Date();
 
-            return {
-                workouts: mergedWorkouts,
-                stats,
-                period: { days, startDate, endDate: new Date() },
-                source: 'hybrid_merged'
-            };
-        } catch (error) {
-            console.error('Fetch local history error:', error);
-            return { workouts: [], stats: {}, error: error.message };
-        }
+        mergedWorkouts.push({
+          id: doc.id,
+          ...data,
+          // Normalize fields used by frontend widgets
+          title: data.title || data.name || 'Run',
+          name: data.name || data.title || 'Run',
+          distance,
+          movingTime,
+          startDate: start,
+          source: 'workoutdb',
+        });
+      });
+
+      // B) Strava cache — normalize for UI, filter to runs only
+      stravaSnap.forEach((doc) => {
+        const data = doc.data();
+        const stravaId = data.stravaActivityId || data.id;
+        if (!isRunType(data.type) || processedIds.has(String(stravaId))) return;
+
+        const distance = Number(data.distance ?? 0);      // already km in your sync
+        const movingTime = Number(data.movingTime ?? 0);  // already minutes in your sync
+        const start = toJsDate(data.startDate) || new Date();
+
+        mergedWorkouts.push({
+          id: doc.id,
+          ...data,
+          title: data.name || 'Strava Run',
+          name: data.name || 'Strava Run',
+          distance,
+          movingTime,
+          startDate: start,
+          source: 'stravaraw',
+        });
+      });
+
+      mergedWorkouts.sort((a, b) => (b.startDate || 0) - (a.startDate || 0));
+
+      const stats = this.calculateWorkoutStats(mergedWorkouts);
+      return { workouts: mergedWorkouts, stats, period: days, startDate, endDate: new Date(), source: 'hybridmerged' };
+    } catch (error) {
+      console.error('Fetch local history error', error);
+      return { workouts: [], stats: {}, error: error.message };
     }
+  }
 
     calculateWorkoutStats(workouts) {
         if (!workouts || workouts.length === 0) {
@@ -261,70 +415,52 @@ class WorkoutAnalyticsService {
 
     // ✅ FIXED: Calculate Personal Records from LOCAL DB (Reliable)
     async getPersonalRecords(userId) {
-        try {
-            // 1. Fetch ALL Strava activities for this user
-            // Note: For very large datasets, you might want to cache this summary in the user doc.
-            // But for a dashboard, querying the collection is usually fine for <1000 runs.
-            const activitiesSnap = await this.db.collection('strava_activities')
-                .where('userId', '==', userId)
-                .get();
+    try {
+      const activitiesSnap = await this.db.collection('stravaactivities')
+        .where('userId', '==', userId)
+        .get();
 
-            let totalRuns = 0;
-            let totalDistance = 0;
-            let totalMovingTime = 0; // seconds
-            let longestRun = { distance: 0, date: 'N/A' };
+      let totalRuns = 0;
+      let totalDistanceKm = 0;
+      let totalMovingMinutes = 0; // IMPORTANT: minutes, not seconds
+      let longestRun = { distance: 0, date: 'NA' };
 
-            activitiesSnap.forEach(doc => {
-                const data = doc.data();
-                
-                // Only count Runs
-                if (data.type === 'Run' || data.type === 'run') {
-                    totalRuns++;
-                    
-                    // Strava stores distance in METERS in strava_activities
-                    // But some legacy syncs might be KM. Let's normalize.
-                    // Heuristic: If distance > 1000, it's meters.
-                    let distKm = data.distance;
-                    if (distKm > 500) distKm = distKm / 1000;
-                    
-                    totalDistance += distKm;
-                    totalMovingTime += (data.movingTime || 0);
+      activitiesSnap.forEach((doc) => {
+        const data = doc.data();
+        if (!isRunType(data.type)) return;
 
-                    // Check Longest Run
-                    if (distKm > longestRun.distance) {
-                        longestRun = {
-                            distance: distKm,
-                            date: data.startDate ? new Date(data.startDate.toDate()).toLocaleDateString() : 'N/A'
-                        };
-                    }
-                }
-            });
+        totalRuns++;
 
-            // Convert time to hours
-            const totalHours = Math.round((totalMovingTime / 60) / 60);
+        // Your sync stores km (distance) and minutes (movingTime). [file:6]
+        const distKm = Number(data.distance ?? 0);
+        const mins = Number(data.movingTime ?? 0);
 
-            return {
-                success: true,
-                totalRuns,
-                totalDistance: totalDistance.toFixed(0),
-                totalTime: totalHours,
-                longestRun: {
-                    distance: longestRun.distance.toFixed(2),
-                    date: longestRun.date
-                },
-                source: 'local_db_aggregation'
-            };
+        totalDistanceKm += distKm;
+        totalMovingMinutes += mins;
 
-        } catch (error) {
-            console.error('❌ Personal records error:', error);
-            return { 
-                success: false, 
-                totalRuns: 0, 
-                totalDistance: 0, 
-                longestRun: { distance: 0, date: 'N/A' } 
-            };
+        if (distKm > longestRun.distance) {
+          longestRun = {
+            distance: distKm,
+            date: data.startDate ? new Date(toJsDate(data.startDate)).toLocaleDateString() : 'NA',
+          };
         }
+      });
+
+      const totalHours = Math.round(totalMovingMinutes / 60); // minutes -> hours
+
+      return {
+        success: true,
+        totalRuns,
+        totalDistance: totalDistanceKm.toFixed(0),
+        totalTime: totalHours,
+        longestRun: { distance: longestRun.distance.toFixed(2), date: longestRun.date },
+        source: 'localdbaggregation',
+      };
+    } catch (error) {
+      console.error('Personal records error', error);
+      return { success: false, totalRuns: 0, totalDistance: 0, totalTime: 0, longestRun: { distance: 0, date: 'NA' } };
     }
+  }
 
     // ... rest of class ...
 
