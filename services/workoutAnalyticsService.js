@@ -1,21 +1,23 @@
-// services/workoutAnalyticsService.js - FIXED & UPDATED
+// services/workoutAnalyticsService.js - HYBRID FINAL VERSION
 
 const StravaService = require('./stravaService');
 
 class WorkoutAnalyticsService {
     constructor(db, aiService) {
         this.db = db;
-        this.aiService = aiService; // ✅ Correctly assign AI Service
+        this.aiService = aiService; 
         this.stravaService = new StravaService(db, aiService);
     }
 
-    // ✅ CRITICAL MISSING FUNCTION: Analyze and Save Workout
+    // -------------------------------------------------------------------------
+    // 1. DATA INGESTION & AI ANALYSIS
+    // -------------------------------------------------------------------------
+
     async processNewActivity(userId, activityData) {
         console.log(`🧠 AI Analyzing Activity: ${activityData.name} (${activityData.distance}km)`);
 
         try {
             // 1. Find a matching scheduled workout (by date)
-            // We look for a workout scheduled for the SAME DAY as the activity
             const activityDate = new Date(activityData.startDate);
             const startOfDay = new Date(activityDate); startOfDay.setHours(0,0,0,0);
             const endOfDay = new Date(activityDate); endOfDay.setHours(23,59,59,999);
@@ -39,18 +41,17 @@ class WorkoutAnalyticsService {
                 docRef = doc.ref;
                 console.log(`✅ Matched with scheduled workout: ${workoutId}`);
             } else {
-                // Case B: Unplanned Run - Create a new workout entry!
+                // Case B: Unplanned Run - Create new
                 console.log(`🆕 Unplanned run detected. Creating new workout entry...`);
                 docRef = this.db.collection('workouts').doc();
                 workoutId = docRef.id;
                 
-                // Create a basic workout structure from the Strava data
                 plannedWorkout = {
                     userId,
                     title: activityData.name,
                     type: 'Run',
                     description: 'Unplanned activity synced from Strava',
-                    distance: 0, // No "planned" distance
+                    distance: 0,
                     duration: 0,
                     scheduledDate: activityDate,
                     createdAt: new Date()
@@ -58,19 +59,13 @@ class WorkoutAnalyticsService {
             }
 
             // 2. Generate AI Analysis
-            // We compare actual (activityData) vs planned (plannedWorkout)
-            // Ensure aiService is available
-            if (!this.aiService) {
-                throw new Error("AI Service not initialized in WorkoutAnalyticsService");
-            }
+            if (!this.aiService) throw new Error("AI Service not initialized");
             
             const analysis = await this.aiService.analyzeWorkoutPerformance(plannedWorkout, activityData);
 
-            // 3. Update the Workout Document with Analysis & Strava Data
+            // 3. Update DB
             await docRef.set({
-                ...plannedWorkout, // Keep existing plan data if any
-                
-                // Merge actual performance data
+                ...plannedWorkout,
                 completed: true,
                 completedAt: new Date(),
                 stravaActivityId: activityData.stravaActivityId || activityData.id,
@@ -78,16 +73,12 @@ class WorkoutAnalyticsService {
                 actualDuration: activityData.movingTime,
                 averagePace: this.calculatePace(activityData.movingTime, activityData.distance),
                 averageHeartrate: activityData.averageHeartrate,
-                
-                // Save the AI Analysis
                 aiAnalysis: {
                     matchscore: analysis.matchScore,
                     feedback: analysis.feedback,
                     tip: analysis.tip,
                     generatedAt: new Date()
                 },
-                
-                // Ensure it shows up as a "Run"
                 type: 'Run' 
             }, { merge: true });
 
@@ -100,7 +91,6 @@ class WorkoutAnalyticsService {
         }
     }
 
-    // Helper: Calculate pace string (min/km)
     calculatePace(minutes, km) {
         if (!km || km === 0) return '0:00';
         const paceDec = minutes / km;
@@ -109,19 +99,31 @@ class WorkoutAnalyticsService {
         return `${mm}:${ss.toString().padStart(2, '0')}`;
     }
 
-    // --- Existing Methods (Kept as is) ---
+    // -------------------------------------------------------------------------
+    // 2. DATA RETRIEVAL (History & Stats)
+    // -------------------------------------------------------------------------
 
     async getWorkoutHistory(userId, days = 30) {
         try {
-            // First, sync latest Strava data
+            // Try Sync First
             await this.stravaService.syncActivities(userId);
+            
+            // Return fresh data
+            return await this.fetchLocalWorkoutHistory(userId, days);
+        } catch (error) {
+            console.warn('⚠️ Strava Sync failed, falling back to cache:', error.message);
+            // Fallback: Return what we have locally
+            return await this.fetchLocalWorkoutHistory(userId, days);
+        }
+    }
 
-            // Get activities from local cache (using 'workouts' collection if preferred, or 'strava_activities')
-            // NOTE: Changing this to 'workouts' to unify data source for the dashboard
+    // Shared method for fetching from DB (used by both Live and Cache paths)
+    async fetchLocalWorkoutHistory(userId, days) {
+        try {
             const startDate = new Date();
             startDate.setDate(startDate.getDate() - days);
 
-            // Fetch from 'workouts' where completed = true (contains analysis)
+            // Query 'workouts' collection where completed=true
             const snapshot = await this.db.collection('workouts')
                 .where('userId', '==', userId)
                 .where('scheduledDate', '>=', startDate)
@@ -144,21 +146,16 @@ class WorkoutAnalyticsService {
                 source: 'workouts_db'
             };
         } catch (error) {
-            console.error('Get workout history error:', error);
+            console.error('Fetch local history error:', error);
             return { workouts: [], stats: {}, error: error.message };
         }
     }
 
-    // Calculate stats 
     calculateWorkoutStats(workouts) {
         if (workouts.length === 0) {
             return {
-                totalWorkouts: 0,
-                totalDistance: 0,
-                totalDuration: 0,
-                averagePace: '0:00',
-                weeklyBreakdown: [],
-                progressTrend: 'no_data'
+                totalWorkouts: 0, totalDistance: 0, totalDuration: 0,
+                averagePace: '0:00', weeklyBreakdown: [], progressTrend: 'no_data'
             };
         }
 
@@ -170,7 +167,6 @@ class WorkoutAnalyticsService {
         };
 
         workouts.forEach(workout => {
-            // Handle both structure types (direct or nested)
             const dist = workout.actualDistance || workout.distance || 0;
             const dur = workout.actualDuration || workout.movingTime || workout.duration || 0;
 
@@ -189,7 +185,6 @@ class WorkoutAnalyticsService {
         stats.weeklyBreakdown = Object.values(stats.weeklyBreakdown).sort((a, b) => 
             a.week.localeCompare(b.week)
         );
-
         stats.progressTrend = this.calculateTrend(stats.weeklyBreakdown);
 
         return stats;
@@ -204,27 +199,29 @@ class WorkoutAnalyticsService {
 
     calculateTrend(weeklyData) {
         if (weeklyData.length < 2) return 'stable';
-        const lastWeek = weeklyData[weeklyData.length - 1];
-        const prevWeek = weeklyData[weeklyData.length - 2];
-        if (!prevWeek.distance) return 'stable';
-        
-        const change = ((lastWeek.distance - prevWeek.distance) / prevWeek.distance) * 100;
+        const last = weeklyData[weeklyData.length - 1];
+        const prev = weeklyData[weeklyData.length - 2];
+        if (!prev.distance) return 'stable';
+        const change = ((last.distance - prev.distance) / prev.distance) * 100;
         if (change > 10) return 'improving';
         if (change < -10) return 'declining';
         return 'stable';
     }
 
-    // Get personal records
+    // -------------------------------------------------------------------------
+    // 3. PERSONAL RECORDS & CHARTS
+    // -------------------------------------------------------------------------
+
     async getPersonalRecords(userId) {
         try {
-            // Using Strava Service for aggregated stats
+            // Get accurate totals from Strava
             const stats = await this.stravaService.getAthleteStats(userId);
             
-            // Helper to find longest run from local DB to save API calls
+            // Get longest run from local DB (faster)
             const longestRunSnap = await this.db.collection('workouts')
                 .where('userId', '==', userId)
                 .where('completed', '==', true)
-                .orderBy('distance', 'desc') // Ensure you index 'distance'
+                .orderBy('distance', 'desc')
                 .limit(1)
                 .get();
             
@@ -240,16 +237,15 @@ class WorkoutAnalyticsService {
             return {
                 totalRuns: stats.all_run_totals?.count || 0,
                 totalDistance: (stats.all_run_totals?.distance / 1000).toFixed(2) || '0.00',
+                totalTime: Math.round((stats.all_run_totals?.moving_time || 0) / 3600),
                 longestRun,
                 source: 'mixed'
             };
         } catch (error) {
-            console.error('Personal records error:', error);
-            return { totalRuns: 0, totalDistance: 0 };
+            return { totalRuns: 0, totalDistance: 0, longestRun: { distance: 0, date: 'N/A' } };
         }
     }
 
-    // Get progress chart data
     async getProgressChartData(userId, metric = 'distance', days = 90) {
         try {
             const history = await this.getWorkoutHistory(userId, days);
