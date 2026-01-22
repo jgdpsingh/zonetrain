@@ -255,46 +255,78 @@ class WorkoutAnalyticsService {
     // 3. PERSONAL RECORDS & CHARTS
     // -------------------------------------------------------------------------
 
+   // services/workoutAnalyticsService.js
+
+    // ... existing code ...
+
+    // ✅ FIXED: Calculate Personal Records from LOCAL DB (Reliable)
     async getPersonalRecords(userId) {
         try {
-            // Get accurate totals from Strava API
-            const stats = await this.stravaService.getAthleteStats(userId);
-            
-            // Get longest run from local DB (Hybrid approach)
-            // Check strava_activities first as it has more history
-            const longestSnap = await this.db.collection('strava_activities')
+            // 1. Fetch ALL Strava activities for this user
+            // Note: For very large datasets, you might want to cache this summary in the user doc.
+            // But for a dashboard, querying the collection is usually fine for <1000 runs.
+            const activitiesSnap = await this.db.collection('strava_activities')
                 .where('userId', '==', userId)
-                .orderBy('distance', 'desc')
-                .limit(1)
                 .get();
-            
+
+            let totalRuns = 0;
+            let totalDistance = 0;
+            let totalMovingTime = 0; // seconds
             let longestRun = { distance: 0, date: 'N/A' };
-            if (!longestSnap.empty) {
-                const d = longestSnap.docs[0].data();
-                // Check if distance is in meters or km (Strava raw is meters)
-                // Assuming syncService stored it as KM, but let's be safe:
-                // If > 1000, it's likely meters.
-                let dist = d.distance; 
-                // Note: In stravaService, we store as KM. So d.distance is KM.
+
+            activitiesSnap.forEach(doc => {
+                const data = doc.data();
                 
-                longestRun = { 
-                    distance: dist.toFixed(2), 
-                    date: new Date(d.startDate.toDate()).toLocaleDateString() 
-                };
-            }
+                // Only count Runs
+                if (data.type === 'Run' || data.type === 'run') {
+                    totalRuns++;
+                    
+                    // Strava stores distance in METERS in strava_activities
+                    // But some legacy syncs might be KM. Let's normalize.
+                    // Heuristic: If distance > 1000, it's meters.
+                    let distKm = data.distance;
+                    if (distKm > 500) distKm = distKm / 1000;
+                    
+                    totalDistance += distKm;
+                    totalMovingTime += (data.movingTime || 0);
+
+                    // Check Longest Run
+                    if (distKm > longestRun.distance) {
+                        longestRun = {
+                            distance: distKm,
+                            date: data.startDate ? new Date(data.startDate.toDate()).toLocaleDateString() : 'N/A'
+                        };
+                    }
+                }
+            });
+
+            // Convert time to hours
+            const totalHours = Math.round((totalMovingTime / 60) / 60);
 
             return {
-                totalRuns: stats.all_run_totals?.count || 0,
-                totalDistance: (stats.all_run_totals?.distance / 1000).toFixed(2) || '0.00',
-                totalTime: Math.round((stats.all_run_totals?.moving_time || 0) / 3600),
-                longestRun,
-                source: 'mixed'
+                success: true,
+                totalRuns,
+                totalDistance: totalDistance.toFixed(0),
+                totalTime: totalHours,
+                longestRun: {
+                    distance: longestRun.distance.toFixed(2),
+                    date: longestRun.date
+                },
+                source: 'local_db_aggregation'
             };
+
         } catch (error) {
-            console.error('Personal records error:', error);
-            return { totalRuns: 0, totalDistance: 0, longestRun: { distance: 0, date: 'N/A' } };
+            console.error('❌ Personal records error:', error);
+            return { 
+                success: false, 
+                totalRuns: 0, 
+                totalDistance: 0, 
+                longestRun: { distance: 0, date: 'N/A' } 
+            };
         }
     }
+
+    // ... rest of class ...
 
     async getProgressChartData(userId, metric = 'distance', days = 90) {
         try {

@@ -5372,73 +5372,67 @@ app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => 
   }
 });
 
+// app.js
 
-// Past insights for Coach Insight modal
-// GET /api/workouts/insights?days=7
-
-// Fixed: Insights Endpoint (Prevents 500 Errors)
+// ✅ FIXED: Robust Insights Endpoint
 app.get('/api/workouts/insights', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    // Default to 14 days to ensure we get data
-    const days = Math.max(1, Math.min(parseInt(req.query.days || '14', 10), 30));
+    const days = parseInt(req.query.days || '7', 10);
     
-    const now = new Date();
-    const since = new Date(now);
-    since.setDate(now.getDate() - days); 
-
-    // Query
+    // We fetch a larger batch of RECENT workouts regardless of exact date
+    // This ensures we catch the "Jan 20" run even if the query date logic was off.
     const snap = await db.collection('workouts')
       .where('userId', '==', userId)
-      .where('scheduledDate', '>=', since)
-      .orderBy('scheduledDate', 'desc')
+      .orderBy('scheduledDate', 'desc') // Simply get the newest ones
       .limit(20)
       .get();
 
     if (snap.empty) return res.json({ success: true, insights: [] });
 
-    // Helper: Safely parse date
     const toJsDate = (v) => {
         if (!v) return null;
-        if (typeof v.toDate === 'function') return v.toDate(); 
-        if (v._seconds) return new Date(v._seconds * 1000); 
-        const d = new Date(v);
-        return isNaN(d.getTime()) ? null : d;
+        if (typeof v.toDate === 'function') return v.toDate();
+        return new Date(v);
     };
 
     const insights = [];
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days - 1); // Buffer
 
     snap.forEach(doc => {
-      try {
-          const w = doc.data() || {};
-          // Only include if it has AI analysis
-          if (!w.aiAnalysis) return;
+      const w = doc.data();
+      
+      // 1. Must have analysis
+      if (!w.aiAnalysis) return;
 
-          const when = toJsDate(w.completedAt) || toJsDate(w.startDate) || toJsDate(w.scheduledDate);
-          if (!when) return;
+      // 2. Resolve Date
+      const dateObj = toJsDate(w.completedAt) || toJsDate(w.scheduledDate);
+      if (!dateObj) return;
 
+      // 3. Apply Date Filter in Memory (More reliable)
+      if (dateObj >= cutoffDate) {
           insights.push({
             sessionId: doc.id,
-            date: when.toISOString(),
+            date: dateObj.toISOString(),
             activityName: w.title || w.name || 'Workout',
             matchscore: w.aiAnalysis.matchscore ?? w.aiAnalysis.match_score ?? null,
             feedback: w.aiAnalysis.feedback || "No feedback available",
             tip: w.aiAnalysis.tip || null
           });
-      } catch (err) {
-          console.warn("Skipping corrupt workout doc:", doc.id);
       }
     });
 
-    // Sort Newest -> Oldest
+    // Final Sort
     insights.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    return res.json({ success: true, insights });
+    console.log(`🔍 Found ${insights.length} insights for last ${days} days`);
+
+    res.json({ success: true, insights });
 
   } catch (error) {
     console.error('Insights error:', error);
-    // Return empty list instead of crashing
-    return res.json({ success: false, error: error.message, insights: [] });
+    res.json({ success: false, error: error.message, insights: [] });
   }
 });
 
