@@ -117,10 +117,6 @@ class WorkoutAnalyticsService {
         }
     }
 
-    // Shared method for fetching from DB (used by both Live and Cache paths)
-
-    // ... inside WorkoutAnalyticsService class ...
-
     // Shared method for fetching from DB (Hybrid: Workouts + Strava Activities)
     async fetchLocalWorkoutHistory(userId, days) {
         try {
@@ -143,9 +139,6 @@ class WorkoutAnalyticsService {
                 .get();
 
             // 3. Merge & Deduplicate
-            // We prioritize the 'workouts' doc because it has the analysis.
-            // If a Strava activity ID exists in 'workouts', we skip the raw strava doc.
-            
             const processedIds = new Set();
             const mergedWorkouts = [];
 
@@ -158,7 +151,7 @@ class WorkoutAnalyticsService {
                 mergedWorkouts.push({
                     id: doc.id,
                     ...data,
-                    startDate: data.scheduledDate?.toDate(), // Normalize date field
+                    startDate: data.scheduledDate?.toDate(), 
                     source: 'workout_db'
                 });
             });
@@ -166,15 +159,15 @@ class WorkoutAnalyticsService {
             // Add Raw Strava Activities (if not already processed)
             stravaSnap.forEach(doc => {
                 const data = doc.data();
-                const stravaId = data.stravaActivityId || data.id; // handle different ID fields
+                const stravaId = data.stravaActivityId || data.id; 
                 
                 if (!processedIds.has(String(stravaId))) {
                     mergedWorkouts.push({
                         id: doc.id,
                         ...data,
-                        title: data.name, // Normalize title
-                        distance: data.distance / 1000, // Strava raw is meters, workouts is km
-                        movingTime: data.movingTime / 60, // Strava raw is seconds, workouts is min
+                        title: data.name,
+                        distance: data.distance, // Strava raw (km if normalized in service, or raw meters / 1000 here)
+                        movingTime: data.movingTime, 
                         startDate: data.startDate?.toDate(),
                         source: 'strava_raw'
                     });
@@ -214,10 +207,6 @@ class WorkoutAnalyticsService {
         };
 
         workouts.forEach(workout => {
-            // Handle different field names from the two sources
-            // Workouts DB: actualDistance (km), actualDuration (min)
-            // Strava Raw (normalized above): distance (km), movingTime (min)
-            
             const dist = workout.actualDistance || workout.distance || 0;
             const dur = workout.actualDuration || workout.movingTime || workout.duration || 0;
 
@@ -268,23 +257,29 @@ class WorkoutAnalyticsService {
 
     async getPersonalRecords(userId) {
         try {
-            // Get accurate totals from Strava
+            // Get accurate totals from Strava API
             const stats = await this.stravaService.getAthleteStats(userId);
             
-            // Get longest run from local DB (faster)
-            const longestRunSnap = await this.db.collection('workouts')
+            // Get longest run from local DB (Hybrid approach)
+            // Check strava_activities first as it has more history
+            const longestSnap = await this.db.collection('strava_activities')
                 .where('userId', '==', userId)
-                .where('completed', '==', true)
                 .orderBy('distance', 'desc')
                 .limit(1)
                 .get();
             
             let longestRun = { distance: 0, date: 'N/A' };
-            if (!longestRunSnap.empty) {
-                const lr = longestRunSnap.docs[0].data();
-                longestRun = {
-                    distance: lr.actualDistance || lr.distance,
-                    date: new Date(lr.scheduledDate).toLocaleDateString()
+            if (!longestSnap.empty) {
+                const d = longestSnap.docs[0].data();
+                // Check if distance is in meters or km (Strava raw is meters)
+                // Assuming syncService stored it as KM, but let's be safe:
+                // If > 1000, it's likely meters.
+                let dist = d.distance; 
+                // Note: In stravaService, we store as KM. So d.distance is KM.
+                
+                longestRun = { 
+                    distance: dist.toFixed(2), 
+                    date: new Date(d.startDate.toDate()).toLocaleDateString() 
                 };
             }
 
@@ -296,6 +291,7 @@ class WorkoutAnalyticsService {
                 source: 'mixed'
             };
         } catch (error) {
+            console.error('Personal records error:', error);
             return { totalRuns: 0, totalDistance: 0, longestRun: { distance: 0, date: 'N/A' } };
         }
     }
