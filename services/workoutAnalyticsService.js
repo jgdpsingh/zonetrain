@@ -118,32 +118,79 @@ class WorkoutAnalyticsService {
     }
 
     // Shared method for fetching from DB (used by both Live and Cache paths)
+
+    // ... inside WorkoutAnalyticsService class ...
+
+    // Shared method for fetching from DB (Hybrid: Workouts + Strava Activities)
     async fetchLocalWorkoutHistory(userId, days) {
         try {
             const startDate = new Date();
             startDate.setDate(startDate.getDate() - days);
 
-            // Query 'workouts' collection where completed=true
-            const snapshot = await this.db.collection('workouts')
+            // 1. Fetch AI-Analyzed Workouts (Rich Data)
+            const workoutsSnap = await this.db.collection('workouts')
                 .where('userId', '==', userId)
                 .where('scheduledDate', '>=', startDate)
                 .where('completed', '==', true)
                 .orderBy('scheduledDate', 'desc')
                 .get();
 
-            const workouts = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                startDate: doc.data().scheduledDate?.toDate()
-            }));
+            // 2. Fetch Raw Strava Activities (Historical Data)
+            const stravaSnap = await this.db.collection('strava_activities')
+                .where('userId', '==', userId)
+                .where('startDate', '>=', startDate)
+                .orderBy('startDate', 'desc')
+                .get();
 
-            const stats = this.calculateWorkoutStats(workouts);
+            // 3. Merge & Deduplicate
+            // We prioritize the 'workouts' doc because it has the analysis.
+            // If a Strava activity ID exists in 'workouts', we skip the raw strava doc.
+            
+            const processedIds = new Set();
+            const mergedWorkouts = [];
+
+            // Add Analyzed Workouts First
+            workoutsSnap.forEach(doc => {
+                const data = doc.data();
+                const stravaId = data.stravaActivityId;
+                if (stravaId) processedIds.add(String(stravaId));
+                
+                mergedWorkouts.push({
+                    id: doc.id,
+                    ...data,
+                    startDate: data.scheduledDate?.toDate(), // Normalize date field
+                    source: 'workout_db'
+                });
+            });
+
+            // Add Raw Strava Activities (if not already processed)
+            stravaSnap.forEach(doc => {
+                const data = doc.data();
+                const stravaId = data.stravaActivityId || data.id; // handle different ID fields
+                
+                if (!processedIds.has(String(stravaId))) {
+                    mergedWorkouts.push({
+                        id: doc.id,
+                        ...data,
+                        title: data.name, // Normalize title
+                        distance: data.distance / 1000, // Strava raw is meters, workouts is km
+                        movingTime: data.movingTime / 60, // Strava raw is seconds, workouts is min
+                        startDate: data.startDate?.toDate(),
+                        source: 'strava_raw'
+                    });
+                }
+            });
+
+            // Sort merged list by date (newest first)
+            mergedWorkouts.sort((a, b) => b.startDate - a.startDate);
+
+            const stats = this.calculateWorkoutStats(mergedWorkouts);
 
             return {
-                workouts,
+                workouts: mergedWorkouts,
                 stats,
                 period: { days, startDate, endDate: new Date() },
-                source: 'workouts_db'
+                source: 'hybrid_merged'
             };
         } catch (error) {
             console.error('Fetch local history error:', error);
@@ -152,7 +199,7 @@ class WorkoutAnalyticsService {
     }
 
     calculateWorkoutStats(workouts) {
-        if (workouts.length === 0) {
+        if (!workouts || workouts.length === 0) {
             return {
                 totalWorkouts: 0, totalDistance: 0, totalDuration: 0,
                 averagePace: '0:00', weeklyBreakdown: [], progressTrend: 'no_data'
@@ -167,17 +214,24 @@ class WorkoutAnalyticsService {
         };
 
         workouts.forEach(workout => {
+            // Handle different field names from the two sources
+            // Workouts DB: actualDistance (km), actualDuration (min)
+            // Strava Raw (normalized above): distance (km), movingTime (min)
+            
             const dist = workout.actualDistance || workout.distance || 0;
             const dur = workout.actualDuration || workout.movingTime || workout.duration || 0;
 
             stats.totalDistance += dist;
             stats.totalDuration += dur;
 
-            const weekKey = this.getWeekKey(workout.startDate || workout.scheduledDate);
-            if (!stats.weeklyBreakdown[weekKey]) {
-                stats.weeklyBreakdown[weekKey] = { week: weekKey, distance: 0 };
+            const dateObj = workout.startDate || workout.scheduledDate;
+            if (dateObj) {
+                const weekKey = this.getWeekKey(dateObj);
+                if (!stats.weeklyBreakdown[weekKey]) {
+                    stats.weeklyBreakdown[weekKey] = { week: weekKey, distance: 0 };
+                }
+                stats.weeklyBreakdown[weekKey].distance += dist;
             }
-            stats.weeklyBreakdown[weekKey].distance += dist;
         });
 
         stats.averagePace = this.calculatePace(stats.totalDuration, stats.totalDistance);
