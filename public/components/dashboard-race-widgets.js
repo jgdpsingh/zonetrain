@@ -17,7 +17,7 @@ class RaceDashboardWidgets {
 
         this.renderWeatherWidget('weather-widget-container');
   this.renderTodayWorkoutWidget('today-workout-container');
-  this.renderStravaWorkoutHistory('workout-history-container');
+  this.renderReadinessChart('readiness-chart-container');
   this.renderProgressChart('progress-chart-container');
   this.renderPersonalRecords('personal-records-container');
 
@@ -2727,6 +2727,147 @@ async renderPerformanceAnalyticsWidget(containerId) {
         }
     }
 
+    // Add to dashboard-race-widgets.js
+
+async renderReadinessChart(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="widget-header">
+            <h3>🔋 Race Readiness (Taper Monitor)</h3>
+            <span style="font-size:11px; color:#6b7280;">Based on Bannister Model</span>
+        </div>
+        <div style="height: 200px; display:flex; align-items:center; justify-content:center;">
+            <div class="loading-spinner"></div>
+        </div>`;
+
+    try {
+        // Fetch long history (42 days needed for CTL, but 60 is safer)
+        const response = await fetch('/api/analytics/workout-history?days=60', {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await response.json();
+
+        if (!data.success || !data.workouts || data.workouts.length < 5) {
+            container.innerHTML = `<div class="widget empty-state-widget"><p>Need more history to calculate readiness.</p></div>`;
+            return;
+        }
+
+        // 1. Calculate Daily TRIMP (Stress Score)
+        // Elevate uses Heart Rate Reserve, but we will use a simplified Pace/HR estimate 
+        // to be compatible with your current data structure.
+        const dailyLoad = new Map();
+        
+        data.workouts.forEach(w => {
+            const dateStr = new Date(w.startDate).toDateString();
+            // Estimate Stress (TRIMP): Duration * Intensity Factor
+            // Simple proxy: Duration (mins) * (AvgHR / MaxHR estimate) 
+            // If no HR, we assume moderate intensity (0.75)
+            const hr = w.averageHeartrate || 140; 
+            const maxHr = 190; // Default if not in user profile
+            const intensity = hr / maxHr;
+            const duration = (w.movingTime || w.duration || 0);
+            
+            // Non-linear stress (running faster is exponentially harder)
+            const stress = duration * Math.exp(1.92 * intensity); 
+            
+            const current = dailyLoad.get(dateStr) || 0;
+            dailyLoad.set(dateStr, current + stress);
+        });
+
+        // 2. Calculate CTL (Fitness) and ATL (Fatigue) day by day
+        // CTL = 42-day rolling avg (exponential), ATL = 7-day rolling avg
+        const today = new Date();
+        const chartData = [];
+        let ctl = 0; // Fitness
+        let atl = 0; // Fatigue
+        
+        // Loop through last 45 days up to today
+        for (let i = 45; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(today.getDate() - i);
+            const dateStr = d.toDateString();
+            const dayLoad = dailyLoad.get(dateStr) || 0;
+
+            // Decay constants (standard PMC values)
+            // CTL decay = e^(-1/42), ATL decay = e^(-1/7)
+            ctl = (dayLoad * (1 - Math.exp(-1/42))) + (ctl * Math.exp(-1/42));
+            atl = (dayLoad * (1 - Math.exp(-1/7))) + (atl * Math.exp(-1/7));
+            
+            const tsb = ctl - atl; // Form (Readiness)
+
+            chartData.push({
+                date: d.toLocaleDateString(undefined, {month:'short', day:'numeric'}),
+                tsb: Math.round(tsb),
+                isProjected: i < 0 // Can calculate future if we had planned workouts
+            });
+        }
+
+        // 3. Render Chart
+        const recentData = chartData.slice(-14); // Show last 2 weeks
+        const maxTsb = Math.max(...recentData.map(d => d.tsb), 10);
+        const minTsb = Math.min(...recentData.map(d => d.tsb), -10);
+        
+        const barsHtml = recentData.map(d => {
+            // TSB > 0 = Fresh/Ready (Green), TSB < 0 = Tired (Red/Orange)
+            const color = d.tsb >= 0 ? '#10b981' : '#f59e0b';
+            const heightPct = Math.abs(d.tsb) / Math.max(Math.abs(maxTsb), Math.abs(minTsb)) * 50; 
+            
+            // Position relative to center line
+            const style = d.tsb >= 0 
+                ? `bottom: 50%; height: ${heightPct}%;` 
+                : `top: 50%; height: ${heightPct}%;`;
+
+            return `
+                <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:2px; height:100%; position:relative;" 
+                     title="${d.date}: Readiness ${d.tsb} (Fitness ${Math.round(ctl)} - Fatigue ${Math.round(atl)})">
+                    <div style="width:6px; background:${color}; opacity:0.8; border-radius:2px; position:absolute; ${style}"></div>
+                </div>`;
+        }).join('');
+
+        const currentReadiness = recentData[recentData.length-1].tsb;
+        let statusText = "";
+        if (currentReadiness > 20) statusText = "⚡ Peak Performance (Tapered)";
+        else if (currentReadiness > 0) statusText = "✅ Fresh & Ready";
+        else if (currentReadiness > -10) statusText = "🏗️ Productive Training";
+        else statusText = "⚠️ High Fatigue (Need Rest)";
+
+        container.innerHTML = `
+            <div class="widget-header">
+                <h3>🔋 Race Readiness</h3>
+                <div style="text-align:right;">
+                    <div style="font-size:18px; font-weight:700; color:${currentReadiness >= 0 ? '#10b981' : '#f59e0b'};">
+                        ${currentReadiness > 0 ? '+' : ''}${currentReadiness}
+                    </div>
+                    <div style="font-size:10px; color:#6b7280;">Form Score</div>
+                </div>
+            </div>
+            
+            <div style="height: 120px; position:relative; border-bottom: 1px solid #e5e7eb; margin: 10px 0;">
+                <div style="position:absolute; top:50%; left:0; right:0; border-top:1px dashed #d1d5db; z-index:0;"></div>
+                
+                <div style="display: flex; justify-content: space-between; gap: 4px; height: 100%; padding:0 5px; z-index:1;">
+                    ${barsHtml}
+                </div>
+            </div>
+            
+            <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#9ca3af;">
+                <span>${recentData[0].date}</span>
+                <span>Today</span>
+            </div>
+
+            <div style="margin-top:10px; padding:8px; background:${currentReadiness >= 0 ? '#ecfdf5' : '#fffbeb'}; border-radius:6px; font-size:12px; color:#374151; text-align:center;">
+                <strong>${statusText}</strong>
+            </div>
+        `;
+
+    } catch (e) {
+        console.error("Readiness Chart Error", e);
+        container.innerHTML = `<p style="color:red; padding:20px;">Could not calc readiness.</p>`;
+    }
+}
+
 
 }
 
@@ -3036,6 +3177,8 @@ window.openWorkoutModal = async function(workoutId) {
             </div>
         `;
     }
+
+    
 };
 
 window.closeWorkoutModal = function() {
