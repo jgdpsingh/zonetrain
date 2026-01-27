@@ -5,6 +5,7 @@ class RaceDashboardWidgets {
         this.token = localStorage.getItem('userToken');
         this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
         this.currentWeekOffset = 0;
+        this.userProfile = {};
     }
 
 
@@ -12,7 +13,8 @@ class RaceDashboardWidgets {
         console.log('🏎️ Initializing RACE Dashboard Widgets...');
         
         await this.loadUserProfile();
-        this.updateHeaderStats(); 
+
+        this.updateDashboardStats(); 
 
         // --- THE 6 ESSENTIALS ONLY ---
         this.renderTodayWorkoutWidget('today-workout-container'); // Hero
@@ -170,6 +172,24 @@ clearPlanGenerating() {
         </div>
     `;
 }
+
+async loadUserProfile() {
+        try {
+            // Adjust endpoint if your backend is different (e.g., /api/user/me)
+            const res = await fetch('/api/user/profile', {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.userProfile = data.user || {};
+                // Optional: Update UI with name if elements exist
+                const nameEl = document.getElementById('user-name-display');
+                if(nameEl) nameEl.textContent = this.userProfile.firstName || 'Athlete';
+            }
+        } catch (e) {
+            console.warn('Failed to load user profile', e);
+        }
+    }
 
 
 renderHRVWidget(containerId) {
