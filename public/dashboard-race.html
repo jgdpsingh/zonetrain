@@ -3,1537 +3,201 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Race Coach - ZoneTrain</title>
+    <title>Race Coach - ZoneTrain</title>
     <link rel="stylesheet" href="/css/widgets.css">
+    <link rel="stylesheet" href="/css/calendar.css">
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="/js/payment.js"></script>
     <style>
-        * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-    padding-top: 90px;
-    color: #1f2937;
-}
-
-.dashboard-container {
-    max-width: 1600px;
-    margin: 0 auto;
-    padding: 30px 20px;
-}
-
-.dashboard-header {
-    background: linear-gradient(135deg, #5b21b6 0%, #4c1d95 100%); /* ✅ Darker for better readability */
-    color: white;
-    padding: 40px;
-    border-radius: 16px;
-    margin-bottom: 30px;
-    box-shadow: 0 8px 24px rgba(91, 33, 182, 0.35);
-}
-
-.dashboard-header h1 {
-    font-size: 36px;
-    margin-bottom: 8px;
-    color: #ffffff;
-    font-weight: 800;
-}
-
-.dashboard-header p {
-    opacity: 1; /* ✅ Full opacity for clarity */
-    font-size: 16px;
-    color: #e9d5ff;
-}
-
-.plan-badge {
-    display: inline-block;
-    padding: 10px 24px;
-    background: linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%); /* ✅ Solid gradient instead of transparent */
-    color: white;
-    border-radius: 24px;
-    font-weight: 700;
-    font-size: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    box-shadow: 0 4px 12px rgba(109, 40, 217, 0.25);
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px;
-    margin-top: 24px;
-}
-
-.stat-card {
-    background: white;
-    border: 1px solid #e5e7eb;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s ease;
-    cursor: default;
-}
-
-.stat-card:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    transform: translateY(-2px);
-}
-
-.stat-value {
-    font-size: 32px;
-    font-weight: 800;
-    margin: 10px 0;
-    color: #1f2937;
-    line-height: 1.2;
-}
-
-.stat-label {
-    font-size: 14px;
-    color: #6b7280;
-    font-weight: 500;
-    letter-spacing: 0.3px;
-}
-
-/* ✅ Subscription Management Card */
-.subscription-card {
-    background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%); /* ✅ Subtle gradient */
-    border: 2px solid #e5e7eb;
-    border-radius: 16px;
-    padding: 28px;
-    margin-bottom: 24px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 30px;
-    flex-wrap: wrap;
-    transition: all 0.3s ease;
-}
-
-.subscription-card:hover {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
-
-.subscription-info {
-    flex: 1;
-    min-width: 280px;
-}
-
-.subscription-info h3 {
-    color: #1f2937;
-    font-size: 22px;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-weight: 800;
-}
-
-.badge-race {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); /* ✅ Enhanced gradient */
-    color: #1e40af;
-    padding: 6px 14px;
-    border-radius: 12px;
-    font-size: 13px;
-    font-weight: 700;
-    border: 1px solid #93c5fd;
-    box-shadow: 0 2px 4px rgba(30, 64, 175, 0.1);
-}
-
-.subscription-details {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 20px;
-    margin-top: 16px;
-}
-
-.detail-item {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px;
-    background: rgba(249, 250, 251, 0.5);
-    border-radius: 8px;
-    border-left: 3px solid #667eea;
-}
-
-.detail-label {
-    font-size: 11px;
-    color: #6b7280;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-}
-
-.detail-value {
-    font-size: 17px;
-    color: #1f2937;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.subscription-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-width: 200px;
-    justify-content: flex-start;
-}
-
-.btn-manage {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 14px 28px;
-    border-radius: 8px;
-    font-weight: 700;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    text-align: center;
-    text-decoration: none;
-    display: inline-block;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-    letter-spacing: 0.3px;
-}
-
-.btn-manage:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-}
-
-.btn-manage:active {
-    transform: translateY(0);
-}
-
-.btn-downgrade {
-    background: white;
-    border: 2px solid #dc2626;
-    color: #dc2626;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-weight: 700;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    text-align: center;
-    letter-spacing: 0.3px;
-}
-
-.btn-downgrade:hover {
-    background: #fef2f2;
-    border-color: #991b1b;
-    color: #991b1b;
-    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
-}
-
-.widgets-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 24px;
-    margin-bottom: 24px;
-}
-
-.premium-widget {
-    background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%);
-    border: 2px solid #e9d5ff;
-    border-radius: 16px;
-    padding: 25px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s ease;
-}
-
-.premium-widget:hover {
-    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.15);
-}
-
-.widget {
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    padding: 25px;
-    margin-bottom: 24px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s ease;
-}
-
-.widget:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-.widget-header {
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid #f3f4f6;
-}
-
-.widget-header h3 {
-    color: #1f2937;
-    font-size: 20px;
-    font-weight: 800;
-    margin: 0;
-    letter-spacing: 0.3px;
-}
-
-/* Calendar Section Wrapper */
-.calendar-section {
-    background: white;
-    padding: 30px;
-    border-radius: 16px;
-    margin-top: 24px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-    border: 1px solid #e5e7eb;
-}
-
-.calendar-section h2 {
-    font-size: 24px;
-    color: #1f2937;
-    margin-bottom: 24px;
-    font-weight: 800;
-    letter-spacing: 0.3px;
-}
-
-/* Post-race banner enhancement */
-#post-race-banner {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
-    padding: 32px;
-    border-radius: 16px;
-    margin-bottom: 24px;
-    color: white;
-    box-shadow: 0 10px 30px rgba(5, 150, 105, 0.4);
-    border: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-#post-race-banner h2 {
-    margin: 0 0 8px 0;
-    font-size: 28px;
-    font-weight: 800;
-    color: #ffffff;
-    letter-spacing: 0.3px;
-}
-
-#post-race-banner p {
-    margin: 8px 0;
-    font-size: 16px;
-    opacity: 1;
-    font-weight: 500;
-    color: #d1fae5;
-}
-
-/* Responsive Design */
-@media (max-width: 1024px) {
-    .widgets-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 768px) {
-    .dashboard-header {
-        padding: 28px;
-    }
-
-    .dashboard-header h1 {
-        font-size: 28px;
-    }
-
-    .widgets-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-
-    .subscription-card {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 20px;
-        padding: 20px;
-    }
-
-    .subscription-actions {
-        width: 100%;
-    }
-
-    .subscription-details {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .stat-value {
-        font-size: 24px;
-    }
-
-    .calendar-section {
-        padding: 20px;
-    }
-}
-
-@media (max-width: 480px) {
-    .dashboard-container {
-        padding: 16px 12px;
-    }
-
-    .dashboard-header {
-        padding: 20px;
-    }
-
-    .dashboard-header h1 {
-        font-size: 22px;
-    }
-
-    .stat-card {
-        padding: 16px;
-    }
-
-    .stat-value {
-        font-size: 20px;
-    }
-
-    .stat-label {
-        font-size: 12px;
-    }
-
-    .subscription-details {
-        grid-template-columns: 1fr;
-    }
-
-    .detail-item {
-        padding: 10px;
-    }
-
-    #post-race-banner {
-        padding: 20px;
-    }
-
-    #post-race-banner h2 {
-        font-size: 22px;
-    }
-
-    #post-race-banner p {
-        font-size: 14px;
-    }
-
-    .strava-connection-card {
-        background: white;
-        padding: 30px;
-        border-radius: 16px;
-        margin-bottom: 30px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-    }
-    
-    .strava-status {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 20px;
-        background: #f9fafb;
-        border-radius: 12px;
-        gap: 20px;
-    }
-    
-    .strava-info {
-        flex: 1;
-    }
-    
-    .strava-info h4 {
-        color: #1f2937;
-        margin-bottom: 8px;
-    }
-    
-    .strava-info p {
-        color: #6b7280;
-        font-size: 14px;
-        margin: 4px 0;
-    }
-    
-    .strava-connected {
-        background: #dcfce7 !important;
-        border-left: 4px solid #16a34a;
-    }
-    
-    .btn-disconnect-strava {
-        padding: 10px 20px;
-        background: #ef4444;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .btn-disconnect-strava:hover {
-        background: #dc2626;
-        transform: translateY(-2px);
-    }
-    
-    @media (max-width: 768px) {
-        .strava-status {
-            flex-direction: column;
-            text-align: center;
-        }
+        :root { --primary: #4f46e5; --bg: #f3f4f6; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); margin: 0; padding-top: 80px; color: #1f2937; }
         
-        .btn-disconnect-strava {
-            width: 100%;
+        .dashboard-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        
+        /* Layouts */
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .dashboard-title h1 { font-size: 24px; font-weight: 800; margin: 0; color: #111827; }
+        .dashboard-title p { margin: 4px 0 0 0; color: #6b7280; font-size: 14px; }
+        
+        .race-hub-btn { 
+            background: #fff; border: 1px solid #e5e7eb; padding: 10px 16px; 
+            border-radius: 8px; font-weight: 600; color: #374151; cursor: pointer;
+            display: flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-    }
-}
+        .race-hub-btn:hover { background: #f9fafb; border-color: #d1d5db; }
 
+        /* Grids */
+        .execution-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;}
+
+        /* Widget Containers */
+        .widget { background: white; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; height: 100%; }
+        .widget-header { padding: 15px 20px; border-bottom: 1px solid #f3f4f6; }
+        .widget-header h3 { margin: 0; font-size: 16px; color: #1f2937; font-weight: 700; }
+        
+        @media (max-width: 900px) { .execution-grid, .admin-grid { grid-template-columns: 1fr; } }
     </style>
-    <link rel="stylesheet" href="/css/calendar.css">
 </head>
 <body>
 
-    <div id="verification-banner" style="display: none; background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); color: #92400E; padding: 20px; text-align: center; border-bottom: 3px solid #F59E0B; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: fixed; top: 0; left: 0; right: 0; z-index: 9999;">
-        <div style="max-width: 800px; margin: 0 auto;">
-            <strong style="font-size: 18px;">⚠️ Email Not Verified</strong>
-            <p style="margin: 10px 0; font-size: 14px;">Please verify your email address to access all features and ensure account security.</p>
-            <button onclick="resendVerification()" style="background: #F59E0B; color: white; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: 600; margin: 5px; font-size: 14px;">
-                📧 Resend Verification Email
-            </button>
-            <button onclick="dismissBanner()" style="background: #6B7280; color: white; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: 600; margin: 5px; font-size: 14px;">
-                Dismiss
-            </button>
-        </div>
-    </div>
+    <div id="nav-container"></div>
 
-
-    
     <div class="dashboard-container">
         <div class="dashboard-header">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-                <div>
-                    <h1 style="font-size: 36px; margin-bottom: 8px;">Race Coach Dashboard 🏆</h1>
-                    <p style="opacity: 0.95; font-size: 16px;">Advanced Training • Race Strategy • Performance Analytics</p>
-                </div>
-                <span class="plan-badge">RACE COACH PRO</span>
+            <div class="dashboard-title">
+                <h1>Race Execution</h1>
+                <p id="race-countdown-text">Loading plan...</p>
             </div>
-
-            
-
-
-            <div class="strava-connection-card" id="strava-connection-card" style="display: none;">
-            <div class="card-header">
-                <h3>🚴 Strava Connection</h3>
-            </div>
-            
-            <div class="strava-status" id="strava-status">
-                <!-- Populated by JavaScript -->
-            </div>
-        </div>
-
-            <div class="stats-grid">
-  <!-- Weekly Volume -->
-  <div class="stat-card">
-    <div class="stat-label">📈 Weekly Volume</div>
-    <!-- Filled from analytics (Strava + workouts) -->
-    <div class="stat-value" id="weekly-volume">-- km</div>
-    <div class="stat-label" id="weekly-volume-subtitle">Last 7 days</div>
-  </div>
-
-  <!-- Average HRV -->
-  <div class="stat-card">
-    <div class="stat-label">💓 Avg HRV</div>
-    <!-- Filled from HRV tracking / daily scheduler -->
-    <div class="stat-value" id="avg-hrv">--</div>
-    <div class="stat-label" id="avg-hrv-subtitle">7‑day average</div>
-  </div>
-
-  <!-- Training Load -->
-  <div class="stat-card">
-    <div class="stat-label">🎯 Training Load</div>
-    <!-- Filled from workoutAnalyticsService / loadTrainingLoad -->
-    <div class="stat-value" id="training-load">--</div>
-    <div class="stat-label" id="training-load-subtitle">Optimal zone</div>
-  </div>
-
-  <!-- Next Race (dynamic goal card) -->
-  <div class="stat-card">
-    <div class="stat-label">⏱️ Next Race</div>
-
-    <!-- Days remaining, e.g. "45 days" -->
-    <div class="stat-value" id="next-race-countdown">-- days</div>
-
-    <!-- Distance + label, e.g. "Half Marathon • 21.1 km on 15 Mar" -->
-    <div class="stat-label" id="next-race-subtitle">No race set</div>
-
-    <!-- Optional secondary line for location / target time -->
-    <div class="stat-label" id="next-race-meta" style="margin-top: 4px; font-size: 12px; opacity: 0.8;">
-      Connect a race to see details here.
-    </div>
-
-    <!-- Change goal button for mid‑plan adjustments -->
-    <button
-      type="button"
-      onclick="openUpdateRaceGoalModal()"
-      style="
-        margin-top: 10px;
-        padding: 8px 14px;
-        font-size: 13px;
-        border-radius: 8px;
-        border: 1px solid #4f46e5;
-        background: #eef2ff;
-        color: #3730a3;
-        font-weight: 600;
-        cursor: pointer;
-      ">
-      Change Race Goal
-    </button>
-  </div>
-</div>
-
-        </div>
-
-        <!-- ✅ NEW: Subscription Management Card -->
-        <div class="subscription-card">
-            <div class="subscription-info">
-                <h3>
-                    <span>Your Subscription</span>
-                    <span class="badge-race">Race Coach ⭐</span>
-                </h3>
-                <div class="subscription-details">
-                    <div class="detail-item">
-                        <span class="detail-label">Status</span>
-                        <span class="detail-value" style="color: #10b981;" id="sub-status">Active</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Next Billing</span>
-                        <span class="detail-value" id="next-billing-date">Loading...</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Billing Cycle</span>
-                        <span class="detail-value" id="billing-cycle">Monthly</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Amount</span>
-                        <span class="detail-value" id="billing-amount">₹399</span>
-                    </div>
-                </div>
-            </div>
-            <div class="subscription-actions">
-                <a href="/subscription" class="btn-manage">
-                    ⚙️ Manage Subscription
-                </a>
-                <button class="btn-action" onclick="handleDowngrade()" style="background: #dc2626;">
-    Downgrade to Basic Coach
-</button>
-<!-- Only show this button when not in trial; JS will handle hiding in trial -->
-<button class="btn-action btn-pause"
-        onclick="handlePauseOrResume()"
-        style="background: #FBBF24; border-color: #F59E0B; color: #92400E; margin-right: 10px;">
-  ⏸️ Pause Subscription
-</button>
-
-
-            </div>
-        </div>
-
-                <!-- ✅ POST-RACE BANNER (Show when race is completed) -->
-        <div id="post-race-banner" style="display: none; background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 28px; border-radius: 16px; margin-bottom: 24px; color: white; box-shadow: 0 10px 30px rgba(16, 185, 129, 0.4); position: relative; overflow: hidden;">
-            <!-- Decorative Background Pattern -->
-            <div style="position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%; filter: blur(40px);"></div>
-            <div style="position: absolute; bottom: -30px; left: -30px; width: 150px; height: 150px; background: rgba(255,255,255,0.08); border-radius: 50%; filter: blur(30px);"></div>
-            
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; position: relative; z-index: 1;">
-                <div style="flex: 1; min-width: 300px;">
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                        <div style="font-size: 48px; animation: bounce 2s infinite;">🏁</div>
-                        <div>
-                            <h2 style="margin: 0 0 4px 0; font-size: 28px; font-weight: 800;">Race Complete!</h2>
-                            <p style="margin: 0; font-size: 15px; opacity: 0.95; font-weight: 500;">
-                                Congratulations on completing <span id="completed-race-name" style="font-weight: 700; text-decoration: underline;">Your Race</span>
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <p style="margin: 16px 0 20px 0; font-size: 16px; line-height: 1.5; opacity: 0.95;">
-                        🎯 Ready for your next challenge? Set a new race goal and get a personalized training plan tailored to your performance data.
-                    </p>
-                    
-                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                        <button onclick="openSetNewRaceModal()" style="padding: 14px 28px; background: white; color: #059669; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 15px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px;">
-                            <span>🎯</span>
-                            <span>Set New Race Goal</span>
-                        </button>
-                        <button onclick="viewRaceReport()" style="padding: 14px 28px; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 15px; transition: all 0.2s; backdrop-filter: blur(10px); display: flex; align-items: center; gap: 8px;">
-                            <span>📊</span>
-                            <span>View Race Report</span>
-                        </button>
-                        <button onclick="dismissPostRaceBanner()" style="padding: 14px 20px; background: transparent; color: white; border: 2px solid rgba(255,255,255,0.6); border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.2s;">
-                            Dismiss
-                        </button>
-                    </div>
-                </div>
-                
-                <div style="font-size: 80px; opacity: 0.3; animation: float 3s ease-in-out infinite;">🏆</div>
-            </div>
-        </div>
-
-        <div id="modal-container"></div>
-
-        <!-- ✅ NEW RACE SETUP MODAL -->
-        <div id="new-race-modal" style="display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); overflow-y: auto; padding: 20px;">
-            <div style="background: white; margin: 50px auto; padding: 0; border-radius: 20px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); animation: slideIn 0.3s ease;">
-                <!-- Modal Header -->
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 24px 32px; border-radius: 20px 20px 0 0; color: white; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h2 style="margin: 0 0 4px 0; font-size: 24px; font-weight: 800;">🎯 Set New Race Goal</h2>
-                        <p style="margin: 0; opacity: 0.95; font-size: 14px;">Create your personalized training plan</p>
-                    </div>
-                    <span onclick="closeNewRaceModal()" style="font-size: 36px; cursor: pointer; opacity: 0.8; transition: all 0.2s; line-height: 1; font-weight: 300;">&times;</span>
-                </div>
-
-                <!-- Modal Body -->
-                <div style="padding: 32px;">
-                    <form id="new-race-form">
-                        <div style="margin-bottom: 24px;">
-                            <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Race Name *</label>
-                            <input type="text" id="new-race-name" placeholder="e.g., Mumbai Half Marathon" required style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit;">
-                        </div>
-
-                        <div style="margin-bottom: 24px;">
-                            <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Race Date *</label>
-                            <input type="date" id="new-race-date" required style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit;">
-                        </div>
-
-                        <div style="margin-bottom: 24px;">
-                            <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Distance *</label>
-                            <select id="new-race-distance" required style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit; cursor: pointer;">
-                                <option value="">Select distance</option>
-                                <option value="5">5K</option>
-                                <option value="10">10K</option>
-                                <option value="21.1">Half Marathon (21.1K)</option>
-                                <option value="42.2">Full Marathon (42.2K)</option>
-                                <option value="custom">Custom Distance</option>
-                            </select>
-                        </div>
-
-                        <div id="custom-distance-field" style="display: none; margin-bottom: 24px;">
-                            <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Custom Distance (km) *</label>
-                            <input type="number" id="custom-race-distance" placeholder="15" min="1" max="200" step="0.1" style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit;">
-                        </div>
-
-                        <div style="margin-bottom: 28px;">
-                            <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Goal Time (optional)</label>
-                            <input type="text" id="new-race-goal-time" placeholder="e.g., 1:45:00 (HH:MM:SS)" pattern="[0-9]{1,2}:[0-9]{2}:[0-9]{2}" style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit;">
-                            <small style="color: #6b7280; font-size: 13px; margin-top: 6px; display: block;">Leave blank for a comfortable finish goal</small>
-                        </div>
-
-                        <button type="submit" style="width: 100%; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);">
-                            🚀 Generate Training Plan
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <style>
-            @keyframes bounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-10px); }
-            }
-
-            @keyframes float {
-                0%, 100% { transform: translateY(0) rotate(0deg); }
-                50% { transform: translateY(-20px) rotate(5deg); }
-            }
-
-            @keyframes slideIn {
-                from {
-                    opacity: 0;
-                    transform: translateY(-50px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-
-            #post-race-banner button:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-            }
-
-            #post-race-banner button:active {
-                transform: translateY(0);
-            }
-
-            #new-race-form input:focus,
-            #new-race-form select:focus {
-                outline: none;
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-
-            #new-race-modal span:hover {
-                opacity: 1;
-                transform: rotate(90deg);
-            }
-        </style>
-
-        <script>
-        // ✅ Check if race is completed and show banner
-        async function checkPostRaceStatus() {
-            const token = localStorage.getItem('userToken');
-            
-            try {
-                const response = await fetch('/api/race/status', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                
-                const data = await response.json();
-                
-                if (data.success && data.raceCompleted && !data.postRaceDismissed) {
-                    document.getElementById('completed-race-name').textContent = data.completedRaceName;
-                    document.getElementById('post-race-banner').style.display = 'block';
-                }
-            } catch (error) {
-                console.error('Error checking race status:', error);
-            }
-        }
-
-        function openSetNewRaceModal() {
-            document.getElementById('new-race-modal').style.display = 'block';
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeNewRaceModal() {
-  const modal = document.getElementById('new-race-modal');
-  modal.style.display = 'none';
-  modal.dataset.mode = '';   // reset
-  document.body.style.overflow = 'auto';
-}
-
-        async function dismissPostRaceBanner() {
-            const token = localStorage.getItem('userToken');
-            
-            try {
-                await fetch('/api/race/dismiss-banner', {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                document.getElementById('post-race-banner').style.display = 'none';
-            } catch (error) {
-                console.error('Error dismissing banner:', error);
-            }
-        }
-
-        function viewRaceReport() {
-            // Navigate to race report page (implement later)
-            alert('📊 Race report feature coming soon!\n\nYou\'ll be able to view:\n• Performance breakdown\n• Zone analysis\n• Pace distribution\n• Comparison with training data');
-        }
-
-        // ✅ Handle race distance dropdown
-        document.getElementById('new-race-distance').addEventListener('change', function(e) {
-            const customField = document.getElementById('custom-distance-field');
-            const customInput = document.getElementById('custom-race-distance');
-            
-            if (e.target.value === 'custom') {
-                customField.style.display = 'block';
-                customInput.required = true;
-            } else {
-                customField.style.display = 'none';
-                customInput.required = false;
-            }
-        });
-
-        // ✅ Handle new race form submission
-      // Handle new race form submission
-document.getElementById('new-race-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const token = localStorage.getItem('userToken');
-    if (!token) {
-        alert("Please login first");
-        return;
-    }
-
-    const modal = document.getElementById('new-race-modal');
-    const mode = modal.dataset.mode || 'create';
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    const closeBtn = modal.querySelector('span[onclick="closeNewRaceModal()"]'); // Find the close X
-    
-    // Store original text to restore later if needed
-    const originalText = submitBtn.textContent;
-    
-    // --- UI UX IMPROVEMENT: Show Loading State ---
-    submitBtn.disabled = true;
-    if (closeBtn) closeBtn.style.pointerEvents = 'none'; // Prevent closing
-    if (closeBtn) closeBtn.style.opacity = '0.3';
-    
-    // Add a simple loading spinner and text
-    submitBtn.innerHTML = `
-        <span style="display: inline-block; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top-color: transparent; animation: spin 1s linear infinite; margin-right: 8px; vertical-align: middle;"></span>
-        ${mode === 'update' ? 'Optimizing Plan (~10s)...' : 'Creating Plan (~10s)...'}
-    `;
-
-    // Add spinner animation style if not present
-    if (!document.getElementById('spinner-style')) {
-        const style = document.createElement('style');
-        style.id = 'spinner-style';
-        style.innerHTML = `@keyframes spin { to { transform: rotate(360deg); } }`;
-        document.head.appendChild(style);
-    }
-    // ---------------------------------------------
-
-    const distanceVal = document.getElementById('new-race-distance').value;
-    const actualDistance = distanceVal === 'custom' ? document.getElementById('custom-race-distance').value : distanceVal;
-
-    const payload = {
-        targetDistance: parseFloat(actualDistance),
-        targetDate: document.getElementById('new-race-date').value || null,
-        targetTime: document.getElementById('new-race-goal-time').value || null
-    };
-
-    try {
-        let url, body;
-
-        if (mode === 'update') {
-            url = '/api/race-goals/update';
-            body = JSON.stringify(payload);
-        } else {
-            url = '/api/race/create';
-            body = JSON.stringify({
-                name: document.getElementById('new-race-name').value,
-                date: payload.targetDate,
-                distance: payload.targetDistance,
-                goalTime: payload.targetTime
-            });
-        }
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: body
-        });
-
-        const data = await response.json();
-
-        if (!data.success) {
-            throw new Error(data.message || 'Failed to update race goal');
-        }
-
-        closeNewRaceModal();
-        
-        // --- UX IMPROVEMENT: Better Success Message ---
-        if (mode === 'update') {
-            alert("Success! Your race goal has been updated and a new training plan is ready.");
-        } else {
-            alert("Success! Your new race plan has been created.");
-        }
-        sessionStorage.setItem('isGeneratingPlan', 'true');
-        sessionStorage.setItem('planGenerationStartedAt', Date.now().toString());
-        
-        window.location.reload();
-
-    } catch (error) {
-        console.error('Race goal form error:', error);
-        alert(`Failed: ${error.message}`);
-        
-        // Restore button state on error
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
-        if (closeBtn) closeBtn.style.pointerEvents = 'auto';
-        if (closeBtn) closeBtn.style.opacity = '0.8';
-    }
-});
-
-        // ✅ Close modal on outside click
-        document.getElementById('new-race-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeNewRaceModal();
-            }
-        });
-
-        // ✅ Check on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            checkPostRaceStatus();
-        });
-        </script>
-
-
-        <div class="dashboard-section-active">
-    <div class="active-main">
-        <div id="today-workout-container"></div>
-    </div>
-
-    <div class="active-sidebar">
-        <div id="ai-insight-widget-container"></div>
-        
-        <div id="weather-widget-container"></div>
-
-        <div id="hrv-widget-container"></div>
-    </div>
-</div>
-
-<div class="dashboard-section-planning">
-    <div class="widget">
-        <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
-            <h3 style="margin:0;">📅 Weekly Schedule</h3>
-            <button onclick="window.openPreferencesModal()" class="btn-secondary" style="padding: 6px 12px; font-size: 13px;">
-                ⚙️ Adjust Days
+            <button onclick="window.dashboardWidgets.openRaceHub()" class="race-hub-btn">
+                <span>📊</span> Race Hub
             </button>
         </div>
-        <div id="weekly-plan-container"></div>
-    </div>
-</div>
 
-<div class="dashboard-section-analytics widgets-grid">
-    <div id="progress-chart-container"></div>
-    <div id="personal-records-container"></div>
-    <div id="performance-chart-container" class="widget"></div>
-    <div id="readiness-chart-container" class="widget"></div>
-    
-    
-    <div class="widget">
-        <div class="widget-header">
-            <h3>📜 Plan Archives</h3>
-        </div>
-        <div id="planHistoryContainer">Loading...</div>
-    </div>
-</div>
-
-
-        <!-- Race Planning Section - EXCLUSIVE -->
-        <div class="widget premium-widget" style="margin-top: 24px;">
-            <div class="widget-header">
-                <h3>🏁 Race Planning</h3>
-                <span style="color: #6d28d9; font-weight: 700; font-size: 14px;">RACE COACH EXCLUSIVE</span>
-            </div>
-            <div id="race-planning-container" style="padding: 20px;">
-        <p class="text-gray-500">Loading race tools...</p>
-    </div>
-        </div>
-
-        <!-- Performance Analytics -->
-        <div class="widget premium-widget" style="margin-top: 24px;">
-            <div class="widget-header">
-                <h3>📊 Performance Analytics</h3>
-            </div>
-            <div id="performance-analytics-container" style="padding: 20px; color: #6b7280;">
-                <p class="text-gray-500">Loading analytics...</p>
-            </div>
-        </div>
-    </div>
-
-    <div id="racePacingModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div style="background: white; width: 90%; max-width: 500px; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+        <div id="post-race-banner" style="display: none; background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px; color: white; display:flex; justify-content:space-between; align-items:center;">
             <div>
-                <h3 style="margin: 0; font-size: 18px; color: #111827;">🏃 Pacing Chart</h3>
-                <p id="pacingHeaderGoal" style="margin: 0; font-size: 13px; color: #6b7280;">Calculating...</p>
+                <h2 style="margin:0; font-size:18px;">🏁 Race Complete!</h2>
+                <p style="margin:5px 0 0 0; font-size:14px; opacity:0.9;">Ready for the next challenge?</p>
             </div>
-            <button onclick="document.getElementById('racePacingModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280;">&times;</button>
+            <button onclick="document.getElementById('new-race-modal').style.display='block'" style="background:white; color:#059669; border:none; padding:8px 16px; border-radius:6px; font-weight:700; cursor:pointer;">Set New Goal</button>
         </div>
-        
-        <div style="padding: 0; max-height: 60vh; overflow-y: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                <thead style="background: #f3f4f6; position: sticky; top: 0;">
-                    <tr>
-                        <th style="padding: 12px; font-size: 12px; color: #4b5563;">Distance</th>
-                        <th style="padding: 12px; font-size: 12px; color: #4b5563;">Elapsed Time</th>
-                        <th style="padding: 12px; font-size: 12px; color: #4b5563;">Avg Pace</th>
-                    </tr>
-                </thead>
-                <tbody id="pacingTableBody" style="font-size: 14px; color: #374151;">
-                    </tbody>
-            </table>
+
+        <div class="execution-grid">
+            <div id="today-workout-container" class="widget" style="min-height: 280px; border:none; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);"></div>
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                <div id="ai-insight-widget-container"></div>
+                <div id="readiness-chart-container" class="widget" style="flex:1;"></div>
+            </div>
         </div>
-        
-        <div style="padding: 15px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-            <button onclick="document.getElementById('racePacingModal').style.display='none'" 
-                style="padding: 10px 20px; background: #111827; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">
-                Close
-            </button>
+
+        <div id="weekly-plan-container"></div>
+
+        <div class="admin-grid">
+            <div id="race-planning-container" class="widget"></div>
+            <div id="subscription-controls-container" class="widget"></div>
         </div>
     </div>
-</div>
 
-<div id="nutritionModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div style="background: white; width: 90%; max-width: 500px; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #fff7ed;">
-            <h3 style="margin: 0; font-size: 18px; color: #9a3412;">🍌 Race Nutrition Strategy</h3>
-            <button onclick="document.getElementById('nutritionModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #9a3412;">&times;</button>
-        </div>
-        
-        <div id="nutritionContent" style="padding: 20px; max-height: 60vh; overflow-y: auto;">
+    <div id="raceHubModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="background: white; width: 90%; max-width: 900px; height: 90vh; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column;">
+            <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between;">
+                <h2 style="margin:0; font-size: 18px;">📊 Race Hub</h2>
+                <button onclick="document.getElementById('raceHubModal').style.display='none'" style="border:none; background:none; font-size:24px; cursor:pointer;">&times;</button>
             </div>
-        
-        <div style="padding: 15px; background: #fafaf9; border-top: 1px solid #e5e7eb; text-align: center;">
-            <button onclick="document.getElementById('nutritionModal').style.display='none'" style="padding: 10px 20px; background: #9a3412; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Close</button>
-        </div>
-    </div>
-</div>
-
-<div id="questionModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div style="background: white; width: 90%; max-width: 450px; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; background: #eff6ff;">
-            <h3 style="margin: 0; font-size: 18px; color: #1e40af;">💬 Ask a Coach</h3>
-            <p style="margin: 5px 0 0 0; font-size: 13px; color: #60a5fa;">Get expert advice for your race strategy.</p>
-        </div>
-        
-        <div style="padding: 20px;">
-            <textarea id="raceQuestionInput" placeholder="E.g., Should I run with the 4:00 pacer? How much water at aid stations?" 
-                style="width: 100%; height: 120px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit; font-size: 14px; resize: none; margin-bottom: 15px;"></textarea>
-            
-            <div id="questionStatus" style="font-size: 13px; margin-bottom: 15px; min-height: 20px;"></div>
-
-            <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button onclick="document.getElementById('questionModal').style.display='none'" 
-                    style="padding: 10px 16px; background: #f3f4f6; color: #374151; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Cancel</button>
-                <button id="btnSubmitQuestion" onclick="window.dashboardWidgets.submitRaceQuestion()" 
-                    style="padding: 10px 20px; background: #1e40af; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Send Question</button>
+            <div style="padding: 20px; overflow-y: auto; background: #f9fafb; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div id="hub-pace-trend" class="widget"></div>
+                <div id="hub-volume-trend" class="widget"></div>
+                <div id="hub-personal-records" class="widget"></div>
+                <div id="hub-history-list" class="widget" style="grid-column: span 2;"></div>
             </div>
         </div>
     </div>
-</div>
 
-    <script>window.CALENDAR_PLAN_TYPE = 'race';</script>
-    <script src="/components/training-calendar.js"></script>
+    <div id="planManagementModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; align-items: center; justify-content: center;">
+        <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; padding: 25px;">
+            <h3 id="pm-title" style="margin-top:0;">Manage Plan</h3>
+            <div id="pm-content"></div>
+            <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="document.getElementById('planManagementModal').style.display='none'" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #ddd; background: white; cursor: pointer;">Cancel</button>
+                <button id="pm-confirm-btn" style="padding: 8px 16px; border-radius: 6px; border: none; background: #ef4444; color: white; font-weight: 600; cursor: pointer;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="questionModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; align-items: center; justify-content: center;">
+        <div style="background: white; width: 90%; max-width: 450px; border-radius: 16px; overflow: hidden;">
+            <div style="padding: 20px; background: #eff6ff; border-bottom: 1px solid #bfdbfe;">
+                <h3 style="margin:0; color:#1e40af;">💬 Ask a Coach</h3>
+            </div>
+            <div style="padding: 20px;">
+                <textarea id="raceQuestionInput" placeholder="How should I pace the first 5km?" style="width: 100%; height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 8px;"></textarea>
+                <div id="questionStatus" style="margin-top:10px; font-size:13px;"></div>
+                <div style="margin-top: 15px; text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="document.getElementById('questionModal').style.display='none'" style="padding: 8px 16px; background: #f3f4f6; border: none; border-radius: 6px; cursor: pointer;">Cancel</button>
+                    <button onclick="window.dashboardWidgets.submitRaceQuestion()" style="padding: 8px 16px; background: #1e40af; color: white; border: none; border-radius: 6px; cursor: pointer;">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="nutritionModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 3000; align-items: center; justify-content: center;">
+        <div style="background: white; width: 90%; max-width: 500px; border-radius: 16px; overflow: hidden;">
+            <div style="padding: 20px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display:flex; justify-content:space-between;">
+                <h3 style="margin:0; color:#9a3412;">🍌 Nutrition Strategy</h3>
+                <button onclick="document.getElementById('nutritionModal').style.display='none'" style="border:none; background:none; font-size:20px; cursor:pointer;">&times;</button>
+            </div>
+            <div id="nutritionContent" style="padding: 20px; max-height: 60vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div id="new-race-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 4000; align-items: center; justify-content: center;">
+        <div style="background: white; width: 90%; max-width: 500px; border-radius: 16px; padding: 25px;">
+            <h2 style="margin-top:0;">🎯 Race Goal</h2>
+            <form id="new-race-form">
+                <label style="display:block; margin-top:10px; font-weight:600;">Distance</label>
+                <select id="new-race-distance" style="width:100%; padding:10px; margin-top:5px; border-radius:6px; border:1px solid #ddd;">
+                    <option value="5">5K</option>
+                    <option value="10">10K</option>
+                    <option value="21.1">Half Marathon</option>
+                    <option value="42.2">Marathon</option>
+                </select>
+                
+                <label style="display:block; margin-top:10px; font-weight:600;">Race Date</label>
+                <input type="date" id="new-race-date" style="width:100%; padding:10px; margin-top:5px; border-radius:6px; border:1px solid #ddd;" required>
+
+                <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+                    <button type="button" onclick="document.getElementById('new-race-modal').style.display='none'" style="padding:10px 20px; border:1px solid #ddd; background:white; border-radius:6px; cursor:pointer;">Cancel</button>
+                    <button type="submit" style="padding:10px 20px; background:#4f46e5; color:white; border:none; border-radius:6px; cursor:pointer;">Generate Plan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/firebase-config.js"></script>
     <script src="/components/nav-header.js"></script>
     <script src="/components/dashboard-race-widgets.js"></script>
-
     <script>
-// CRITICAL: Authentication Check - MUST BE AT THE TOP
-// UPDATED: Authentication Check - handles both localStorage and cookie
-(function() {
-    console.log('🔍 Dashboard: Checking authentication on page load...');
-    
-    let token = localStorage.getItem('userToken');
-    
-    // ✅ If no token in localStorage, check if we have a cookie (OAuth flow)
-    if (!token || token === 'null' || token === 'undefined') {
-        console.log('⚠️ No token in localStorage');
-        
-        // Check if we have a cookie by trying to make an authenticated request
-        // The server will verify the cookie
-        console.log('🍪 Checking for cookie-based authentication...');
-        
-        // Give the page a moment to load cookie-based auth
-        // If we're here from OAuth, the cookie exists but localStorage doesn't yet
-        setTimeout(() => {
-            const tokenCheck = localStorage.getItem('userToken');
-            if (!tokenCheck || tokenCheck === 'null') {
-                console.error('❌ No valid authentication found after delay');
-                localStorage.clear();
-                window.location.href = '/login?error=no_token';
+        // AUTH CHECK
+        (function() {
+            let token = localStorage.getItem('userToken');
+            if (!token) {
+                 window.location.href = '/login'; 
             } else {
-                console.log('✅ Token found after delay, continuing...');
-            }
-        }, 2000); // Give 2 seconds for cookie auth to populate localStorage
-        
-        // Don't throw error immediately - let cookie auth work
-        return;
-    }
-    
-    // ✅ Token exists in localStorage - validate it
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-        console.error('❌ Token structure invalid');
-        console.log('   Expected 3 parts (header.payload.signature), got:', parts.length);
-        localStorage.clear();
-        window.location.href = '/login?error=token_invalid';
-        throw new Error('Invalid token structure');
-    }
-    
-    console.log('✅ Token validation passed');
-    console.log('   Length:', token.length);
-    console.log('   Preview:', token.substring(0, 30) + '...');
-})();
-
-</script>
-
-    <script>
-        // Check verification status on page load
-        async function checkVerificationStatus() {
-            try {
-                const token = getCookie('userToken');
-                if (!token) {
-                    console.log('No token found');
-                    return;
-                }
-
-                const response = await fetch('/api/auth/email-verification-status', {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
+                // Initial Load
+                document.addEventListener('DOMContentLoaded', () => {
+                    new NavHeader().render('nav-container');
+                    window.dashboardWidgets = new RaceDashboardWidgets();
+                    window.dashboardWidgets.init();
                 });
-                
-                const data = await response.json();
-                console.log('Verification status:', data);
-                
-                // Only show banner for email auth users who haven't verified
-                if (data.authProvider === 'email' && !data.emailVerified) {
-                    document.getElementById('verification-banner').style.display = 'block';
-                    // Adjust page padding to account for fixed banner
-                    document.body.style.paddingTop = '160px';
-                }
-            } catch (error) {
-                console.error('Check verification error:', error);
             }
-        }
+        })();
 
-        async function resendVerification() {
+        // Form Handler for New Race (Restored from your old code but simplified)
+        document.getElementById('new-race-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const token = localStorage.getItem('userToken');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.textContent = "Processing...";
+            submitBtn.disabled = true;
+
+            const mode = document.getElementById('new-race-modal').dataset.mode || 'create';
+            const url = mode === 'update' ? '/api/race-goals/update' : '/api/race/create';
+
             try {
-                const token = getCookie('userToken');
-                
-                const response = await fetch('/api/auth/resend-verification', {
+                await fetch(url, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        distance: parseFloat(document.getElementById('new-race-distance').value),
+                        date: document.getElementById('new-race-date').value
+                    })
                 });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert('✅ ' + data.message);
-                } else {
-                    alert('❌ ' + data.message);
-                }
-            } catch (error) {
-                console.error('Resend error:', error);
-                alert('❌ Failed to resend verification email. Please try again.');
+                alert("Plan updated successfully!");
+                window.location.reload();
+            } catch(e) {
+                alert("Error: " + e.message);
+                submitBtn.disabled = false;
             }
-        }
-
-        function dismissBanner() {
-            document.getElementById('verification-banner').style.display = 'none';
-            document.body.style.paddingTop = '90px';
-            sessionStorage.setItem('verificationBannerDismissed', 'true');
-        }
-
-        // Helper function to get cookie value
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) return parts.pop().split(';').shift();
-            return null;
-        }
-
-        // Check if banner was dismissed in this session
-        if (sessionStorage.getItem('verificationBannerDismissed') !== 'true') {
-            checkVerificationStatus();
-        }
-
-        // Also check when page URL has ?verify=required parameter
-        if (window.location.search.includes('verify=required')) {
-            checkVerificationStatus();
-        }
-        </script>
-
-  
-
-<!-- Add this to your dashboard-race.html in <script> section -->
-
-<script>
-    let currentRaceGoal = null;
-// Fetch current race goals
-async function loadRaceGoals() {
-    try {
-        const token = localStorage.getItem('userToken');
-        const res = await fetch('/api/race-goals/current', {
-            headers: { 'Authorization': 'Bearer ' + token }
         });
-        const data = await res.json();
-        if (!data.success || !data.raceGoal) {
-      console.log('No current race goal:', data.message);
-      return;
-    }
-    currentRaceGoal = data.raceGoal; // { distance, date, daysToRace, targetTime, location }
-        
-        const countdownEl = document.getElementById('next-race-countdown');
-    const subtitleEl  = document.getElementById('next-race-subtitle');
-    const metaEl      = document.getElementById('next-race-meta');
-
-    const days = currentRaceGoal.daysToRace ?? currentRaceGoal.daysRemaining;
-    countdownEl.textContent =
-  days != null
-    ? (days === 1 ? days + ' day' : days + ' days')
-    : '-- days';
-
-    let dateStr = 'date TBC';
-if (currentRaceGoal.date) {
-    const dateObj = new Date(currentRaceGoal.date);
-    if (!isNaN(dateObj.getTime())) {
-        dateStr = dateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    }
-}
-
-
-    subtitleEl.textContent =
-      `${currentRaceGoal.distance || '?'} km • ${dateStr}`;
-
-    metaEl.textContent =
-      `${currentRaceGoal.location || 'Location TBC'} • Target: ${currentRaceGoal.targetTime || 'TBD'}`;
-    } catch (error) {
-        console.error('Error loading race goals:', error);
-    }
-}
-
-
-function openUpdateRaceGoalModal() {
-  if (!currentRaceGoal) {
-    alert('No active race goal found. Please create a race plan first.');
-    return;
-  }
-
-  const modal = document.getElementById('new-race-modal');
-  if (!modal) return;
-
-  // Prefill fields
-  document.getElementById('new-race-name').value = '';  // optional: keep free text
-  document.getElementById('new-race-date').value =
-    currentRaceGoal.date ? currentRaceGoal.date.substring(0, 10) : '';
-
-  const distanceSelect = document.getElementById('new-race-distance');
-  const customField = document.getElementById('custom-distance-field');
-  const customInput = document.getElementById('custom-race-distance');
-
-  // Map current distance to one of the presets if possible
-  const d = currentRaceGoal.distance;
-  if (d === 5 || d === 5.0) distanceSelect.value = '5';
-  else if (d === 10 || d === 10.0) distanceSelect.value = '10';
-  else if (d === 21.1) distanceSelect.value = '21.1';
-  else if (d === 42.2) distanceSelect.value = '42.2';
-  else {
-    distanceSelect.value = 'custom';
-    customField.style.display = 'block';
-    customInput.required = true;
-    customInput.value = d || '';
-  }
-
-  document.getElementById('new-race-goal-time').value =
-    currentRaceGoal.targetTime || '';
-
-  // Flag that this modal is being used for an update, not a new race.
-  modal.dataset.mode = 'update';
-
-  modal.style.display = 'block';
-  document.body.style.overflow = 'hidden';
-}
-
-
-// Fetch plan history
-async function loadPlanHistory() {
-  try {
-    const response = await fetch('/api/race-goals/plans/history?limit=5', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` }
-    });
-
-    if (!response.ok) {
-      console.error('Plan history HTTP error:', response.status);
-      return;
-    }
-
-    const data = await response.json();
-    if (!data.success || !Array.isArray(data.plans)) {
-      console.warn('No plan history available:', data.message || data.error);
-      document.getElementById('planHistoryContainer').innerHTML =
-        '<p>No previous plans yet.</p>';
-      return;
-    }
-
-    let html = '<ul>';
-    data.plans.forEach(plan => {
-      const created = plan.createdAt
-        ? new Date(plan.createdAt).toLocaleDateString('en-IN', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric'
-          })
-        : 'Unknown date';
-      html += `<li>${plan.planType} – ${created}</li>`;
-    });
-    html += '</ul>';
-    document.getElementById('planHistoryContainer').innerHTML = html;
-  } catch (error) {
-    console.error('Error loading plan history:', error);
-  }
-}
-
-// Load all on page load
-document.addEventListener('DOMContentLoaded', () => {
-    loadRaceGoals();
-    //loadTrainingPlan();
-    loadPlanHistory();
-});
-</script>
-
-<script>
-        // Load Strava connection status on page load
-        document.addEventListener('DOMContentLoaded', async function() {
-            await loadStravaStatus();
-            
-            // Your existing DOMContentLoaded code...
-        });
-        
-        async function loadStravaStatus() {
-    try {
-        const token = localStorage.getItem('userToken');
-        const response = await fetch('/api/strava/connection-status', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            const statusCard = document.getElementById('strava-connection-card'); // Top widget
-            const statusDiv = document.getElementById('strava-status');
-            const connectWidget = document.getElementById('connect-strava-widget'); // Bottom widget (Check ID!)
-            
-            if (!statusCard || !statusDiv) return;
-
-            if (data.connected) {
-                // FIX 1: Handle Date correctly (it's a string from API)
-                const lastSyncText = data.lastSync 
-                    ? new Date(data.lastSync).toLocaleString() 
-                    : 'Never';
-
-                // Show connected state
-                statusDiv.className = 'strava-status strava-connected';
-                statusDiv.innerHTML = `
-                    <div class="strava-info">
-                        <h4>✅ Connected to Strava</h4>
-                        <p><strong>Athlete:</strong> ${data.athleteName || 'Athlete'}</p>
-                        <p><strong>Last Sync:</strong> ${lastSyncText}</p>
-                        <p style="font-size: 12px; margin-top: 6px;">
-                          For details on how ZoneTrain uses your Strava data, see
-                          <a href="/support/strava" style="color:#2563EB; text-decoration:underline;">
-                            Strava Integration Help
-                          </a>.
-                        </p>
-                    </div>
-                    <div style="display:flex; gap:10px; flex-direction:column; align-items:flex-end;">
-                        <button class="btn-disconnect-strava" onclick="disconnectStrava()">
-                            Disconnect
-                        </button>
-                        <!-- Optional: Helper to fix permissions -->
-                        <a href="/login" style="font-size:11px; color:#666;">Re-authorize Permissions</a>
-                    </div>
-                `;
-                
-                statusCard.style.display = 'block';
-                
-                // FIX 2: HIDE the "Connect" widget if already connected
-                if (connectWidget) connectWidget.style.display = 'none';
-
-            } else {
-                // Not connected
-                statusCard.style.display = 'none';
-                
-                // SHOW the "Connect" widget
-                if (connectWidget) connectWidget.style.display = 'block';
-            }
-        }
-        
-    } catch (error) {
-        console.error('Load Strava status error:', error);
-    }
-}
-
-        async function disconnectStrava() {
-            const confirmed = confirm(
-                '🔓 Disconnect from Strava?\n\n' +
-                'This will:\n' +
-                '-  Remove automatic activity sync\n' +
-                '-  Revoke Strava access to ZoneTrain\n\n' +
-                'Your existing workout history can be kept or deleted.\n\n' +
-                'Continue?'
-            );
-            
-            if (!confirmed) return;
-            
-            const deleteActivities = confirm(
-                'Delete existing Strava activities?\n\n' +
-                'Click OK to delete all synced activities\n' +
-                'Click Cancel to keep existing activity history'
-            );
-            
-            try {
-                showNotification('🔓 Disconnecting Strava...', 'info');
-                
-                const token = localStorage.getItem('userToken');
-                const response = await fetch('/api/strava/disconnect', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ deleteActivities })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showNotification('✅ Strava disconnected successfully', 'success');
-                    
-                    // Reload page to update UI
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
-                } else {
-                    showNotification('❌ ' + data.message, 'error');
-                }
-                
-            } catch (error) {
-                console.error('Disconnect error:', error);
-                showNotification('❌ Failed to disconnect Strava', 'error');
-            }
-        }
-
-        // -------------------------------------------------------------------------
-// 🛡️ SUBSCRIPTION ENFORCER: Ensure only RACE users can see this page
-// -------------------------------------------------------------------------
-async function enforceRaceSubscription() {
-    const token = localStorage.getItem('userToken');
-    if (!token) return; // Auth check handles this separately
-
-    try {
-        const response = await fetch('/api/user/access-status', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
-
-        // If user is BASIC, they don't belong here -> Redirect to Basic Dashboard
-        if (data.user.currentPlan === 'basic') {
-            console.warn('Redirecting Basic user to Basic Dashboard');
-            window.location.replace('/dashboard-basic.html');
-        }
-        // (Optional) If user is FREE/Expired -> Redirect to Pricing
-        else if (data.user.subscriptionStatus !== 'active' && data.user.subscriptionStatus !== 'trial') {
-            window.location.replace('/plans.html');
-        }
-
-    } catch (e) {
-        console.error("Subscription check failed", e);
-    }
-}
-
-// Run immediately on load
-document.addEventListener('DOMContentLoaded', enforceRaceSubscription);
-
     </script>
-
-
 </body>
 </html>
