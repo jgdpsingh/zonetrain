@@ -979,15 +979,71 @@ async regenerateScheduleFromDate(userId, planId, startDate) {
       // 4. Update the Plan JSON blob too (so the calendar fallback works)
       // This is tricky with Firestore deeply nested updates, but we can try:
       // Note: This might be optional if your widgets rely mostly on the 'workouts' collection
-      /* const planData = planDoc.data().planData;
+      const planData = planDoc.data().planData;
       if(planData.weeks[weekIndex]) {
           planData.weeks[weekIndex] = newWeekData;
           batch.update(planDoc.ref, { planData: planData });
       }
-      */
+      
 
       await batch.commit();
   }
+
+  async completeRacePlan(userId, feedbackData) {
+        console.log(`🏁 Completing race plan for user ${userId}`);
+        const { actualTime, rating, remarks } = feedbackData;
+
+        // 1. Get the Active Plan (which is now in the past)
+        const plan = await this.getCurrentPlan(userId);
+        
+        // If no active plan, just return (maybe they already archived it)
+        if (!plan) return { success: true, message: 'Plan already archived' };
+
+        const batch = this.db.batch();
+        const planRef = this.db.collection('trainingplans').doc(plan.id);
+
+        // 2. Save Feedback & Mark as Completed (History)
+        batch.update(planRef, {
+            isActive: false, // This "Resets" the plan view on dashboard
+            status: 'completed',
+            completedAt: new Date(),
+            raceResult: {
+                actualTime: actualTime || null,
+                rating: rating || 0,
+                remarks: remarks || '',
+                submittedAt: new Date()
+            },
+            deactivationReason: 'Race Completed'
+        });
+
+        // 3. Clean up any remaining future workouts (Calendar Cleanup)
+        // We delete them so they don't clutter the calendar now that the race is done
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        const futureWorkouts = await this.db.collection('workouts')
+            .where('userId', '==', userId)
+            .where('planId', '==', plan.id)
+            .where('scheduledDate', '>=', today)
+            .get();
+
+        futureWorkouts.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+
+        // 4. Update User Profile (Clear current race target)
+        const userRef = this.db.collection('users').doc(userId);
+        batch.update(userRef, {
+            currentRace: null, // Clear these so UI prompts for new goal
+            raceDate: null,
+            raceName: null
+        });
+
+        await batch.commit();
+        console.log('✅ Plan completed, feedback saved, and user reset.');
+        
+        return { success: true };
+    }
 
     
 }

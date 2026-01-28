@@ -4606,6 +4606,53 @@ app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => 
   }
 });
 
+// routes/raceRoutes.js or app.js
+
+// 1. Check Status
+app.get('/api/race/status', verifyToken, async (req, res) => {
+    const user = await db.collection('users').doc(req.user.uid).get();
+    const userData = user.data();
+    
+    // Check if race date has passed
+    if (userData.raceDate) {
+        const raceDate = new Date(userData.raceDate);
+        const today = new Date();
+        // Reset times for comparison
+        raceDate.setHours(0,0,0,0);
+        today.setHours(0,0,0,0);
+
+        // If today is AFTER race date
+        if (today > raceDate) {
+             // Check if active plan exists
+             const activePlan = await trainingPlanService.getCurrentPlan(req.user.uid);
+             
+             if (activePlan) {
+                 // PLAN EXISTS + DATE PASSED = NEEDS FEEDBACK
+                 return res.json({ success: true, needsFeedback: true });
+             } else {
+                 // NO ACTIVE PLAN + DATE PASSED = ALREADY COMPLETED (Show Banner)
+                 return res.json({ 
+                     success: true, 
+                     raceCompleted: true, 
+                     completedRaceName: userData.lastCompletedRaceName || 'Race' 
+                 });
+             }
+        }
+    }
+    
+    res.json({ success: true, needsFeedback: false, raceCompleted: false });
+});
+
+// 2. Submit Feedback & Archive
+app.post('/api/race/complete', verifyToken, async (req, res) => {
+    try {
+        const result = await trainingPlanService.completeRacePlan(req.user.uid, req.body);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 
 
 // ==================== HELPER FUNCTIONS ====================
