@@ -1226,6 +1226,42 @@ renderNutritionPlanHTML(plan) {
             modal.style.display = 'flex';
         }
     }
+
+    // dashboard-race-widgets.js (inside class RaceDashboardWidgets)
+async submitRaceQuestion() {
+  const input = document.getElementById("raceQuestionInput");
+  const status = document.getElementById("questionStatus");
+  const btn = document.getElementById("btnSubmitQuestion");
+  const question = (input?.value || "").trim();
+
+  if (!question) { if (status) status.textContent = "Please enter a question."; return; }
+
+  try {
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = "Sending…";
+
+    const res = await fetch("/api/support/race-question", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ question }),
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || "Failed to send");
+
+    if (status) status.textContent = "Sent!";
+    if (input) input.value = "";
+    setTimeout(() => (document.getElementById("questionModal").style.display = "none"), 600);
+  } catch (e) {
+    if (status) status.textContent = `Error: ${e.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 }
 
 document.addEventListener('DOMContentLoaded', () => {

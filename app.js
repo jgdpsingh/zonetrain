@@ -149,6 +149,37 @@ if (process.env.JWT_SECRET && (
   hasErrors = true;
 }
 
+function toIsoDateString(val) {
+  if (!val) return null;
+  if (typeof val === "string") return new Date(val).toISOString();
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val.toDate === "function") return val.toDate().toISOString(); // Firestore Timestamp
+  return null;
+}
+
+function signUserToken(user, extraClaims = {}) {
+  // Keep both "currentPlan/subscriptionStatus" AND legacy "plan/status" for compatibility.
+  const payload = {
+    userId: user.id || user.userId,
+    email: user.email || null,
+    phoneNumber: user.phoneNumber || null,
+
+    currentPlan: user.currentPlan || user.plan || null,
+    subscriptionStatus: user.subscriptionStatus || user.status || "free",
+
+    // IMPORTANT for accessControl.js expiry enforcement
+    subscriptionEndDate: toIsoDateString(user.subscriptionEndDate),
+
+    // Optional: useful fields
+    billingCycle: user.billingCycle || null,
+
+    ...extraClaims,
+  };
+
+  return jwt.sign(payload, process.env.JWTSECRET, { expiresIn: "7d" });
+}
+
+
 // Check production-specific requirements
 if (isRealProd) {
   console.log('🚀 Production mode detected - enforcing strict validation');
@@ -3491,16 +3522,7 @@ trainingPlan = normalizePlanFromContent(trainingPlan);
 
         // Generate NEW token with updated plan info
         const updatedUser = await userManager.getUserById(userId);
-        const newToken = jwt.sign(
-            { 
-                userId: updatedUser.id, 
-                email: updatedUser.email,
-                plan: updatedUser.currentPlan,
-                status: updatedUser.subscriptionStatus
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        const token = signUserToken(user);
 
         // Track analytics (non-critical)
         try {
@@ -7909,63 +7931,101 @@ app.post('/api/auth/login', async (req, res) => {
 
 
 // User access status endpoint - FIXED
-app.get('/api/user/access-status', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user?.userId;
+// Replace your current /api/user/access-status with this version
+app.get("/api/user/access-status", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId;
 
-        if (!userId) {
-            console.error('❌ No userId in request');
-            return res.status(401).json({
-                success: false,
-                message: 'User not authenticated'
-            });
-        }
-
-        // Use your existing userManager helper
-        const user = await userManager.getUserById(userId);
-        if (!user) {
-            console.error('❌ User not found:', userId);
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        // 🔹 Temporarily disable feature flags (they were causing 500s)
-        const featureStatus = {};  // you can re‑enable FEATURE_ACCESS later
-
-        // Check if user completed AI onboarding
-        let aiOnboardingCompleted = false;
-        try {
-            // Use the same collection name you use elsewhere (likely 'aiProfiles')
-            const profileDoc = await db.collection('aiProfiles').doc(userId).get();
-            aiOnboardingCompleted = profileDoc.exists;
-        } catch (error) {
-            console.warn('⚠️ Unable to check AI onboarding status:', error.message);
-        }
-
-        res.json({
-            success: true,
-            user: {
-                id: user.id,
-                subscriptionStatus: user.subscriptionStatus || 'free',
-                currentPlan: user.currentPlan || null,
-                trialEndDate: user.trialEndDate || null,
-                subscriptionEndDate: user.subscriptionEndDate || null,
-                billingCycle: user.billingCycle || null,
-                lastPaymentAmount: user.lastPaymentAmount || null
-            },
-            aiOnboardingCompleted,
-            features: featureStatus
-        });
-    } catch (error) {
-        console.error('❌ Access status error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to get access status'
-        });
+    if (!userId) {
+      console.error("❌ No userId in request");
+      return res.status(401).json({ success: false, message: "User not authenticated" });
     }
+
+    // Use your existing helper
+    const user = await userManager.getUserById(userId);
+    if (!user) {
+      console.error("❌ User not found:", userId);
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // --- helpers ---
+    const toDate = (val) => {
+      if (!val) return null;
+      if (val instanceof Date) return val;
+      if (typeof val === "string") {
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      // Firestore Timestamp support
+      if (typeof val.toDate === "function") return val.toDate();
+      return null;
+    };
+
+    const toIso = (val) => {
+      const d = toDate(val);
+      return d ? d.toISOString() : null;
+    };
+
+    const now = new Date();
+
+    // Determine expiry date based on status
+    const status = user.subscriptionStatus || "free";
+    const paidEnd = toDate(user.subscriptionEndDate);
+    const trialEnd = toDate(user.trialEndDate);
+
+    const shouldExpirePaid = status === "active" && paidEnd && paidEnd < now;
+    const shouldExpireTrial = status === "trial" && trialEnd && trialEnd < now;
+    const shouldExpire = shouldExpirePaid || shouldExpireTrial;
+
+    // If expired, enforce + persist
+    if (shouldExpire) {
+      const endedAt = shouldExpirePaid ? paidEnd : trialEnd;
+
+      await db.collection("users").doc(userId).update({
+        subscriptionStatus: "expired",
+        currentPlan: "free",
+        expiredAt: now.toISOString(),
+        accessUntil: endedAt ? endedAt.toISOString() : null,
+        updatedAt: now.toISOString(),
+      });
+
+      // Keep response consistent with DB change
+      user.subscriptionStatus = "expired";
+      user.currentPlan = "free";
+    }
+
+    // Feature flags currently disabled in your code
+    const featureStatus = {}; // keep as-is [file:53]
+
+    // Onboarding check (your existing logic)
+    let aiOnboardingCompleted = false;
+    try {
+      const profileDoc = await db.collection("aiProfiles").doc(userId).get();
+      aiOnboardingCompleted = profileDoc.exists;
+    } catch (error) {
+      console.warn("⚠️ Unable to check AI onboarding status:", error.message);
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        subscriptionStatus: user.subscriptionStatus || "free",
+        currentPlan: user.currentPlan || null,
+        trialEndDate: toIso(user.trialEndDate),
+        subscriptionEndDate: toIso(user.subscriptionEndDate),
+        billingCycle: user.billingCycle || null,
+        lastPaymentAmount: user.lastPaymentAmount || null,
+      },
+      aiOnboardingCompleted,
+      features: featureStatus,
+    });
+  } catch (error) {
+    console.error("❌ Access status error:", error);
+    return res.status(500).json({ success: false, message: "Failed to get access status" });
+  }
 });
+
 
 
 app.get('/api/training-plan', authenticateToken, async (req, res) => {
@@ -9204,16 +9264,7 @@ app.post('/api/signup', async (req, res) => {
         console.log('✅ User created successfully:', user.id);
 
         // Generate JWT token for immediate login
-        const token = jwt.sign(
-            { 
-                userId: user.id, 
-                email: user.email,
-                plan: user.currentPlan,
-                status: user.subscriptionStatus
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        const token = signUserToken(user);
 
         // Set token as HTTP-only cookie
         res.cookie('userToken', token, {
@@ -9638,16 +9689,7 @@ app.get('/auth/google/callback', (req, res, next) => {
       
      // console.log('✅ Google OAuth successful for user:', user.id);
       
-      const token = jwt.sign(
-        { 
-          userId: user.id, 
-          email: user.email,
-          plan: user.currentPlan || null,
-          status: user.subscriptionStatus || 'free'
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = signUserToken(user);
       
       res.cookie('userToken', token, {
         httpOnly: true,
@@ -9779,16 +9821,7 @@ app.get('/auth/facebook/callback', (req, res, next) => {
             
             //console.log('✅ Facebook OAuth successful for user:', user.id);
             
-            const token = jwt.sign(
-                { 
-                    userId: user.id, 
-                    email: user.email,
-                    plan: user.currentPlan || null,
-                    status: user.subscriptionStatus || 'free'
-                },
-                process.env.JWT_SECRET,
-                { expiresIn: '7d' }
-            );
+            const token = signUserToken(user);
             
             res.cookie('userToken', token, {
                 httpOnly: true,
