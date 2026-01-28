@@ -46,43 +46,38 @@ async loadUserProfile() {
         await this.loadUserProfile();
         this.updateHeaderStats();
 
-        // --- 1. THE ESSENTIALS (Load Immediately) ---
-       const widgets = [
-            () => this.renderTodayWorkoutWidget('today-workout-container'),
-            () => this.renderWeeklyPlanWidget('weekly-plan-container'),
-            () => this.renderAIInsightWidget('ai-insight-widget-container'),
-            () => this.renderReadinessChart('readiness-chart-container'),
-            () => this.renderRacePlanningWidget('race-planning-container'),
-            () => this.renderSubscriptionControls('subscription-controls-container')
+        // --- ROBUST LOADING: Ensure one failure doesn't stop the dashboard ---
+        const widgetPromises = [
+            this.renderTodayWorkoutWidget('today-workout-container'),
+            this.renderWeeklyPlanWidget('weekly-plan-container'),
+            this.renderAIInsightWidget('ai-insight-widget-container'),
+            this.renderReadinessChart('readiness-chart-container'),
+            // Only render these if the function exists
+            this.renderRacePlanningWidget ? this.renderRacePlanningWidget('race-planning-container') : Promise.resolve(),
+            this.renderSubscriptionControls ? this.renderSubscriptionControls('subscription-controls-container') : Promise.resolve()
         ];
 
-        // Execute all widgets safely
-        widgets.forEach(renderFn => {
-            try {
-                renderFn();
-            } catch (err) {
-                console.error('Widget render failed:', err);
-            }
-        });
+        // Wait for all to finish (success or fail) without crashing
+        await Promise.allSettled(widgetPromises);
+        console.log('✅ Dashboard Widgets Loaded');
     }
 
 
 
-    updateHeaderStats() {
+   updateHeaderStats() {
         const el = document.getElementById('race-countdown-text');
         
-        // Debugging: Check what date is actually coming from the database
+        // 🔍 DEBUG: This will show you exactly what date is in the DB
         if (this.userProfile?.raceDate) {
-            console.log("📅 Stored Race Date:", this.userProfile.raceDate); 
-        } else {
-            console.warn("⚠️ No race date found in user profile");
+            console.log("📅 DATABASE DATE:", this.userProfile.raceDate);
+            console.log("📅 TODAY'S DATE:", new Date());
         }
 
         if(el && this.userProfile?.raceDate) {
             const raceDate = new Date(this.userProfile.raceDate);
             const today = new Date();
             
-            // Reset hours to compare dates only
+            // Normalize to Midnight to avoid hour differences
             raceDate.setHours(0,0,0,0);
             today.setHours(0,0,0,0);
 
@@ -97,7 +92,8 @@ async loadUserProfile() {
                 statusHtml = `<span style="color:#f59e0b; font-weight:800;">TOMORROW!</span>`;
             } else if (days === 0) {
                 statusHtml = `<span style="color:#10b981; font-weight:800;">RACE DAY! 🏃</span>`;
-            } else {
+            } else if (days < 0) {
+                // Handle past races gracefully
                 statusHtml = `<span style="color:#6b7280">Race Completed</span>`;
             }
 

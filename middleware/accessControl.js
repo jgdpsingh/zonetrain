@@ -150,15 +150,19 @@ function authenticateToken(req, res, next) {
         const now = new Date();
         const endDate = decoded.subscriptionEndDate ? new Date(decoded.subscriptionEndDate) : null;
 
-        // If token says active, but the date has passed
+        // 1. Debug Log: See if the token actually HAS the date
+        if (!endDate && decoded.subscriptionStatus === 'active') {
+            console.log('⚠️ Active User with NO Expiry Date in Token. User needs to Re-Login.');
+        }
+
+        // 2. Strict Check
         if (decoded.subscriptionStatus === 'active' && endDate && endDate < now) {
             console.log('⚠️ Subscription expired naturally on:', endDate);
             
-            // Force status to expired for this request
             decoded.subscriptionStatus = 'expired';
             decoded.currentPlan = 'free';
 
-            // If this is a page request (not API), force them to renew page
+            // IMPORTANT: If this is a page load, force them away immediately
             if (!req.path.startsWith('/api/')) {
                 return res.redirect('/renew?reason=expired');
             }
