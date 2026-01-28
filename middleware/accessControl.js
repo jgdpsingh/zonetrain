@@ -146,9 +146,27 @@ function authenticateToken(req, res, next) {
                 return res.redirect(`/login?error=${redirectParam}`);
             }
         }
-        
-        // ✅ Token is valid - attach user info to request
+
+        const now = new Date();
+        const endDate = decoded.subscriptionEndDate ? new Date(decoded.subscriptionEndDate) : null;
+
+        // If token says active, but the date has passed
+        if (decoded.subscriptionStatus === 'active' && endDate && endDate < now) {
+            console.log('⚠️ Subscription expired naturally on:', endDate);
+            
+            // Force status to expired for this request
+            decoded.subscriptionStatus = 'expired';
+            decoded.currentPlan = 'free';
+
+            // If this is a page request (not API), force them to renew page
+            if (!req.path.startsWith('/api/')) {
+                return res.redirect('/renew?reason=expired');
+            }
+        }
+
+        // ✅ Token is valid (or has been downgraded above)
         console.log('✅ Token verified successfully');
+        
         //console.log('   User ID:', decoded.userId);
         //console.log('   Email:', decoded.email);
         //console.log('   Plan:', decoded.currentPlan || 'N/A');

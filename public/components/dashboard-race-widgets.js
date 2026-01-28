@@ -24,33 +24,84 @@ class RaceDashboardWidgets {
         };
     }
 
+async loadUserProfile() {
+        try {
+            const res = await fetch('/api/user/access-status', { // Or your profile endpoint
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await res.json();
+            if (data.success && data.user) {
+                this.userProfile = data.user;
+                // Optional: update header name if element exists
+                const nameEl = document.getElementById('user-name-display');
+                if (nameEl) nameEl.textContent = data.user.firstName;
+            }
+        } catch (e) {
+            console.warn('Profile load failed', e);
+        }
+    }
+
     async init() {
         console.log('🏎️ Starting Race Execution Dashboard...');
         await this.loadUserProfile();
         this.updateHeaderStats();
 
         // --- 1. THE ESSENTIALS (Load Immediately) ---
-        this.renderTodayWorkoutWidget('today-workout-container'); // Hero
-        this.renderWeeklyPlanWidget('weekly-plan-container');     // Context
-        this.renderAIInsightWidget('ai-insight-widget-container'); // Feedback
-        this.renderReadinessChart('readiness-chart-container');    // Taper Tool
-        this.renderRacePlanningWidget('race-planning-container');  // Strategy
-        this.renderSubscriptionControls('subscription-controls-container'); // Admin
+       const widgets = [
+            () => this.renderTodayWorkoutWidget('today-workout-container'),
+            () => this.renderWeeklyPlanWidget('weekly-plan-container'),
+            () => this.renderAIInsightWidget('ai-insight-widget-container'),
+            () => this.renderReadinessChart('readiness-chart-container'),
+            () => this.renderRacePlanningWidget('race-planning-container'),
+            () => this.renderSubscriptionControls('subscription-controls-container')
+        ];
+
+        // Execute all widgets safely
+        widgets.forEach(renderFn => {
+            try {
+                renderFn();
+            } catch (err) {
+                console.error('Widget render failed:', err);
+            }
+        });
     }
 
-    async loadUserProfile() {
-        try {
-            const res = await fetch('/api/user/profile', { headers: { 'Authorization': `Bearer ${this.token}` }});
-            const data = await res.json();
-            if(data.success) this.userProfile = data.user;
-        } catch(e) {}
-    }
+
 
     updateHeaderStats() {
         const el = document.getElementById('race-countdown-text');
+        
+        // Debugging: Check what date is actually coming from the database
+        if (this.userProfile?.raceDate) {
+            console.log("📅 Stored Race Date:", this.userProfile.raceDate); 
+        } else {
+            console.warn("⚠️ No race date found in user profile");
+        }
+
         if(el && this.userProfile?.raceDate) {
-            const days = Math.ceil((new Date(this.userProfile.raceDate) - new Date()) / (1000 * 60 * 60 * 24));
-            el.innerHTML = `Training for <strong>${this.userProfile.raceName || 'Race'}</strong> • <span style="color:#4f46e5">${days} Days To Go</span>`;
+            const raceDate = new Date(this.userProfile.raceDate);
+            const today = new Date();
+            
+            // Reset hours to compare dates only
+            raceDate.setHours(0,0,0,0);
+            today.setHours(0,0,0,0);
+
+            const diffTime = raceDate - today;
+            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            let statusHtml = '';
+            
+            if (days > 1) {
+                statusHtml = `<span style="color:#4f46e5">${days} Days To Go</span>`;
+            } else if (days === 1) {
+                statusHtml = `<span style="color:#f59e0b; font-weight:800;">TOMORROW!</span>`;
+            } else if (days === 0) {
+                statusHtml = `<span style="color:#10b981; font-weight:800;">RACE DAY! 🏃</span>`;
+            } else {
+                statusHtml = `<span style="color:#6b7280">Race Completed</span>`;
+            }
+
+            el.innerHTML = `Training for <strong>${this.userProfile.raceName || 'Race'}</strong> • ${statusHtml}`;
         }
     }
 
