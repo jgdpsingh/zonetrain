@@ -1086,3 +1086,12 @@ async renderStravaWorkoutHistory(containerId) {
         }
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const widgets = new RaceDashboardWidgets();
+    widgets.init();
+  } catch (e) {
+    console.error('RaceDashboardWidgets boot failed', e);
+  }
+});

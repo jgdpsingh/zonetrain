@@ -4045,36 +4045,43 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         const currentGoals = profile.raceHistory.targetRace;
 
         // ✅ FIX: Check if date is a Firestore Timestamp and convert it
-        let raceDateStr = currentGoals.raceDate;
-        if (currentGoals.raceDate && typeof currentGoals.raceDate.toDate === 'function') {
-            // It's a Firestore Timestamp, convert to ISO string
-            raceDateStr = currentGoals.raceDate.toDate().toISOString();
-        }
-        
-        res.json({
-            success: true,
-            raceGoal: {
-                distance: currentGoals.distance,
-                date: raceDateStr, // <-- Now safely a string
-                targetTime: currentGoals.targetTime,
-                daysToRace: currentGoals.daysToRace,
-                location: currentGoals.location
-            },
-            profile: {
-                weeklyMileage: profile.raceHistory.currentWeeklyMileage,
-                trainingDays: profile.trainingStructure.preferredDays,
-                intensityPreference: profile.trainingStructure.intensityPreference
-            }
-        });
-        
-    } catch (error) {
-        console.error('Error fetching current goals:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch goals',
-            error: error.message
-        });
+        let raceDateStr = currentGoals.raceDate || null;
+    if (raceDateStr && typeof raceDateStr.toDate === 'function') {
+      raceDateStr = raceDateStr.toDate().toISOString();
     }
+
+    const freshDaysToRace = raceDateStr ? calculateDaysToRace(raceDateStr) : null;
+    if (raceDateStr && freshDaysToRace !== currentGoals.daysToRace) {
+  await db.collection('aiprofiles').doc(userId).update({
+    'raceHistory.targetRace.daysToRace': freshDaysToRace,
+    updatedAt: new Date()
+  });
+}
+
+        
+        return res.json({
+      success: true,
+      raceGoal: {
+        distance: currentGoals.distance ?? null,
+        date: raceDateStr, // string
+        targetTime: currentGoals.targetTime ?? null,
+        daysToRace: freshDaysToRace, // ALWAYS fresh
+        location: currentGoals.location ?? null
+      },
+      profile: {
+        weeklyMileage: profile?.raceHistory?.currentWeeklyMileage ?? null,
+        trainingDays: profile?.trainingStructure?.preferredDays ?? [],
+        intensityPreference: profile?.trainingStructure?.intensityPreference ?? null
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching current goals', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch goals',
+      error: error.message
+    });
+  }
 });
 
 
@@ -5796,7 +5803,7 @@ app.post('/api/payment/verify', authenticateToken, async (req, res) => {
             currentPlan: planType,
             paymentId: razorpay_payment_id,
             subscriptionStartDate: new Date().toISOString(),
-            subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days
+            subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
         });
         
         console.log(`✅ User ${userId} upgraded to ${planType} plan`);
@@ -5941,7 +5948,7 @@ async function handlePaymentCaptured(payment) {
                     currentPlan: orderData.planType,
                     paymentId: payment.id,
                     subscriptionStartDate: new Date().toISOString(),
-                    subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                    subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
                 });
                 console.log('✅ User upgraded via webhook');
             }

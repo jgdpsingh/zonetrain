@@ -956,11 +956,15 @@ async checkPausedSubscriptions() {
         }
     }
 
+    normalizeDate(d) {
+  return d?.toDate ? d.toDate() : (d instanceof Date ? d : new Date(d));
+}
+
     // Additional helper methods
-    isSubscriptionExpired(user) {
-        if (!user.subscriptionEndDate) return true;
-        return new Date() > new Date(user.subscriptionEndDate);
-    }
+   isSubscriptionExpired(user) {
+  if (!user.subscriptionEndDate) return true;
+  return new Date() > this.normalizeDate(user.subscriptionEndDate);
+}
 
     shouldSendRenewalReminder(user) {
         if (!user.subscriptionEndDate) return false;
@@ -969,10 +973,10 @@ async checkPausedSubscriptions() {
     }
 
     getDaysUntilExpiry(endDate) {
-        const end = new Date(endDate);
-        const today = new Date();
-        return Math.ceil((end - today) / (1000 * 60 * 60 * 24));
-    }
+  const end = this.normalizeDate(endDate);
+  const today = new Date();
+  return Math.ceil((end - today) / (1000*60*60*24));
+}
 
     getRenewalOptions(user) {
         const currentPlan = user.currentPlan;
