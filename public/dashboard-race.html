@@ -667,6 +667,32 @@ body {
         <div style="display: none;"> <div id="planHistoryContainer"></div>
 </div>
 
+<!-- Plan Management Modal (Pause / Downgrade) -->
+<div id="planManagementModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+  background: rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:white; width:90%; max-width:520px; border-radius:16px; overflow:hidden; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);">
+    <div style="padding:18px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center;">
+      <h3 id="pm-title" style="margin:0; font-size:18px; color:#111827;">Plan Management</h3>
+      <button onclick="document.getElementById('planManagementModal').style.display='none'"
+        style="background:none; border:none; font-size:24px; cursor:pointer; color:#6b7280;">&times;</button>
+    </div>
+
+    <div id="pm-content" style="padding:20px;"></div>
+
+    <div style="padding:15px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px;">
+      <button onclick="document.getElementById('planManagementModal').style.display='none'"
+        style="padding:10px 16px; background:#f3f4f6; border:none; border-radius:8px; font-weight:600; cursor:pointer;">
+        Cancel
+      </button>
+      <button id="pm-confirm-btn"
+        style="padding:10px 16px; background:#111827; color:white; border:none; border-radius:8px; font-weight:700; cursor:pointer;">
+        Confirm
+      </button>
+    </div>
+  </div>
+</div>
+
+
         <style>
             @keyframes bounce {
                 0%, 100% { transform: translateY(0); }

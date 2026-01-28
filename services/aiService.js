@@ -522,6 +522,82 @@ ACTUAL: ${actualDistance} in ${movingTimeMinutes}min @ ${actualPace}. HR: ${avgH
     }
   }
 
+  async generateRaceWeekNutritionPlan({ profile, workouts = [], targets }) {
+    const systemPrompt = `
+You are ZoneTrain AI, acting as a sports nutrition coach for endurance runners.
+
+TASK:
+Generate a 7-day "last week to race day" nutrition plan (Day -6 to Day 0).
+You MUST respect the provided macro/hydration targets (do not change numbers).
+You MUST respect dietary constraints and injuries/health notes.
+Keep it practical with Indian-friendly options if location is India, but do not assume spicy foods.
+
+OUTPUT:
+Return JSON ONLY (no markdown). Schema:
+{
+  "type": "race_week_nutrition",
+  "raceDate": "YYYY-MM-DD",
+  "raceDistanceKm": number,
+  "notes": [string],
+  "days": [
+    {
+      "dayOffsetFromRace": -6..0,
+      "date": "YYYY-MM-DD",
+      "focus": "string",
+      "targets": { "carbs_g": number, "protein_g": number, "fat_g": number, "fluids_ml": number, "sodium_mg": number },
+      "meals": [
+        { "slot": "Breakfast|Lunch|Snack|Dinner|Pre-run|Post-run", "items": [string], "why": "string" }
+      ],
+      "trainingFueling": [string],
+      "avoid": [string]
+    }
+  ],
+  "raceDay": {
+    "preRace": [string],
+    "during": [string],
+    "postRace": [string]
+  }
+}
+
+Rules:
+- Keep meal item lists short and realistic.
+- Prefer low-fiber/low-fat choices on Day -1 and Day 0.
+- If workouts list shows a run that day, include "Pre-run" + "Post-run" slot.
+`.trim();
+
+    const athlete = {
+      age: profile?.personalProfile?.age ?? null,
+      gender: profile?.personalProfile?.gender ?? "other",
+      heightCm: profile?.personalProfile?.height ?? null,
+      weightKg: profile?.personalProfile?.weight ?? null,
+      injuries: profile?.personalProfile?.injuries ?? "",
+      constraints: profile?.trainingStructure?.constraints ?? "",
+      intensityPreference: profile?.trainingStructure?.intensityPreference ?? "balanced",
+      race: profile?.raceHistory?.targetRace ?? {}
+    };
+
+    const payload = {
+      athlete,
+      workouts: workouts.map(w => ({
+        date: w.date,
+        type: w.type,
+        title: w.title,
+        distanceKm: w.distanceKm,
+        durationMin: w.durationMin
+      })),
+      targets
+    };
+
+    try {
+      this.trackUsage(systemPrompt, ""); // optional cost tracking [file:33] style
+      const result = await this.model.generateContent(systemPrompt + "\n\nINPUT:\n" + JSON.stringify(payload));
+      const text = result.response.text();
+      return this.parseAIResponse(text); // already exists and extracts JSON [file:33]
+    } catch (e) {
+      return { error: "AI nutrition generation failed", fallback: true, details: e.message };
+    }
+  }
+
 
 }
 

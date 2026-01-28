@@ -4440,6 +4440,152 @@ app.get('/api/race-goals/timeline', authenticateToken, async (req, res) => {
     }
 });
 
+// app.js (add near your other authenticated API routes)
+app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // 1) Load AI profile saved from onboarding
+    const profileDoc = await db.collection("aiprofiles").doc(userId).get();
+    if (!profileDoc.exists) {
+      return res.status(404).json({ success: false, message: "AI profile not found. Complete onboarding first." });
+    }
+    const profile = profileDoc.data();
+
+    const weightKg = Number(profile?.personalProfile?.weight || 0);
+    const race = profile?.raceHistory?.targetRace || {};
+    const raceDateRaw = race?.raceDate;
+    if (!raceDateRaw) {
+      return res.status(400).json({ success: false, message: "Race date missing in profile." });
+    }
+
+    const raceDate = new Date(raceDateRaw);
+    if (Number.isNaN(raceDate.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid race date in profile." });
+    }
+
+    const raceDistanceKm = Number(race?.distance || 0);
+    const targetTimeStr = (race?.targetTime || "").trim(); // "HH:MM:SS" from your onboarding formatter [file:48]
+
+    // 2) Compute last-week date window (Day -6 to Day 0)
+    const startDate = new Date(raceDate);
+    startDate.setDate(startDate.getDate() - 6);
+    startDate.setHours(0, 0, 0, 0);
+    raceDate.setHours(23, 59, 59, 999);
+
+    // 3) Pull scheduled workouts in that window (optional)
+    const workoutsSnap = await db.collection("workouts")
+      .where("userId", "==", userId)
+      .where("scheduledDate", ">=", startDate)
+      .where("scheduledDate", "<=", raceDate)
+      .orderBy("scheduledDate", "asc")
+      .get();
+
+    const workouts = workoutsSnap.docs.map(d => {
+      const w = d.data();
+      const dt = w.scheduledDate?.toDate ? w.scheduledDate.toDate() : new Date(w.scheduledDate);
+      return {
+        date: dt.toISOString().slice(0, 10),
+        type: w.type || "run",
+        title: w.title || "Workout",
+        distanceKm: Number(w.distance || 0),
+        durationMin: Number(w.duration || 0)
+      };
+    });
+
+    // 4) Compute deterministic macro/hydration targets (AI must not change numbers)
+    const parseHHMMSS = (s) => {
+      const parts = s.split(":").map(x => parseInt(x, 10));
+      if (parts.length === 3 && parts.every(n => !Number.isNaN(n))) return parts[0] * 60 + parts[1] + parts[2] / 60;
+      if (parts.length === 2 && parts.every(n => !Number.isNaN(n))) return parts[0] + parts[1] / 60;
+      return null;
+    };
+
+    const targetDurationMin = targetTimeStr ? parseHHMMSS(targetTimeStr) : null;
+
+    // Carb-load days heuristic
+    const loadDays =
+      (raceDistanceKm >= 21.1 || (targetDurationMin && targetDurationMin >= 90)) ? 3 :
+      (raceDistanceKm >= 10 || (targetDurationMin && targetDurationMin >= 60)) ? 2 : 1;
+
+    const proteinG = Math.round(weightKg * 1.6);
+    const baseFluidsMl = Math.round(weightKg * 35); // simple baseline; tune later if you add weather
+    const baseSodiumMg = 1500;
+
+    // Build 7 days: offsets -6..0
+    const targets = [];
+    for (let offset = -6; offset <= 0; offset++) {
+      const dayDate = new Date(startDate);
+      dayDate.setDate(startDate.getDate() + (offset + 6));
+      const iso = dayDate.toISOString().slice(0, 10);
+
+      const isCarbLoad = offset >= (0 - (loadDays - 1)); // last N days incl day 0? We'll still keep Day 0 lighter in fiber
+      const carbsPerKg =
+        (offset === 0) ? 2.0 : // race day carbs handled via "raceDay" guidance; keep day targets moderate
+        (isCarbLoad ? (raceDistanceKm >= 21.1 ? 8.0 : 6.5) : 5.0);
+
+      const fatPerKg = isCarbLoad ? 0.7 : 0.9;
+
+      targets.push({
+        dayOffsetFromRace: offset,
+        date: iso,
+        carbs_g: Math.round(weightKg * carbsPerKg),
+        protein_g: proteinG,
+        fat_g: Math.round(weightKg * fatPerKg),
+        fluids_ml: baseFluidsMl,
+        sodium_mg: baseSodiumMg
+      });
+    }
+
+    // 5) Call AI to create meal suggestions around those targets
+    const aiResult = await aiService.generateRaceWeekNutritionPlan({
+      profile,
+      workouts,
+      targets: { raceDate: raceDateRaw, raceDistanceKm, days: targets }
+    });
+
+    // If AI failed, return a minimal fallback using the targets we computed
+    if (aiResult?.error) {
+      return res.json({
+        success: true,
+        plan: {
+          type: "race_week_nutrition",
+          raceDate: String(raceDateRaw).slice(0, 10),
+          raceDistanceKm,
+          notes: ["Fallback plan (AI unavailable). Use macro targets and keep meals simple."],
+          days: targets.map(t => ({
+            dayOffsetFromRace: t.dayOffsetFromRace,
+            date: t.date,
+            focus: t.dayOffsetFromRace === 0 ? "Race day" : "Taper + fueling",
+            targets: t,
+            meals: [
+              { slot: "Breakfast", items: ["Easy carbs + protein"], why: "Stable energy" },
+              { slot: "Lunch", items: ["Rice/roti + lean protein"], why: "Glycogen + recovery" },
+              { slot: "Snack", items: ["Fruit/curd/toast (as tolerated)"], why: "Top-up carbs" },
+              { slot: "Dinner", items: ["Lower fiber, carb-focused"], why: "Sleep + glycogen" }
+            ],
+            trainingFueling: [],
+            avoid: ["New foods", "High fiber late evening (Day -1)"]
+          })),
+          raceDay: {
+            preRace: ["Breakfast 2–4 hours pre: easy carbs + small protein, low fiber."],
+            during: ["Use your practiced gel/drink plan (don’t experiment)."],
+            postRace: ["Carbs + protein within 60 minutes; rehydrate with electrolytes."]
+          }
+        },
+        fallback: true
+      });
+    }
+
+    return res.json({ success: true, plan: aiResult });
+  } catch (e) {
+    console.error("Nutrition plan error:", e);
+    return res.status(500).json({ success: false, message: "Failed to generate nutrition plan", error: e.message });
+  }
+});
+
+
+
 // ==================== HELPER FUNCTIONS ====================
 
 function calculateWeeksElapsed(createdAt) {

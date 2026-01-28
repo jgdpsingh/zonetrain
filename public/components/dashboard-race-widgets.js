@@ -44,6 +44,7 @@ async loadUserProfile() {
     async init() {
         console.log('🏎️ Starting Race Execution Dashboard...');
         await this.loadUserProfile();
+        await this.loadSubscriptionCard();
         this.updateHeaderStats();
 
         // --- ROBUST LOADING: Ensure one failure doesn't stop the dashboard ---
@@ -274,150 +275,153 @@ async loadUserProfile() {
     // 3. READINESS (New Taper Tool)
     // =========================================================
     async renderReadinessChart(containerId) {
-        const container = document.getElementById(containerId);
-        if (!container) return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
 
-        container.innerHTML = `
-            <div class="widget-header">
-                <h3>🔋 Race Readiness</h3>
-                <span style="font-size:11px; color:#6b7280;">Fatigue vs. Freshness</span>
-            </div>
-            <div style="height: 200px; display:flex; align-items:center; justify-content:center;">
-                <div class="loading-spinner"></div>
-            </div>`;
+  container.innerHTML = `
+    <div class="widget-header">
+      <h3>🔋 Race Readiness</h3>
+      <span style="font-size:11px; color:#6b7280;">Fatigue vs. Freshness</span>
+    </div>
+    <div style="height: 200px; display:flex; align-items:center; justify-content:center;">
+      <div class="loading-spinner"></div>
+    </div>`;
 
-        try {
-            // Fetch 60 days to build the "Chronic" load baseline
-            const response = await fetch('/api/analytics/workout-history?days=60', {
-                headers: { 'Authorization': `Bearer ${this.token}` }
-            });
-            const data = await response.json();
+  try {
+    // Fetch 60 days to build the "Chronic" load baseline
+    const response = await fetch('/api/analytics/workout-history?days=60', {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
 
-            if (!data.success || !data.workouts || data.workouts.length < 5) {
-                container.innerHTML = `<div class="widget-header"><h3>🔋 Readiness</h3></div><div class="empty-state-widget"><p>Need at least 1 week of training data to calculate readiness.</p></div>`;
-                return;
-            }
+    const data = await response.json();
 
-            // --- 1. Calculate Daily Load (TRIMP Estimation) ---
-            const dailyLoad = new Map();
-            
-            data.workouts.forEach(w => {
-                const dateStr = new Date(w.startDate).toDateString();
-                
-                // Estimate Stress: Duration * Intensity
-                const duration = (w.movingTime || w.duration || 0);
-                
-                // Use Heart Rate if available, else estimate based on type/RPE
-                let intensity = 0.75; // Default moderate
-                if (w.averageHeartrate) {
-                    const maxHr = this.userProfile?.maxHr || 190;
-                    intensity = w.averageHeartrate / maxHr;
-                }
-                
-                // Non-linear stress formula (Foster's TRIMP approximation)
-                const stress = duration * Math.exp(1.92 * intensity); 
-                
-                const current = dailyLoad.get(dateStr) || 0;
-                dailyLoad.set(dateStr, current + stress);
-            });
-
-            // --- 2. Calculate CTL (Fitness) & ATL (Fatigue) ---
-            const today = new Date();
-            const chartData = [];
-            let ctl = 0; // Chronic Training Load (Fitness)
-            let atl = 0; // Acute Training Load (Fatigue)
-            
-            // Loop backwards 45 days
-            for (let i = 45; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(today.getDate() - i);
-                const dateStr = d.toDateString();
-                const dayLoad = dailyLoad.get(dateStr) || 0;
-
-                // Exponential Moving Averages
-                ctl = (dayLoad * (1 - Math.exp(-1/42))) + (ctl * Math.exp(-1/42));
-                atl = (dayLoad * (1 - Math.exp(-1/7))) + (atl * Math.exp(-1/7));
-                
-                const tsb = ctl - atl; // Training Stress Balance (Readiness)
-
-                chartData.push({
-                    date: d.toLocaleDateString(undefined, {month:'short', day:'numeric'}),
-                    tsb: Math.round(tsb),
-                    ctl: Math.round(ctl),
-                    atl: Math.round(atl)
-                });
-            }
-
-            // --- 3. Render Chart (Last 14 Days) ---
-            const recentData = chartData.slice(-14); 
-            
-            // Determine scale (find max absolute value to center the zero-line)
-            const maxVal = Math.max(...recentData.map(d => Math.abs(d.tsb)), 20); 
-            
-            const barsHtml = recentData.map(d => {
-                // Green if positive (Fresh), Orange/Red if negative (Tired)
-                const color = d.tsb >= 0 ? '#10b981' : '#f59e0b';
-                
-                // Height percentage (relative to max scale)
-                // We divide by 2 because the chart goes from -Max to +Max (total range = 2*Max)
-                const heightPct = (Math.abs(d.tsb) / maxVal) * 50; 
-                
-                // CSS positioning: 
-                // If positive, bottom is 50%. If negative, top is 50%.
-                const style = d.tsb >= 0 
-                    ? `bottom: 50%; height: ${heightPct}%;` 
-                    : `top: 50%; height: ${heightPct}%;`;
-
-                return `
-                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:2px; height:100%; position:relative;" 
-                         title="${d.date}: Readiness ${d.tsb} (Fit ${d.ctl} - Fat ${d.atl})">
-                        <div style="width:6px; background:${color}; opacity:0.8; border-radius:2px; position:absolute; ${style}"></div>
-                    </div>`;
-            }).join('');
-
-            const current = recentData[recentData.length-1].tsb;
-            let statusText = "Balanced";
-            if (current > 20) statusText = "⚡ Peak Taper (Race Ready)";
-            else if (current > 5) statusText = "✅ Fresh & Sharp";
-            else if (current > -10) statusText = "🏗️ Productive Training";
-            else statusText = "⚠️ Heavy Fatigue (Rest Needed)";
-
-            container.innerHTML = `
-                <div class="widget-header">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <h3>🔋 Race Readiness</h3>
-                         <div style="text-align:right;">
-                            <div style="font-size:18px; font-weight:700; color:${current >= 0 ? '#10b981' : '#f59e0b'};">
-                                ${current > 0 ? '+' : ''}${current}
-                            </div>
-                            <div style="font-size:10px; color:#6b7280;">Form Score</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="height: 120px; position:relative; border-bottom: 1px solid #e5e7eb; margin: 10px 0; background:#fafafa;">
-                    <div style="position:absolute; top:50%; left:0; right:0; border-top:1px dashed #d1d5db; z-index:0;"></div>
-                    
-                    <div style="display: flex; justify-content: space-between; gap: 4px; height: 100%; padding:0 10px; z-index:1;">
-                        ${barsHtml}
-                    </div>
-                </div>
-                
-                <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#9ca3af;">
-                    <span>${recentData[0].date}</span>
-                    <span>Today</span>
-                </div>
-
-                <div style="margin-top:10px; padding:8px; background:${current >= 0 ? '#ecfdf5' : '#fffbeb'}; border-radius:6px; font-size:12px; color:#374151; text-align:center;">
-                    <strong>${statusText}</strong>
-                </div>
-            `;
-
-        } catch (e) {
-            console.error("Readiness Chart Error", e);
-            container.innerHTML = `<p style="color:#ef4444; padding:20px; text-align:center;">Could not calculate readiness.</p>`;
-        }
+    if (!data.success || !data.workouts || data.workouts.length < 5) {
+      container.innerHTML = `
+        <div class="widget-header"><h3>🔋 Readiness</h3></div>
+        <div class="empty-state-widget">
+          <p>Need at least 1 week of training data to calculate readiness.</p>
+        </div>`;
+      return;
     }
+
+    // --- 1. Calculate Daily Load (TRIMP Estimation) ---
+    const dailyLoad = new Map();
+
+    data.workouts.forEach(w => {
+      // Robust: some rows might have startDate or scheduledDate depending on source
+      const dt = new Date(w.startDate || w.scheduledDate);
+      if (Number.isNaN(dt.getTime())) return;
+
+      const dateStr = dt.toDateString();
+
+      // Duration: prefer movingTime (seconds), else duration, else 0
+      const duration = (w.movingTime || w.duration || 0);
+
+      // Use Heart Rate if available, else estimate based on type/RPE
+      let intensity = 0.75; // Default moderate
+      if (w.averageHeartrate) {
+        const maxHr =
+          this.userProfile?.maxHr ||
+          this.userProfile?.maxHeartRate ||
+          190;
+        intensity = w.averageHeartrate / maxHr;
+      }
+
+      // Non-linear stress formula (Foster's TRIMP approximation)
+      const stress = duration * Math.exp(1.92 * intensity);
+
+      const current = dailyLoad.get(dateStr) || 0;
+      dailyLoad.set(dateStr, current + stress);
+    });
+
+    // --- 2. Calculate CTL (Fitness) & ATL (Fatigue) ---
+    const today = new Date();
+    const chartData = [];
+    let ctl = 0; // Chronic Training Load (Fitness)
+    let atl = 0; // Acute Training Load (Fatigue)
+
+    for (let i = 45; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toDateString();
+      const dayLoad = dailyLoad.get(dateStr) || 0;
+
+      // Exponential Moving Averages
+      ctl = (dayLoad * (1 - Math.exp(-1 / 42))) + (ctl * Math.exp(-1 / 42));
+      atl = (dayLoad * (1 - Math.exp(-1 / 7))) + (atl * Math.exp(-1 / 7));
+
+      const tsb = ctl - atl; // Training Stress Balance (Readiness)
+
+      chartData.push({
+        date: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        tsb: Math.round(tsb),
+        ctl: Math.round(ctl),
+        atl: Math.round(atl)
+      });
+    }
+
+    // --- 3. Render Chart (Last 14 Days) ---
+    const recentData = chartData.slice(-14);
+
+    const maxVal = Math.max(...recentData.map(d => Math.abs(d.tsb)), 20);
+
+    const barsHtml = recentData.map(d => {
+      const color = d.tsb >= 0 ? '#10b981' : '#f59e0b';
+      const heightPct = (Math.abs(d.tsb) / maxVal) * 50;
+
+      const style = d.tsb >= 0
+        ? `bottom: 50%; height: ${heightPct}%;`
+        : `top: 50%; height: ${heightPct}%;`;
+
+      return `
+        <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:2px; height:100%; position:relative;"
+             title="${d.date}: Readiness ${d.tsb} (Fit ${d.ctl} - Fat ${d.atl})">
+          <div style="width:6px; background:${color}; opacity:0.8; border-radius:2px; position:absolute; ${style}"></div>
+        </div>`;
+    }).join('');
+
+    const current = recentData[recentData.length - 1].tsb;
+    let statusText = "Balanced";
+    if (current > 20) statusText = "⚡ Peak Taper (Race Ready)";
+    else if (current > 5) statusText = "✅ Fresh & Sharp";
+    else if (current > -10) statusText = "🏗️ Productive Training";
+    else statusText = "⚠️ Heavy Fatigue (Rest Needed)";
+
+    container.innerHTML = `
+      <div class="widget-header">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3>🔋 Race Readiness</h3>
+          <div style="text-align:right;">
+            <div style="font-size:18px; font-weight:700; color:${current >= 0 ? '#10b981' : '#f59e0b'};">
+              ${current > 0 ? '+' : ''}${current}
+            </div>
+            <div style="font-size:10px; color:#6b7280;">Form Score</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height: 120px; position:relative; border-bottom: 1px solid #e5e7eb; margin: 10px 0; background:#fafafa;">
+        <div style="position:absolute; top:50%; left:0; right:0; border-top:1px dashed #d1d5db; z-index:0;"></div>
+        <div style="display: flex; justify-content: space-between; gap: 4px; height: 100%; padding:0 10px; z-index:1;">
+          ${barsHtml}
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:#9ca3af;">
+        <span>${recentData[0].date}</span>
+        <span>Today</span>
+      </div>
+
+      <div style="margin-top:10px; padding:8px; background:${current >= 0 ? '#ecfdf5' : '#fffbeb'}; border-radius:6px; font-size:12px; color:#374151; text-align:center;">
+        <strong>${statusText}</strong>
+      </div>
+    `;
+  } catch (e) {
+    console.error("Readiness Chart Error", e);
+    container.innerHTML = `<p style="color:#ef4444; padding:20px; text-align:center;">Could not calculate readiness.</p>`;
+  }
+}
+
 
     // =========================================================
     // 4. ACTIONABLE INSIGHTS (Simplified)
@@ -461,16 +465,30 @@ async loadUserProfile() {
         `;
     }
 
-    renderSubscriptionControls(containerId) {
-        const container = document.getElementById(containerId);
-        if(!container) return;
-        container.innerHTML = `
-            <div class="widget-header"><h3>💳 Plan Management</h3></div>
-            <div style="padding:20px; display:flex; flex-direction:column; gap:10px;">
-                <button onclick="document.getElementById('planManagementModal').style.display='flex'" style="padding:10px; border:1px solid #d1d5db; background:white; border-radius:6px; cursor:pointer;">⏸️ Pause / 🔻 Downgrade</button>
-            </div>
-        `;
-    }
+    async loadSubscriptionCard() {
+  const statusEl = document.getElementById('sub-status');
+  const nextEl = document.getElementById('next-billing-date');
+  if (!statusEl || !nextEl) return;
+
+  try {
+    const res = await fetch('/api/subscription/details', {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await res.json();
+    if (!data?.success) throw new Error(data?.message || 'Failed');
+
+    const sub = data.subscription || {};
+    statusEl.textContent = sub.subscriptionStatus || 'Unknown';
+    nextEl.textContent = sub.subscriptionEndDate
+      ? new Date(sub.subscriptionEndDate).toLocaleDateString()
+      : '—';
+  } catch (e) {
+    statusEl.textContent = '—';
+    nextEl.textContent = '—';
+  }
+}
+
+
 
     // =========================================================
     // 6. RACE HUB (Lazy Load Non-Essentials)
@@ -832,7 +850,108 @@ async renderStravaWorkoutHistory(containerId) {
     }
 
     openQuestionModal() { document.getElementById('questionModal').style.display = 'flex'; }
-    openNutritionModal() { document.getElementById('nutritionModal').style.display = 'flex'; }
+
+
+    openNutritionModal() {
+  document.getElementById("nutritionModal").style.display = "flex";
+  this.loadRaceNutritionPlan();
+}
+
+async loadRaceNutritionPlan() {
+  const el = document.getElementById("nutritionContent");
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="text-align:center; padding:20px;">
+      <div class="loading-spinner" style="margin:0 auto 10px auto;"></div>
+      <div style="color:#6b7280; font-size:13px;">Generating your last-week nutrition plan...</div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch("/api/race/nutrition/last-week", {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message || "Failed to load plan");
+
+    el.innerHTML = this.renderNutritionPlanHTML(data.plan);
+  } catch (err) {
+    el.innerHTML = `
+      <div style="padding:16px; background:#fef2f2; border:1px solid #fecaca; border-radius:10px; color:#991b1b;">
+        Failed to load nutrition plan: ${String(err.message || err)}
+      </div>
+    `;
+  }
+}
+
+renderNutritionPlanHTML(plan) {
+  const esc = (s) => String(s || "")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+
+  const daysHtml = (plan.days || []).map(d => {
+    const meals = (d.meals || []).map(m => `
+      <div style="margin:10px 0; padding:10px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;">
+        <div style="font-weight:800; color:#111827; font-size:13px;">${esc(m.slot)}</div>
+        <div style="color:#374151; font-size:13px; margin-top:6px;">
+          ${(m.items || []).map(x => `• ${esc(x)}`).join("<br>")}
+        </div>
+        ${m.why ? `<div style="color:#6b7280; font-size:12px; margin-top:6px;">Why: ${esc(m.why)}</div>` : ""}
+      </div>
+    `).join("");
+
+    const t = d.targets || {};
+    const targetsLine = `
+      Carbs: <b>${esc(t.carbs_g)}</b>g · Protein: <b>${esc(t.protein_g)}</b>g · Fat: <b>${esc(t.fat_g)}</b>g
+      <br>Fluids: <b>${esc(t.fluids_ml)}</b>ml · Sodium: <b>${esc(t.sodium_mg)}</b>mg
+    `;
+
+    const fueling = (d.trainingFueling || []).length
+      ? `<div style="margin-top:10px; color:#374151; font-size:13px;"><b>Training fueling:</b><br>${(d.trainingFueling || []).map(x => `• ${esc(x)}`).join("<br>")}</div>`
+      : "";
+
+    const avoid = (d.avoid || []).length
+      ? `<div style="margin-top:10px; color:#7c2d12; font-size:13px;"><b>Avoid:</b><br>${(d.avoid || []).map(x => `• ${esc(x)}`).join("<br>")}</div>`
+      : "";
+
+    return `
+      <div style="padding:14px; border:1px solid #fed7aa; background:#fff7ed; border-radius:12px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; gap:10px;">
+          <div style="font-weight:900; color:#9a3412;">Day ${d.dayOffsetFromRace}</div>
+          <div style="color:#6b7280; font-size:12px;">${esc(d.date)}</div>
+        </div>
+        <div style="margin-top:6px; font-weight:700; color:#111827;">${esc(d.focus || "Focus")}</div>
+        <div style="margin-top:8px; font-size:13px; color:#374151;">${targetsLine}</div>
+        ${meals}
+        ${fueling}
+        ${avoid}
+      </div>
+    `;
+  }).join("");
+
+  const raceDay = plan.raceDay || {};
+  const listBlock = (title, arr) => (arr && arr.length)
+    ? `<div style="margin-top:10px;"><b>${esc(title)}:</b><br>${arr.map(x => `• ${esc(x)}`).join("<br>")}</div>`
+    : "";
+
+  return `
+    <div style="margin-bottom:12px;">
+      <div style="font-weight:900; color:#9a3412; font-size:14px;">Last-week nutrition plan</div>
+      <div style="color:#6b7280; font-size:12px;">Race date: ${esc(plan.raceDate)} · Distance: ${esc(plan.raceDistanceKm)} km</div>
+      ${(plan.notes || []).length ? `<div style="margin-top:8px; color:#374151; font-size:13px;">${plan.notes.map(x => `• ${esc(x)}`).join("<br>")}</div>` : ""}
+    </div>
+
+    ${daysHtml}
+
+    <div style="padding:14px; border:1px solid #e5e7eb; background:#fafafa; border-radius:12px;">
+      <div style="font-weight:900; color:#111827;">Race-day checklist</div>
+      ${listBlock("Pre-race", raceDay.preRace || [])}
+      ${listBlock("During race", raceDay.during || [])}
+      ${listBlock("Post-race", raceDay.postRace || [])}
+    </div>
+  `;
+}
     
     // WORKOUT MODAL LOGIC
     async openWorkoutModal(workoutId) {
