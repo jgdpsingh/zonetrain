@@ -931,7 +931,7 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
         <div id="ai-insight-widget-container"></div> <div id="readiness-chart-container" class="widget" style="flex:1;"></div> </div>
 </div>
 
-<div class="dashboard-section-planning">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
     <div class="widget">
         <div class="widget-header" style="display:flex; justify-content:space-between; align-items:center;">
             <h3 style="margin:0;">📅 Weekly Schedule</h3>
@@ -941,10 +941,6 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
         </div>
         <div id="weekly-plan-container"></div>
     </div>
-</div>
-
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
-    <div id="race-planning-container" class="widget"></div>
     
     <div id="subscription-controls-container" class="widget"></div>
 </div>
@@ -954,30 +950,26 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
     <div id="personal-records-container"></div>
 </div>
 
-
-        <!-- Race Planning Section - EXCLUSIVE -->
-        <div class="widget premium-widget" style="margin-top: 24px;">
-            <div class="widget-header">
-                <h3>🏁 Race Planning</h3>
-                <span style="color: #6d28d9; font-weight: 700; font-size: 14px;">RACE COACH EXCLUSIVE</span>
-            </div>
-            <div id="race-planning-container" style="padding: 20px;">
+<div class="widget premium-widget" style="margin-top: 24px;">
+    <div class="widget-header">
+        <h3>🏁 Race Planning</h3>
+        <span style="color: #6d28d9; font-weight: 700; font-size: 14px;">RACE COACH EXCLUSIVE</span>
+    </div>
+    <div id="race-planning-container" style="padding: 20px;">
         <p class="text-gray-500">Loading race tools...</p>
     </div>
-        </div>
+</div>
 
-        <!-- Performance Analytics -->
-        <div class="widget premium-widget" style="margin-top: 24px;">
-            <div class="widget-header">
-                <h3>📊 Performance Analytics</h3>
-            </div>
-            <div id="performance-analytics-container" style="padding: 20px; color: #6b7280;">
-                <p class="text-gray-500">Loading analytics...</p>
-            </div>
-        </div>
+<div class="widget premium-widget" style="margin-top: 24px;">
+    <div class="widget-header">
+        <h3>📊 Performance Analytics</h3>
     </div>
+    <div id="performance-analytics-container" style="padding: 20px; color: #6b7280;">
+        <p class="text-gray-500">Loading analytics...</p>
+    </div>
+</div>
 
-    <div id="racePacingModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+<div id="racePacingModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
     <div style="background: white; width: 90%; max-width: 500px; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
         <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
             <div>
@@ -986,7 +978,6 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
             </div>
             <button onclick="document.getElementById('racePacingModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280;">&times;</button>
         </div>
-        
         <div style="padding: 0; max-height: 60vh; overflow-y: auto;">
             <table style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead style="background: #f3f4f6; position: sticky; top: 0;">
@@ -996,16 +987,11 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
                         <th style="padding: 12px; font-size: 12px; color: #4b5563;">Avg Pace</th>
                     </tr>
                 </thead>
-                <tbody id="pacingTableBody" style="font-size: 14px; color: #374151;">
-                    </tbody>
+                <tbody id="pacingTableBody" style="font-size: 14px; color: #374151;"></tbody>
             </table>
         </div>
-        
         <div style="padding: 15px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-            <button onclick="document.getElementById('racePacingModal').style.display='none'" 
-                style="padding: 10px 20px; background: #111827; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">
-                Close
-            </button>
+            <button onclick="document.getElementById('racePacingModal').style.display='none'" style="padding: 10px 20px; background: #111827; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Close</button>
         </div>
     </div>
 </div>
@@ -1016,10 +1002,7 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
             <h3 style="margin: 0; font-size: 18px; color: #9a3412;">🍌 Race Nutrition Strategy</h3>
             <button onclick="document.getElementById('nutritionModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #9a3412;">&times;</button>
         </div>
-        
-        <div id="nutritionContent" style="padding: 20px; max-height: 60vh; overflow-y: auto;">
-            </div>
-        
+        <div id="nutritionContent" style="padding: 20px; max-height: 60vh; overflow-y: auto;"></div>
         <div style="padding: 15px; background: #fafaf9; border-top: 1px solid #e5e7eb; text-align: center;">
             <button onclick="document.getElementById('nutritionModal').style.display='none'" style="padding: 10px 20px; background: #9a3412; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Close</button>
         </div>
@@ -1032,18 +1015,32 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
             <h3 style="margin: 0; font-size: 18px; color: #1e40af;">💬 Ask a Coach</h3>
             <p style="margin: 5px 0 0 0; font-size: 13px; color: #60a5fa;">Get expert advice for your race strategy.</p>
         </div>
-        
         <div style="padding: 20px;">
-            <textarea id="raceQuestionInput" placeholder="E.g., Should I run with the 4:00 pacer? How much water at aid stations?" 
-                style="width: 100%; height: 120px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit; font-size: 14px; resize: none; margin-bottom: 15px;"></textarea>
-            
+            <textarea id="raceQuestionInput" placeholder="E.g., Should I run with the 4:00 pacer?" style="width: 100%; height: 120px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit; font-size: 14px; resize: none; margin-bottom: 15px;"></textarea>
             <div id="questionStatus" style="font-size: 13px; margin-bottom: 15px; min-height: 20px;"></div>
-
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button onclick="document.getElementById('questionModal').style.display='none'" 
-                    style="padding: 10px 16px; background: #f3f4f6; color: #374151; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Cancel</button>
-                <button id="btnSubmitQuestion" onclick="window.dashboardWidgets.submitRaceQuestion()" 
-                    style="padding: 10px 20px; background: #1e40af; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Send Question</button>
+                <button onclick="document.getElementById('questionModal').style.display='none'" style="padding: 10px 16px; background: #f3f4f6; color: #374151; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Cancel</button>
+                <button id="btnSubmitQuestion" onclick="window.dashboardWidgets.submitRaceQuestion()" style="padding: 10px 20px; background: #1e40af; color: white; border-radius: 8px; border: none; font-weight: 600; cursor: pointer;">Send Question</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="raceHubModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; align-items: center; justify-content: center;">
+    <div style="background: white; width: 90%; max-width: 1000px; height: 85vh; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column;">
+        <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+            <div>
+                <h2 style="margin: 0; font-size: 24px;">🏎️ Race Hub</h2>
+                <p style="margin: 4px 0 0 0; color: #64748b;">Advanced Metrics & Historical Analysis</p>
+            </div>
+            <button onclick="document.getElementById('raceHubModal').style.display='none'" style="font-size: 30px; border: none; background: none; cursor: pointer;">&times;</button>
+        </div>
+        <div style="flex: 1; overflow-y: auto; padding: 30px; background: #f1f5f9;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <div id="hub-pace-trend" class="widget" style="min-height: 300px;"></div>
+                <div id="hub-volume-trend" class="widget" style="min-height: 300px;"></div>
+                <div id="hub-personal-records" class="widget" style="grid-column: span 2;"></div>
+                <div id="hub-history-list" class="widget" style="grid-column: span 2;"></div>
             </div>
         </div>
     </div>

@@ -254,9 +254,21 @@
                 sub.isTrial === true ||
                 sub.isTrialActive === true;
 
+                const rawPlan = (sub.plan || 'free').toLowerCase().trim();
             // Plan details
             let planClass = 'plan-free';
             let planName = 'Free Plan';
+            let normalizedPlan = 'free';
+
+            if (rawPlan.includes('basic')) {
+        planClass = 'plan-basic';
+        planName = 'Basic Coach';
+        normalizedPlan = 'basic';
+    } else if (rawPlan.includes('race')) {
+        planClass = 'plan-race';
+        planName = 'Race Coach';
+        normalizedPlan = 'race';
+    }
 
             if (sub.plan === 'basic') {
                 planClass = 'plan-basic';
