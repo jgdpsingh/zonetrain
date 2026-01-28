@@ -426,28 +426,50 @@ async loadUserProfile() {
     // =========================================================
     // 4. ACTIONABLE INSIGHTS (Simplified)
     // =========================================================
-    async renderAIInsightWidget(containerId) {
-        const container = document.getElementById(containerId);
-        if(!container) return;
+   async renderAIInsightWidget(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
 
-        try {
-            const res = await fetch('/api/workouts/latest-analysis', { headers: { 'Authorization': `Bearer ${this.token}` }});
-            const data = await res.json();
-            
-            if(data.success && data.analysis) {
-                 container.innerHTML = `
-                    <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; padding: 20px; border-radius: 16px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                            <span style="font-size:11px; font-weight:700; opacity:0.8; text-transform:uppercase;">Latest Insight</span>
-                            <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px; font-size:12px; font-weight:700;">${data.analysis.matchscore || 8}/10</span>
-                        </div>
-                        <p style="font-size:14px; line-height:1.5; margin:0;">"${data.analysis.feedback}"</p>
-                    </div>`;
-            } else {
-                container.innerHTML = `<div style="background:#fff; border:1px solid #e5e7eb; padding:20px; border-radius:16px; text-align:center;"><p style="margin:0; color:#6b7280; font-size:13px;">Complete a workout to get AI insights.</p></div>`;
-            }
-        } catch(e) {}
+  try {
+    const res = await fetch('/api/workouts/latest-analysis', {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await res.json();
+
+    if (data.success && data.analysis) {
+      const activityName = data.activityName || 'Workout';
+      const when = data.date ? new Date(data.date).toLocaleDateString() : '';
+      const wid = data.workoutId;
+
+      container.innerHTML = `
+        <div style="background:linear-gradient(135deg,#4f46e5 0,#7c3aed 100);color:white;padding:20px;border-radius:16px">
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:10px">
+            <div>
+              <div style="font-size:11px;font-weight:700;opacity:0.85;text-transform:uppercase">Latest Insight</div>
+              <div style="font-size:13px;font-weight:700;margin-top:4px">${activityName} ${when ? `• ${when}` : ''}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">
+              ${(data.analysis.matchscore ?? '—')}/10
+            </div>
+          </div>
+
+          <p style="font-size:14px;line-height:1.5;margin:0 0 12px 0">${data.analysis.feedback || ''}</p>
+
+          ${wid ? `<button onclick="window.openWorkoutModal('${wid}')"
+            style="padding:10px 12px;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.25);border-radius:10px;font-weight:700;cursor:pointer">
+            View workout
+          </button>` : ''}
+        </div>
+      `;
+      return;
     }
+
+    container.innerHTML = `<div class="empty-state-widget"><p>Complete a workout to get AI insights.</p></div>`;
+  } catch (e) {
+    container.innerHTML = `<p style="color:#ef4444">Failed to load insight.</p>`;
+  }
+}
+
 
     // =========================================================
     // 5. PLANNING & ADMIN

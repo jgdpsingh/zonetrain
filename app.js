@@ -11324,6 +11324,77 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
       }
     }
 
+    try {
+  // 1) Find race date from common places (plan doc OR planData OR aiprofile)
+  let raceDateRaw =
+    plan?.raceDate ||
+    plan?.planData?.raceDate ||
+    plan?.planData?.targetRace?.raceDate ||
+    plan?.planData?.targetRace?.date; // seen elsewhere in app.js patterns [file:44]
+
+  let raceDistanceKm =
+    plan?.planData?.targetRace?.distance ||
+    plan?.planData?.targetDistance ||
+    null;
+
+  let raceTargetTime =
+    plan?.planData?.targetRace?.targetTime ||
+    plan?.planData?.targetTime ||
+    null;
+
+  // If still missing, fall back to aiprofiles (authoritative for goals)
+  if (!raceDateRaw || !raceDistanceKm) {
+    const profileDoc = await db.collection("aiprofiles").doc(userId).get();
+    if (profileDoc.exists) {
+      const prof = profileDoc.data();
+      raceDateRaw = raceDateRaw || prof?.raceHistory?.targetRace?.raceDate;
+      raceDistanceKm = raceDistanceKm || prof?.raceHistory?.targetRace?.distance || null;
+      raceTargetTime = raceTargetTime || prof?.raceHistory?.targetRace?.targetTime || null;
+    }
+  }
+
+  const raceDate = toJsDate(raceDateRaw);
+  if (raceDate) {
+    raceDate.setHours(0, 0, 0, 0);
+
+    // 2) Only overlay if race date is inside this requested week window
+    if (raceDate >= weekStart && raceDate <= weekEnd && Array.isArray(days) && days.length) {
+      const rKey = dateKey(raceDate);
+
+      const idx = days.findIndex(d => {
+        const dDate = d?.date ? new Date(d.date) : null;
+        return dDate && !Number.isNaN(dDate.getTime()) && dateKey(dDate) === rKey;
+      });
+
+      if (idx >= 0) {
+        const existing = days[idx]?.workout || {};
+        days[idx] = {
+          ...days[idx],
+          isRaceDay: true,
+          workout: {
+            // Keep existing ID if present (so your workout modal doesn’t break)
+            id: existing.id || `race-${rKey}`,
+            title: "Race Day",
+            description: `Race day. Stick to your pacing + fueling plan${raceTargetTime ? ` (Goal: ${raceTargetTime})` : ""}.`,
+            duration: existing.duration || 0,
+            distance: raceDistanceKm ?? existing.distance ?? null,
+            intensity: "race",
+            zones: existing.zones || null,
+            completed: existing.completed || false,
+            type: "race",
+
+            // Optional debug/UX
+            originalTitle: existing.title || null,
+            overlay: true
+          }
+        };
+      }
+    }
+  }
+} catch (e) {
+  console.warn("Race day overlay failed (non-fatal):", e?.message || e);
+}
+
     return res.json({
       success: true,
       plan: {
