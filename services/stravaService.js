@@ -216,7 +216,7 @@ async getAccessToken(userId) {
             let analysisCount = 0;
 
             for (const activity of activities) {
-                const activityRef = this.db.collection('strava_activities').doc(`${userId}_${activity.id}`);
+                const activityRef = this.db.collection('stravaactivities').doc(`${userId}_${activity.id}`);
                 
                 // 1. Save Strava Activity
                 batch.set(activityRef, {
