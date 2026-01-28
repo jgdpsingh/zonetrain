@@ -4608,6 +4608,32 @@ app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => 
 
 // routes/raceRoutes.js or app.js
 
+// Add this middleware definition in app.js if it's missing
+
+const verifyToken = (req, res, next) => {
+    // 1. Check for token in headers
+    const bearerHeader = req.headers['authorization'];
+    
+    if (typeof bearerHeader !== 'undefined') {
+        const bearer = bearerHeader.split(' ');
+        const bearerToken = bearer[1];
+        req.token = bearerToken;
+
+        // 2. Verify with JWT
+        jwt.verify(req.token, process.env.JWT_SECRET, (err, authData) => {
+            if (err) {
+                return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+            } else {
+                req.user = authData; // Attach user data (e.g., uid, email) to request
+                next();
+            }
+        });
+    } else {
+        // Forbidden if no token
+        res.sendStatus(403);
+    }
+};
+
 // 1. Check Status
 app.get('/api/race/status', verifyToken, async (req, res) => {
     const user = await db.collection('users').doc(req.user.uid).get();
