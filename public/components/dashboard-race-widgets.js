@@ -375,11 +375,13 @@ async loadUserProfile() {
         : `top: 50%; height: ${heightPct}%;`;
 
       return `
-        <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:2px; height:100%; position:relative;"
-             title="${d.date}: Readiness ${d.tsb} (Fit ${d.ctl} - Fat ${d.atl})">
-          <div style="width:6px; background:${color}; opacity:0.8; border-radius:2px; position:absolute; ${style}"></div>
-        </div>`;
-    }).join('');
+                <div class="chart-bar-group" style="display:flex; flex-direction:column; align-items:center; flex:1; gap:2px; height:100%; position:relative; cursor:pointer;">
+                    <div style="width:6px; background:${color}; opacity:0.8; border-radius:2px; position:absolute; ${style}"></div>
+                    <div class="chart-tooltip" style="display:none; position:absolute; bottom:100%; background:black; color:white; padding:4px 6px; border-radius:4px; font-size:10px; white-space:nowrap; z-index:10;">
+                        ${d.tsb} (${d.date})
+                    </div>
+                </div>`;
+        }).join('');
 
     const current = recentData[recentData.length - 1].tsb;
     let statusText = "Balanced";
@@ -417,6 +419,11 @@ async loadUserProfile() {
         <strong>${statusText}</strong>
       </div>
     `;
+    container.innerHTML = `
+            <style>
+                .chart-bar-group:hover .chart-tooltip { display: block !important; }
+            </style>
+            ` + container.innerHTML;
   } catch (e) {
     console.error("Readiness Chart Error", e);
     container.innerHTML = `<p style="color:#ef4444; padding:20px; text-align:center;">Could not calculate readiness.</p>`;
@@ -626,9 +633,11 @@ async loadUserProfile() {
                 const labelText = `${run.date.toLocaleDateString()}: ${run.paceStr}/km (${run.distance}km)`;
 
                 return `
-                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; cursor:pointer;" 
-                         title="${labelText}">
+                    <div class="chart-bar-group" style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:6px; gap:4px; cursor:pointer; position:relative;">
                         <div style="width:70%; background:#8b5cf6; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:${opacity}; transition:all 0.1s;"></div>
+                         <div class="chart-tooltip" style="display:none; position:absolute; bottom:100%; background:black; color:white; padding:4px 6px; border-radius:4px; font-size:10px; white-space:nowrap; z-index:10;">
+                            ${run.paceStr}/km
+                        </div>
                     </div>`;
             }).join('');
 
@@ -646,6 +655,11 @@ async loadUserProfile() {
                     ${barsHtml}
                 </div>
             `;
+            container.innerHTML = `
+            <style>
+                .chart-bar-group:hover .chart-tooltip { display: block !important; }
+            </style>
+            ` + container.innerHTML;
 
         } catch (e) {
             console.error("Chart error", e);
@@ -754,9 +768,11 @@ async loadUserProfile() {
                 const dateStr = week.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                 
                 return `
-                    <div style="display:flex; flex-direction:column; align-items:center; flex:1; gap:4px; cursor:pointer;"
-                         title="Week of ${dateStr}: ${week.distance.toFixed(1)} km">
+                    <div class="chart-bar-group" style="display:flex; flex-direction:column; align-items:center; flex:1; gap:4px; cursor:pointer; position:relative;">
                         <div style="width:70%; background:${week.distance > 0 ? '#3b82f6' : '#e5e7eb'}; border-radius:4px 4px 0 0; height:${heightPx}px; opacity:0.8;"></div>
+                        <div class="chart-tooltip" style="display:none; position:absolute; bottom:100%; background:black; color:white; padding:4px 6px; border-radius:4px; font-size:10px; white-space:nowrap; z-index:10;">
+                            ${week.distance.toFixed(1)} km
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -776,6 +792,11 @@ async loadUserProfile() {
                     <span>Current</span>
                 </div>
             `;
+            container.innerHTML = `
+            <style>
+                .chart-bar-group:hover .chart-tooltip { display: block !important; }
+            </style>
+            ` + container.innerHTML;
 
         } catch (error) {
             console.error('Weekly Load Chart Error:', error);
