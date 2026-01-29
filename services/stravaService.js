@@ -204,7 +204,7 @@ async getAccessToken(userId) {
             // Get activities from last 7 days (Optimization)
             const endDate = new Date();
             const startDate = new Date();
-            startDate.setDate(endDate.getDate() - 7); 
+            startDate.setDate(endDate.getDate() - 30); 
 
             const activities = await this.getActivitiesInRange(userId, startDate, endDate);
 

@@ -415,52 +415,45 @@ async processNewActivity(userId, activityData) {
 
     // ✅ FIXED: Calculate Personal Records from LOCAL DB (Reliable)
     async getPersonalRecords(userId) {
-    try {
-      const activitiesSnap = await this.db.collection('stravaactivities')
-        .where('userId', '==', userId)
-        .get();
+        try {
+            // 1. Fetch All-Time Stats directly from Strava API
+            const stravaStats = await this.stravaService.getAthleteStats(userId);
 
-      let totalRuns = 0;
-      let totalDistanceKm = 0;
-      let totalMovingMinutes = 0; // IMPORTANT: minutes, not seconds
-      let longestRun = { distance: 0, date: 'NA' };
+            // 2. Extract Run Stats (Strava uses meters and seconds)
+            const runStats = stravaStats.all_run_totals; 
+            const biggestRunMeters = stravaStats.biggest_run_distance; 
 
-      activitiesSnap.forEach((doc) => {
-        const data = doc.data();
-        if (!isRunType(data.type)) return;
+            if (!runStats) {
+                return { success: false, message: "No run stats found on Strava" };
+            }
 
-        totalRuns++;
+            // 3. Format for Dashboard
+            return {
+                success: true,
+                records: {
+                    totalRuns: runStats.count,
+                    // Convert meters to km
+                    totalDistance: (runStats.distance / 1000).toFixed(0), 
+                    // Convert seconds to hours
+                    totalTime: (runStats.moving_time / 3600).toFixed(0),
+                    longestRun: { 
+                        distance: (biggestRunMeters / 1000).toFixed(2), 
+                        // Strava's stats endpoint does not provide the date of the record
+                        date: 'All-Time Best' 
+                    }
+                },
+                source: 'strava_api_all_time'
+            };
 
-        // Your sync stores km (distance) and minutes (movingTime). [file:6]
-        const distKm = Number(data.distance ?? 0);
-        const mins = Number(data.movingTime ?? 0);
-
-        totalDistanceKm += distKm;
-        totalMovingMinutes += mins;
-
-        if (distKm > longestRun.distance) {
-          longestRun = {
-            distance: distKm,
-            date: data.startDate ? new Date(toJsDate(data.startDate)).toLocaleDateString() : 'NA',
-          };
+        } catch (error) {
+            console.error('Personal records error:', error);
+            // Fallback: Return zeros if API fails
+            return { 
+                success: false, 
+                records: { totalRuns: 0, totalDistance: 0, totalTime: 0, longestRun: { distance: 0 } } 
+            };
         }
-      });
-
-      const totalHours = Math.round(totalMovingMinutes / 60); // minutes -> hours
-
-      return {
-        success: true,
-        totalRuns,
-        totalDistance: totalDistanceKm.toFixed(0),
-        totalTime: totalHours,
-        longestRun: { distance: longestRun.distance.toFixed(2), date: longestRun.date },
-        source: 'localdbaggregation',
-      };
-    } catch (error) {
-      console.error('Personal records error', error);
-      return { success: false, totalRuns: 0, totalDistance: 0, totalTime: 0, longestRun: { distance: 0, date: 'NA' } };
     }
-  }
 
     // ... rest of class ...
 
