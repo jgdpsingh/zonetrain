@@ -2018,7 +2018,7 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
 
     // 4) Normalize to the *same shape* as syncActivities
     const activityDocRef = db
-      .collection('strava_activities')
+      .collection('stravaactivities')
       .doc(`${userId}_${activity.id}`);
 
     const normalized = {
@@ -2075,6 +2075,33 @@ async function handleStravaActivityUpsert(athleteId, activityId) {
   }
 }
 
+
+// app.js
+
+// ... existing /api/strava/sync route ...
+
+// ✅ NEW: Trigger Manual Analysis (Fixes 404 error)
+app.post('/api/strava/trigger-analysis', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`🔄 Manual Strava analysis triggered for user: ${userId}`);
+        
+        // 1. Sync recent activities (fetches from Strava + analyzes them)
+        // This uses the syncActivities function you updated earlier (fetching 30 days)
+        const result = await stravaService.syncActivities(userId);
+        
+        // 2. Return result formatted for the frontend
+        res.json({ 
+            success: true, 
+            count: result.count, 
+            analyzedCount: result.analyzed, 
+            message: `Synced ${result.count} activities, analyzed ${result.analyzed} new workouts.` 
+        });
+    } catch (error) {
+        console.error('❌ Manual analysis error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 // REPLACE your existing /callback route with this enhanced version
 app.get('/callback', async (req, res) => {
