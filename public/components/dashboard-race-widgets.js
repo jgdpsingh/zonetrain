@@ -1014,29 +1014,46 @@ async loadRaceNutritionPlan() {
   const el = document.getElementById("nutritionContent");
   if (!el) return;
 
+  const loadingMsg = regenerate 
+            ? "Creating a fresh plan based on your latest preferences..." 
+            : "Loading your race week nutrition plan...";
+
   el.innerHTML = `
-    <div style="text-align:center; padding:20px;">
-      <div class="loading-spinner" style="margin:0 auto 10px auto;"></div>
-      <div style="color:#6b7280; font-size:13px;">Generating your last-week nutrition plan...</div>
-    </div>
-  `;
+            <div style="text-align:center; padding:40px 20px;">
+                <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
+                <div style="color:#6b7280; font-size:14px; font-weight:500;">${loadingMsg}</div>
+            </div>
+        `;
 
   try {
-    const res = await fetch("/api/race/nutrition/last-week", {
-      headers: { Authorization: `Bearer ${this.token}` }
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.message || "Failed to load plan");
+    const url = `/api/race/nutrition/last-week${regenerate ? '?regenerate=true' : ''}`;
 
-    el.innerHTML = this.renderNutritionPlanHTML(data.plan);
-  } catch (err) {
-    el.innerHTML = `
-      <div style="padding:16px; background:#fef2f2; border:1px solid #fecaca; border-radius:10px; color:#991b1b;">
-        Failed to load nutrition plan: ${String(err.message || err)}
-      </div>
-    `;
-  }
-}
+    const res = await fetch(url, {
+                headers: { Authorization: `Bearer ${this.token}` }
+            });
+            const data = await res.json();
+
+            if (!data.success) throw new Error(data.message || "Failed to load plan");
+            
+            // Render HTML
+            el.innerHTML = this.renderNutritionPlanHTML(data.plan);
+            
+        } catch (err) {
+            el.innerHTML = `
+                <div style="padding:20px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; color:#991b1b; text-align:center;">
+                    <p style="margin-bottom:10px;"><strong>Failed to load plan</strong></p>
+                    <p style="font-size:13px; opacity:0.8;">${String(err.message || err)}</p>
+                    <button onclick="dashboardWidgets.loadRaceNutritionPlan()" style="margin-top:10px; padding:8px 16px; background:#fff; border:1px solid #991b1b; color:#991b1b; border-radius:6px; cursor:pointer;">Try Again</button>
+                </div>
+            `;
+        }
+    }
+
+    regenerateNutritionPlan() {
+        if(confirm("Regenerate your nutrition plan? This will create a new menu based on your current dietary settings.")) {
+            this.loadRaceNutritionPlan(true);
+        }
+    }
 
 renderNutritionPlanHTML(plan) {
   const esc = (s) => String(s || "")
@@ -1084,27 +1101,33 @@ renderNutritionPlanHTML(plan) {
   }).join("");
 
   const raceDay = plan.raceDay || {};
-  const listBlock = (title, arr) => (arr && arr.length)
-    ? `<div style="margin-top:10px;"><b>${esc(title)}:</b><br>${arr.map(x => `• ${esc(x)}`).join("<br>")}</div>`
-    : "";
+  const listBlock = (title, items) => items.length ? `<div style="margin-top:10px;"><div style="font-weight:700; color:#111827; font-size:13px;">${title}</div><ul style="margin:4px 0 0 20px; padding:0; font-size:13px; color:#374151;">${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>` : "";
 
-  return `
-    <div style="margin-bottom:12px;">
-      <div style="font-weight:900; color:#9a3412; font-size:14px;">Last-week nutrition plan</div>
-      <div style="color:#6b7280; font-size:12px;">Race date: ${esc(plan.raceDate)} · Distance: ${esc(plan.raceDistanceKm)} km</div>
-      ${(plan.notes || []).length ? `<div style="margin-top:8px; color:#374151; font-size:13px;">${plan.notes.map(x => `• ${esc(x)}`).join("<br>")}</div>` : ""}
-    </div>
+        return `
+            <div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:end;">
+                <div>
+                    <div style="font-weight:900; color:#9a3412; font-size:16px;">Last-Week Fueling</div>
+                    <div style="color:#6b7280; font-size:12px;">Distance: ${esc(plan.raceDistanceKm)} km</div>
+                </div>
+                <button onclick="window.dashboardWidgets.regenerateNutritionPlan()" style="font-size:11px; padding:6px 12px; background:#fff; border:1px solid #d1d5db; border-radius:20px; cursor:pointer; color:#4b5563; display:flex; align-items:center; gap:4px;">
+                    🔄 Regenerate
+                </button>
+            </div>
 
-    ${daysHtml}
+            ${(plan.notes || []).length ? `<div style="margin-bottom:15px; background:#fff7ed; padding:10px; border-radius:8px; border-left:3px solid #f97316; font-size:13px; color:#c2410c;">${plan.notes.map(x => `• ${esc(x)}`).join("<br>")}</div>` : ""}
+            
+            <div style="display:flex; flex-direction:column; gap:15px;">
+                ${daysHtml}
+            </div>
 
-    <div style="padding:14px; border:1px solid #e5e7eb; background:#fafafa; border-radius:12px;">
-      <div style="font-weight:900; color:#111827;">Race-day checklist</div>
-      ${listBlock("Pre-race", raceDay.preRace || [])}
-      ${listBlock("During race", raceDay.during || [])}
-      ${listBlock("Post-race", raceDay.postRace || [])}
-    </div>
-  `;
-}
+            <div style="margin-top:20px; padding:16px; border:1px solid #e5e7eb; background:#fafafa; border-radius:12px;">
+                <div style="font-weight:900; color:#111827; font-size:15px; margin-bottom:10px;">🏁 Race Day Strategy</div>
+                ${listBlock("Pre-Race", raceDay.preRace || [])}
+                ${listBlock("During Race", raceDay.during || [])}
+                ${listBlock("Post-Race", raceDay.postRace || [])}
+            </div>
+        `;
+    }
     
     // WORKOUT MODAL LOGIC
     async openWorkoutModal(workoutId) {

@@ -560,7 +560,7 @@ Return JSON ONLY (no markdown). Schema:
 }
 
 Rules:
-- Keep meal item lists short and realistic.
+- Keep meal item lists short and realistic. Both veg and non-veg options.
 - Prefer low-fiber/low-fat choices on Day -1 and Day 0.
 - If workouts list shows a run that day, include "Pre-run" + "Post-run" slot.
 `.trim();
@@ -597,6 +597,17 @@ Rules:
       return { error: "AI nutrition generation failed", fallback: true, details: e.message };
     }
   }
+
+  async generateContentDirect(promptText) {
+    try {
+        const result = await this.model.generateContent(promptText);
+        const response = result.response;
+        return this.parseAIResponse(response.text());
+    } catch (error) {
+        console.error("AI Direct Generation Error:", error);
+        return null;
+    }
+}
 
 
 }

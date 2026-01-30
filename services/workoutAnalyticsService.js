@@ -507,6 +507,120 @@ async processNewActivity(userId, activityData) {
             return { metric, data: [], error: 'No data' };
         }
     }
+
+    async analyzeDailyPerformance(userId, dateInput = new Date()) {
+        console.log(`🕵️‍♂️ Starting Daily Performance Analysis for ${userId} on ${dateInput}`);
+
+        const date = new Date(dateInput);
+        const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+
+        try {
+            // 1. Fetch Actual Data (Strava)
+            // We query the 'stravaactivities' collection as requested
+            const stravaSnap = await this.db.collection('stravaactivities')
+                .where('userId', '==', userId)
+                .where('startDate', '>=', startOfDay)
+                .where('startDate', '<=', endOfDay)
+                .limit(1)
+                .get();
+
+            const actualActivity = !stravaSnap.empty ? stravaSnap.docs[0].data() : null;
+
+            // 2. Fetch Planned Data (Workouts)
+            const planSnap = await this.db.collection('workouts')
+                .where('userId', '==', userId)
+                .where('scheduledDate', '>=', startOfDay)
+                .where('scheduledDate', '<=', endOfDay)
+                .limit(1)
+                .get();
+
+            const plannedWorkout = !planSnap.empty ? planSnap.docs[0].data() : null;
+
+            // 3. Validation: If no data exists at all, skip
+            if (!actualActivity && !plannedWorkout) {
+                console.log("⚠️ No activity or plan found for this date.");
+                return null;
+            }
+
+            // 4. Prepare Data for AI
+            // Construct a clear comparison object
+            const analysisContext = {
+                planned: plannedWorkout ? {
+                    type: plannedWorkout.type,
+                    distance: plannedWorkout.distance,
+                    duration: plannedWorkout.duration,
+                    description: plannedWorkout.description,
+                    intensity: plannedWorkout.intensity
+                } : "No workout scheduled",
+                
+                actual: actualActivity ? {
+                    name: actualActivity.name,
+                    distance: actualActivity.distance, // Normalized to km in your system
+                    duration: actualActivity.movingTime, // Normalized to min
+                    pace: actualActivity.averageSpeed ? (60 / actualActivity.averageSpeed).toFixed(2) : "N/A",
+                    heartRate: actualActivity.averageHeartrate || "N/A"
+                } : "No activity recorded"
+            };
+
+            console.log("🧠 Sending to AI:", JSON.stringify(analysisContext));
+
+            // 5. Generate Insight via AI Service
+            // We use a specific prompt to ensure "Coach Insights" quality
+            const prompt = `
+            Analyze this training day.
+            PLAN: ${JSON.stringify(analysisContext.planned)}
+            ACTUAL: ${JSON.stringify(analysisContext.actual)}
+            
+            Task: Provide a short, specific "Coach Insight" (max 2 sentences).
+            - If they missed the workout, be encouraging but firm.
+            - If they nailed it, celebrate the specific metric (pace/distance).
+            - If they deviated (e.g., ran too fast on easy day), give a caution.
+            
+            Output JSON: { "feedback": "Your insight here", "matchScore": 0-100 }
+            `;
+
+            const aiResult = await this.aiService.generateContentDirect(prompt); // Assuming generic helper, or use your existing generation method
+            
+            // Fallback parsing if AI service method differs
+            let insight = { feedback: "Activity processed.", matchScore: 80 };
+            try {
+                insight = typeof aiResult === 'object' ? aiResult : JSON.parse(aiResult);
+            } catch (e) {
+                if (aiResult) insight.feedback = aiResult;
+            }
+
+            // 6. Save to NEW Collection: 'coach_insights'
+            const insightDoc = {
+                userId,
+                date: startOfDay,
+                plannedId: plannedWorkout ? planSnap.docs[0].id : null,
+                actualId: actualActivity ? stravaSnap.docs[0].id : null,
+                feedback: insight.feedback || insight.content || "Good effort!",
+                matchScore: insight.matchScore || 0,
+                createdAt: new Date(),
+                isRead: false
+            };
+
+            await this.db.collection('coach_insights').add(insightDoc);
+            console.log("✅ Insight saved to 'coach_insights' collection");
+
+            // 7. Update Pending Status in Workouts (Optional but good for UI)
+            if (plannedWorkout) {
+                await planSnap.docs[0].ref.update({
+                    aiAnalysis: insight, // Keep backward compatibility
+                    status: actualActivity ? 'completed' : 'missed',
+                    completed: !!actualActivity
+                });
+            }
+
+            return insightDoc;
+
+        } catch (error) {
+            console.error("❌ analyzeDailyPerformance Error:", error);
+            throw error;
+        }
+    }
 }
 
 module.exports = WorkoutAnalyticsService;

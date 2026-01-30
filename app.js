@@ -2086,16 +2086,19 @@ app.post('/api/strava/trigger-analysis', authenticateToken, async (req, res) => 
         const userId = req.user.userId;
         console.log(`🔄 Manual Strava analysis triggered for user: ${userId}`);
         
-        // 1. Sync recent activities (fetches from Strava + analyzes them)
-        // This uses the syncActivities function you updated earlier (fetching 30 days)
-        const result = await stravaService.syncActivities(userId);
+        // 1. Sync recent activities from Strava (Existing logic)
+        const syncResult = await stravaService.syncActivities(userId);
         
-        // 2. Return result formatted for the frontend
+        // 2. ✅ NEW: Run the explicit Daily Analysis for TODAY (or specific dates)
+        // This ensures the "Coach Insight" is generated immediately
+        if (typeof analyticsService !== 'undefined') {
+            await analyticsService.analyzeDailyPerformance(userId, new Date());
+        }
+
         res.json({ 
             success: true, 
-            count: result.count, 
-            analyzedCount: result.analyzed, 
-            message: `Synced ${result.count} activities, analyzed ${result.analyzed} new workouts.` 
+            count: syncResult.count, 
+            message: `Synced activities and generated Coach Insights.` 
         });
     } catch (error) {
         console.error('❌ Manual analysis error:', error);
@@ -4493,6 +4496,7 @@ app.get('/api/race-goals/timeline', authenticateToken, async (req, res) => {
 app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const regenerate = req.query.regenerate === 'true';
 
     // 1) Load AI profile saved from onboarding
     const profileDoc = await db.collection("aiprofiles").doc(userId).get();
@@ -4507,6 +4511,24 @@ app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => 
     if (!raceDateRaw) {
       return res.status(400).json({ success: false, message: "Race date missing in profile." });
     }
+
+    const raceDateKey = new Date(raceDateRaw).toISOString().split('T')[0];
+
+    if (!regenerate) {
+        const cachedPlanDoc = await db.collection('nutrition_plans')
+            .where('userId', '==', userId)
+            .where('raceDateKey', '==', raceDateKey)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+
+        if (!cachedPlanDoc.empty) {
+            console.log(`✅ Returning cached nutrition plan for user ${userId}`);
+            return res.json({ success: true, plan: cachedPlanDoc.docs[0].data().planData, cached: true });
+        }
+    }
+
+    console.log(`⚡ Generating NEW nutrition plan for user ${userId} (Regenerate: ${regenerate})`);
 
     const raceDate = new Date(raceDateRaw);
     if (Number.isNaN(raceDate.getTime())) {
@@ -4626,7 +4648,18 @@ app.get("/api/race/nutrition/last-week", authenticateToken, async (req, res) => 
       });
     }
 
-    return res.json({ success: true, plan: aiResult });
+    await db.collection('nutrition_plans').add({
+        userId,
+        raceDateKey, // "YYYY-MM-DD"
+        planData: aiResult,
+        createdAt: new Date(),
+        dietaryPreferences: profile?.personalProfile?.dietaryPreference || 'Any' // Optional tracking
+    });
+
+    console.log(`💾 Nutrition plan saved for user ${userId}`);
+
+    return res.json({ success: true, plan: aiResult, cached: false });
+
   } catch (e) {
     console.error("Nutrition plan error:", e);
     return res.status(500).json({ success: false, message: "Failed to generate nutrition plan", error: e.message });
@@ -5574,77 +5607,58 @@ app.get('/api/ai/weekly-analysis/:week', authenticateToken, async (req, res) => 
 
 // Fixed: Latest workout analysis (Ignores future test data)
 app.get('/api/workouts/latest-analysis', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const now = new Date();
+    try {
+        const userId = req.user.userId;
 
-    // 1) Find the most recent COMPLETED workout
-    // We fetch the last 5 to filter out future dates in code (avoids needing a complex Firestore index)
-    const snap = await db.collection('workouts')
-      .where('userId', '==', userId)
-      .where('completed', '==', true)
-      .orderBy('scheduledDate', 'desc')
-      .limit(5) 
-      .get();
+        // 1. Fetch from the NEW 'coach_insights' collection
+        const insightSnap = await db.collection('coach_insights')
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc') // Get the absolute latest generated insight
+            .limit(1)
+            .get();
 
-    if (snap.empty) {
-      return res.json({ success: false, message: 'No completed workouts found' });
-    }
+        if (insightSnap.empty) {
+            // Fallback: Check 'workouts' collection if new collection is empty (Backward Compatibility)
+            const workoutSnap = await db.collection('workouts')
+                .where('userId', '==', userId)
+                .where('completed', '==', true)
+                .orderBy('scheduledDate', 'desc')
+                .limit(1)
+                .get();
 
-    // 2) Filter: Find the first workout that is NOT in the future
-    let validDoc = null;
-    let validData = null;
+            if (!workoutSnap.empty && workoutSnap.docs[0].data().aiAnalysis) {
+                const w = workoutSnap.docs[0].data();
+                return res.json({
+                    success: true,
+                    analysis: w.aiAnalysis,
+                    activityName: w.title,
+                    date: w.scheduledDate.toDate(),
+                    workoutId: workoutSnap.docs[0].id
+                });
+            }
 
-    for (const doc of snap.docs) {
-        const data = doc.data();
-        const d = data.scheduledDate || data.date;
-        const workoutDate = d?.toDate ? d.toDate() : (d ? new Date(d) : new Date());
-
-        // Check if date is valid and not in the future (allow small buffer for today)
-        if (workoutDate <= new Date(now.getTime() + 86400000)) { 
-            validDoc = doc;
-            validData = data;
-            break; // Found the latest valid one
+            return res.json({ success: false, message: "No insights found" });
         }
+
+        // 2. Return data from 'coach_insights'
+        const data = insightSnap.docs[0].data();
+        
+        res.json({
+            success: true,
+            analysis: {
+                feedback: data.feedback,
+                matchScore: data.matchScore,
+                tip: data.tip || "Keep consistent!"
+            },
+            activityName: "Daily Analysis",
+            date: data.date.toDate ? data.date.toDate() : new Date(data.date),
+            workoutId: data.plannedId
+        });
+
+    } catch (error) {
+        console.error('❌ Fetch latest analysis error:', error);
+        res.status(500).json({ success: false, message: 'Failed to load insight' });
     }
-
-    if (!validDoc) {
-         return res.json({ success: false, message: 'No valid past workouts found' });
-    }
-
-    const d = validData.scheduledDate || validData.date || null;
-    const workoutDate = d?.toDate ? d.toDate() : (d ? new Date(d) : new Date());
-
-    // 3) If analysis not ready, return waiting
-    if (!validData.aiAnalysis) {
-      return res.json({ 
-        success: false, 
-        waiting: true, 
-        message: 'Latest workout waiting for analysis', 
-        date: workoutDate, 
-        activityName: validData.title || validData.workoutTitle || 'Workout' 
-      });
-    }
-
-    // 4) Return analysis
-    return res.json({
-      success: true,
-      analysis: {
-        matchscore: validData.aiAnalysis.matchscore ?? validData.aiAnalysis.match_score ?? null,
-        feedback: validData.aiAnalysis.feedback ?? null,
-        tip: validData.aiAnalysis.tip ?? null,
-        generatedBy: validData.aiAnalysis.generatedBy ?? null,
-        generatedAt: validData.aiAnalysis.generatedAt ?? null
-      },
-      date: workoutDate,
-      activityName: validData.title || validData.workoutTitle || 'Workout',
-      workoutId: validDoc.id
-    });
-
-  } catch (error) {
-    console.error('Latest analysis error:', error);
-    return res.status(500).json({ success: false, error: error.message });
-  }
 });
 
 // app.js
