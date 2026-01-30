@@ -290,6 +290,9 @@ async processNewActivity(userId, activityData) {
       workoutsSnap.forEach((doc) => {
         const data = doc.data();
 
+        const title = (data.title || data.name || '').toLowerCase();
+        if (title.includes('rest')) return;
+
         // Filter: only keep run-like workouts in history
         if (!isRunType(data.type) && !data.stravaActivityId) return;
 
@@ -317,6 +320,10 @@ async processNewActivity(userId, activityData) {
       stravaSnap.forEach((doc) => {
         const data = doc.data();
         const stravaId = data.stravaActivityId || data.id;
+
+        const name = (data.name || '').toLowerCase();
+        if (name.includes('rest')) return;
+
         if (!isRunType(data.type) || processedIds.has(String(stravaId))) return;
 
         const distance = Number(data.distance ?? 0);      // already km in your sync
@@ -414,40 +421,68 @@ async processNewActivity(userId, activityData) {
     // ... existing code ...
 
     // ✅ FIXED: Calculate Personal Records from LOCAL DB (Reliable)
+    // -------------------------------------------------------------------------
+    // 3. PERSONAL RECORDS (Debug Version)
+    // -------------------------------------------------------------------------
+
     async getPersonalRecords(userId) {
         try {
+            console.log(`🏆 Fetching personal records for user: ${userId}...`);
+
             // 1. Fetch All-Time Stats directly from Strava API
             const stravaStats = await this.stravaService.getAthleteStats(userId);
 
-            // 2. Extract Run Stats (Strava uses meters and seconds)
+            // DEBUG: Uncomment to see full raw data if needed
+            // console.log("Strava Stats Response:", JSON.stringify(stravaStats, null, 2));
+
+            if (!stravaStats) {
+                console.warn("⚠️ Strava stats returned null/undefined.");
+                throw new Error("Empty stats response from Strava");
+            }
+
+            // 2. Extract Run Stats
             const runStats = stravaStats.all_run_totals; 
             const biggestRunMeters = stravaStats.biggest_run_distance; 
 
+            // Check if runStats exists (it might be missing if the user has 0 runs)
             if (!runStats) {
-                return { success: false, message: "No run stats found on Strava" };
+                console.warn("⚠️ User has no 'all_run_totals' in Strava stats.");
+                return { 
+                    success: true, 
+                    records: { totalRuns: 0, totalDistance: 0, totalTime: 0, longestRun: { distance: 0, date: 'N/A' } },
+                    source: 'strava_empty'
+                };
             }
 
-            // 3. Format for Dashboard
+            // 3. Format for Dashboard (Safely handle missing values)
+            const records = {
+                totalRuns: runStats.count || 0,
+                // Convert meters to km
+                totalDistance: ((runStats.distance || 0) / 1000).toFixed(0), 
+                // Convert seconds to hours
+                totalTime: ((runStats.moving_time || 0) / 3600).toFixed(0),
+                longestRun: { 
+                    distance: ((biggestRunMeters || 0) / 1000).toFixed(2), 
+                    date: 'All-Time Best' 
+                }
+            };
+
+            console.log(`✅ Personal Records Processed: ${records.totalRuns} runs, ${records.totalDistance} km`);
+
             return {
                 success: true,
-                records: {
-                    totalRuns: runStats.count,
-                    // Convert meters to km
-                    totalDistance: (runStats.distance / 1000).toFixed(0), 
-                    // Convert seconds to hours
-                    totalTime: (runStats.moving_time / 3600).toFixed(0),
-                    longestRun: { 
-                        distance: (biggestRunMeters / 1000).toFixed(2), 
-                        // Strava's stats endpoint does not provide the date of the record
-                        date: 'All-Time Best' 
-                    }
-                },
+                records: records,
                 source: 'strava_api_all_time'
             };
 
         } catch (error) {
-            console.error('Personal records error:', error);
-            // Fallback: Return zeros if API fails
+            // CRITICAL: Log the actual error to understand why it's failing
+            console.error('❌ Personal Records Error:', error.message);
+            if (error.response) {
+                console.error('   Strava API Details:', error.response.status, error.response.data);
+            }
+
+            // Fallback: Return zeros so the UI doesn't crash
             return { 
                 success: false, 
                 records: { totalRuns: 0, totalDistance: 0, totalTime: 0, longestRun: { distance: 0 } } 
