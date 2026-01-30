@@ -950,6 +950,46 @@ async renderStravaWorkoutHistory(containerId) {
         }
     }
 
+    // ... inside class RaceDashboardWidgets ...
+
+    // ✅ ADDED: Missing function for "Analyze" button
+    async triggerManualAnalysis() {
+        const btn = document.getElementById('btn-analyze-missed');
+        if(btn) {
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Analyzing...';
+        }
+
+        try {
+            // Trigger analysis endpoint
+            const res = await fetch('/api/strava/trigger-analysis', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            const data = await res.json();
+            
+            if(data.success) {
+                alert(`✅ Analysis Complete: ${data.analyzedCount || 1} workouts processed.`);
+                // Refresh the list to show new analysis
+                this.renderStravaWorkoutHistory('hub-history-list');
+                // Also refresh today's workout in case it updated
+                this.renderTodayWorkoutWidget('today-workout-container');
+            } else {
+                alert('Analysis info: ' + (data.message || 'No pending workouts found.'));
+            }
+        } catch(e) {
+            console.error("Manual analysis failed", e);
+            alert('Error triggering analysis. Check console.');
+        } finally {
+             if(btn) {
+                btn.disabled = false;
+                btn.innerHTML = '⚡ Analyze';
+            }
+        }
+    }
+
+    // ... existing logHRV() ...
+
     // =========================================================
     // 7. ACTIONS (Bound to Window)
     // =========================================================
