@@ -3,7 +3,9 @@
 class RaceDashboardWidgets {
     constructor() {
         this.token = localStorage.getItem('userToken');
-        this.userLocation = JSON.parse(localStorage.getItem('userLocation') || '{}');
+        try {
+            this.userLocation = JSON.parse(localStorage.getItem('userLocation')) || {};
+        } catch (e) { this.userLocation = {}; }
         this.currentWeekOffset = 0;
         this.userProfile = null;
         this.hubLoaded = false;
@@ -11,6 +13,14 @@ class RaceDashboardWidgets {
         // Bind methods to window for HTML onclick events
         window.dashboardWidgets = this;
         this.setupGlobalHandlers();
+    }
+
+    parseDate(val) {
+        if (!val) return null;
+        if (val instanceof Date) return val;
+        if (val._seconds) return new Date(val._seconds * 1000); // Firestore
+        if (val.seconds) return new Date(val.seconds * 1000);   // JS Timestamp
+        return new Date(val); // String ISO
     }
 
     setupGlobalHandlers() {
@@ -44,6 +54,9 @@ async loadUserProfile() {
     async init() {
         console.log('🏎️ Starting Race Execution Dashboard...');
         await this.loadUserProfile();
+
+        this.attachModalListeners();
+
         await this.checkRaceCompletion();
         await this.loadSubscriptionCard();
         this.updateHeaderStats();
@@ -69,7 +82,7 @@ async checkRaceCompletion() {
     // 1. Get Race Date
     if (!this.userProfile?.raceDate) return;
     
-    const raceDate = new Date(this.userProfile.raceDate);
+    const raceDate = this.parseDate(this.userProfile.raceDate);
     const today = new Date();
     
     // 2. Normalize (Compare dates only, ignore time)
@@ -94,22 +107,65 @@ async checkRaceCompletion() {
     }
 }
 
+attachModalListeners() {
+        const form = document.getElementById('raceFeedbackForm');
+        if (form) {
+            // Remove old listeners to prevent duplicates
+            const newForm = form.cloneNode(true);
+            form.parentNode.replaceChild(newForm, form);
+            
+            newForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this.submitRaceFeedback();
+            });
+        }
+    }
+
+    async submitRaceFeedback() {
+        const btn = document.querySelector('#raceFeedbackForm button[type="submit"]');
+        const originalText = btn ? btn.innerText : 'Submit';
+        if (btn) { btn.disabled = true; btn.innerText = "Processing..."; }
+
+        try {
+            const time = document.getElementById('fb-time')?.value;
+            const remarks = document.getElementById('fb-remarks')?.value;
+            const ratingEl = document.querySelector('input[name="rating"]:checked');
+            const rating = ratingEl ? parseInt(ratingEl.value) : 0;
+
+            const res = await fetch('/api/race/complete', {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${this.token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ actualTime: time, rating, remarks })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                alert("🎉 Congratulations! Plan archived.");
+                window.location.reload(); // This clears the "-2 Days" widget
+            } else {
+                throw new Error(data.message || 'Submission failed');
+            }
+        } catch (e) {
+            alert("Error: " + e.message);
+            if (btn) { btn.disabled = false; btn.innerText = originalText; }
+        }
+    }
+
 
 
    updateHeaderStats() {
-        const el = document.getElementById('race-countdown-text');
+        // ✅ FIX: Target correct IDs (next-race-countdown OR race-countdown-text)
+        const el = document.getElementById('race-countdown-text') || document.getElementById('next-race-countdown');
         
-        // 🔍 DEBUG: This will show you exactly what date is in the DB
-        if (this.userProfile?.raceDate) {
-            console.log("📅 DATABASE DATE:", this.userProfile.raceDate);
-            console.log("📅 TODAY'S DATE:", new Date());
-        }
-
         if(el && this.userProfile?.raceDate) {
-            const raceDate = new Date(this.userProfile.raceDate);
+            const raceDate = this.parseDate(this.userProfile.raceDate); // Use helper
             const today = new Date();
             
-            // Normalize to Midnight to avoid hour differences
+            if (!raceDate || isNaN(raceDate.getTime())) return;
+
             raceDate.setHours(0,0,0,0);
             today.setHours(0,0,0,0);
 
@@ -125,11 +181,16 @@ async checkRaceCompletion() {
             } else if (days === 0) {
                 statusHtml = `<span style="color:#10b981; font-weight:800;">RACE DAY! 🏃</span>`;
             } else if (days < 0) {
-                // Handle past races gracefully
                 statusHtml = `<span style="color:#6b7280">Race Completed</span>`;
             }
 
-            el.innerHTML = `Training for <strong>${this.userProfile.raceName || 'Race'}</strong> • ${statusHtml}`;
+            // Update content based on which element was found
+            if (el.id === 'next-race-countdown') {
+                el.innerHTML = days > 0 ? days : '0'; 
+                // You might need to hide "DAYS TO GO" text separately if race is done
+            } else {
+                el.innerHTML = `Training for <strong>${this.userProfile.raceName || 'Race'}</strong> • ${statusHtml}`;
+            }
         }
     }
 
@@ -573,23 +634,9 @@ async checkRaceCompletion() {
             
             // 1. Set Status
             statusEl.textContent = (sub.subscriptionStatus || 'Active').toUpperCase();
-            
-            // 2. FIX: Robust Date Parsing for Firestore Timestamps
-            let dateObj = null;
-            const dateVal = sub.subscriptionEndDate;
-            
-            if (dateVal) {
-                if (dateVal._seconds) {
-                    // Handle Firestore format {_seconds: 123...}
-                    dateObj = new Date(dateVal._seconds * 1000); 
-                } else if (dateVal.seconds) {
-                    // Handle alternative timestamp format {seconds: 123...}
-                    dateObj = new Date(dateVal.seconds * 1000);
-                } else {
-                    // Handle standard string "2026-02-01"
-                    dateObj = new Date(dateVal); 
-                }
-            }
+
+            const dateObj = this.parseDate(sub.subscriptionEndDate);
+           
 
             // 3. Display Date safely
             nextEl.textContent = (dateObj && !isNaN(dateObj.getTime()))
