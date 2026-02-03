@@ -44,6 +44,7 @@ async loadUserProfile() {
     async init() {
         console.log('🏎️ Starting Race Execution Dashboard...');
         await this.loadUserProfile();
+        await this.checkRaceCompletion();
         await this.loadSubscriptionCard();
         this.updateHeaderStats();
 
@@ -63,6 +64,35 @@ async loadUserProfile() {
         await Promise.allSettled(widgetPromises);
         console.log('✅ Dashboard Widgets Loaded');
     }
+
+async checkRaceCompletion() {
+    // 1. Get Race Date
+    if (!this.userProfile?.raceDate) return;
+    
+    const raceDate = new Date(this.userProfile.raceDate);
+    const today = new Date();
+    
+    // 2. Normalize (Compare dates only, ignore time)
+    raceDate.setHours(0,0,0,0);
+    today.setHours(0,0,0,0);
+
+    // 3. THE TRIGGER: If today is AFTER race date
+    if (today > raceDate) {
+        console.log("🏁 Race date passed. Opening existing HTML modal.");
+        
+        // Target the EXISTING modal in your HTML
+        const existingModal = document.getElementById('raceFeedbackModal');
+        
+        if (existingModal) {
+            existingModal.style.display = 'flex';
+            document.body.style.overflow = 'hidden'; // Stop scrolling
+            
+            // Optional: Pre-fill or setup listeners if not already handled in HTML
+        } else {
+            console.warn("⚠️ Feedback modal ID 'raceFeedbackModal' not found in DOM");
+        }
+    }
+}
 
 
 
@@ -525,28 +555,53 @@ async loadUserProfile() {
         `;
     }
 
-    async loadSubscriptionCard() {
-  const statusEl = document.getElementById('sub-status');
-  const nextEl = document.getElementById('next-billing-date');
-  if (!statusEl || !nextEl) return;
+   async loadSubscriptionCard() {
+        const statusEl = document.getElementById('sub-status');
+        const nextEl = document.getElementById('next-billing-date');
+        if (!statusEl || !nextEl) return;
 
-  try {
-    const res = await fetch('/api/subscription/details', {
-      headers: { Authorization: `Bearer ${this.token}` }
-    });
-    const data = await res.json();
-    if (!data?.success) throw new Error(data?.message || 'Failed');
+        try {
+            const res = await fetch('/api/subscription/details', {
+                headers: { Authorization: `Bearer ${this.token}` }
+            });
+            
+            const data = await res.json();
+            
+            if (!data?.success) throw new Error(data?.message || 'Failed');
 
-    const sub = data.subscription || {};
-    statusEl.textContent = sub.subscriptionStatus || 'Unknown';
-    nextEl.textContent = sub.subscriptionEndDate
-      ? new Date(sub.subscriptionEndDate).toLocaleDateString()
-      : '—';
-  } catch (e) {
-    statusEl.textContent = '—';
-    nextEl.textContent = '—';
-  }
-}
+            const sub = data.subscription || {};
+            
+            // 1. Set Status
+            statusEl.textContent = (sub.subscriptionStatus || 'Active').toUpperCase();
+            
+            // 2. FIX: Robust Date Parsing for Firestore Timestamps
+            let dateObj = null;
+            const dateVal = sub.subscriptionEndDate;
+            
+            if (dateVal) {
+                if (dateVal._seconds) {
+                    // Handle Firestore format {_seconds: 123...}
+                    dateObj = new Date(dateVal._seconds * 1000); 
+                } else if (dateVal.seconds) {
+                    // Handle alternative timestamp format {seconds: 123...}
+                    dateObj = new Date(dateVal.seconds * 1000);
+                } else {
+                    // Handle standard string "2026-02-01"
+                    dateObj = new Date(dateVal); 
+                }
+            }
+
+            // 3. Display Date safely
+            nextEl.textContent = (dateObj && !isNaN(dateObj.getTime()))
+                ? dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'Lifetime / Unknown';
+
+        } catch (e) {
+            console.warn('Subscription card error:', e);
+            statusEl.textContent = '—';
+            nextEl.textContent = '—';
+        }
+    }
 
 
 

@@ -4729,12 +4729,19 @@ app.get('/api/race/status', verifyToken, async (req, res) => {
     res.json({ success: true, needsFeedback: false, raceCompleted: false });
 });
 
-// 2. Submit Feedback & Archive
-app.post('/api/race/complete', verifyToken, async (req, res) => {
+// 2. Submit Feedback & Archive (CORRECTED)
+app.post('/api/race/complete', authenticateToken, async (req, res) => {
     try {
-        const result = await trainingPlanService.completeRacePlan(req.user.uid, req.body);
+        // Fix: Use 'userId' from the authenticated token (not 'uid')
+        const userId = req.user.userId; 
+        const feedbackData = req.body;
+
+        // Call the service method
+        const result = await trainingPlanService.completeRacePlan(userId, feedbackData);
+        
         res.json(result);
     } catch (e) {
+        console.error("Race completion error:", e);
         res.status(500).json({ success: false, message: e.message });
     }
 });

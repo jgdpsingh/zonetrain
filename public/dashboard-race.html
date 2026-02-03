@@ -741,37 +741,6 @@ body {
         // ✅ Check if race is completed and show banner
         // public/dashboard-race.html <script>
 
-// Updated Check Function
-async function checkPostRaceStatus() {
-    const token = localStorage.getItem('userToken');
-    if(!token) return;
-
-    try {
-        // You likely need an endpoint that checks date vs today
-        const response = await fetch('/api/race/status', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        const data = await response.json();
-        
-        // Scenario 1: Race Date Passed + No Feedback Given Yet
-        // The API should return 'needsFeedback: true' if raceDate < now AND plan is active
-        if (data.success && data.needsFeedback) {
-            document.getElementById('raceFeedbackModal').style.display = 'flex';
-            document.body.style.overflow = 'hidden'; // Prevent scrolling
-            return; 
-        }
-
-        // Scenario 2: Feedback already given (Plan Completed) -> Show the "Set New Goal" banner
-        if (data.success && data.raceCompleted && !data.postRaceDismissed) {
-            document.getElementById('completed-race-name').textContent = data.completedRaceName || 'Race';
-            document.getElementById('post-race-banner').style.display = 'block';
-        }
-
-    } catch (error) {
-        console.error('Error checking race status:', error);
-    }
-}
 
 // Handle Feedback Submission
 document.getElementById('raceFeedbackForm').addEventListener('submit', async function(e) {
@@ -828,8 +797,8 @@ document.getElementById('raceFeedbackForm').addEventListener('submit', async fun
     }
 });
 
-// Run on load
-document.addEventListener('DOMContentLoaded', checkPostRaceStatus);
+
+
         function openSetNewRaceModal() {
             document.getElementById('new-race-modal').style.display = 'block';
             document.body.style.overflow = 'hidden';
