@@ -743,59 +743,56 @@ body {
 
 
 // Handle Feedback Submission
-document.getElementById('raceFeedbackForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    const token = localStorage.getItem('userToken');
-    const btn = e.target.querySelector('button');
-    const originalText = btn.textContent;
-    
-    // UI Loading State
-    btn.disabled = true;
-    btn.innerHTML = '💾 Saving & Archiving...';
 
-    // Gather Data
-    const time = document.getElementById('fb-time').value;
-    const remarks = document.getElementById('fb-remarks').value;
-    const ratingEl = document.querySelector('input[name="rating"]:checked');
-    const rating = ratingEl ? parseInt(ratingEl.value) : 0;
+  document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("raceFeedbackForm");
+    if (!form) return; // prevents: Cannot read properties of null
 
-    try {
-        const response = await fetch('/api/race/complete', {
-            method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({
-                actualTime: time,
-                rating: rating,
-                remarks: remarks
-            })
+    form.addEventListener("submit", async function(e) {
+      e.preventDefault();
+
+      const token = localStorage.getItem("userToken");
+      const btn = e.target.querySelector("button[type='submit']");
+      const originalText = btn ? btn.textContent : "Submit";
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = "Saving & Archiving...";
+      }
+
+      const time = document.getElementById("fb-time")?.value;
+      const remarks = document.getElementById("fb-remarks")?.value;
+      const ratingEl = document.querySelector("input[name='rating']:checked");
+      const rating = ratingEl ? parseInt(ratingEl.value, 10) : 0;
+
+      try {
+        const response = await fetch("/api/race/complete", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ actualTime: time, rating, remarks })
         });
 
         const data = await response.json();
+        if (!data.success) throw new Error(data.message || "Save failed");
 
-        if (data.success) {
-            // Close modal
-            document.getElementById('raceFeedbackModal').style.display = 'none';
-            document.body.style.overflow = 'auto';
-            
-            // Show Success Alert
-            alert("🎉 Congratulations! Your plan has been archived.");
-            
-            // Reload to show the "Blank Slate" / "New Goal" UI
-            window.location.reload();
-        } else {
-            throw new Error(data.message || 'Save failed');
+        const modal = document.getElementById("raceFeedbackModal");
+        if (modal) modal.style.display = "none";
+        document.body.style.overflow = "auto";
+
+        alert("Congratulations! Your plan has been archived.");
+        window.location.reload();
+      } catch (error) {
+        alert("Error: " + error.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = originalText;
         }
-
-    } catch (error) {
-        alert('Error: ' + error.message);
-        btn.disabled = false;
-        btn.textContent = originalText;
-    }
-});
+      }
+    });
+  });
 
 
 

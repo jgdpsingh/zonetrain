@@ -87,7 +87,12 @@ async loadUserProfile() {
 
         this.attachModalListeners();
 
-        await this.checkRaceCompletion();
+        if (typeof this.applyPostRaceUX === "function") {
+  await this.applyPostRaceUX();
+} else {
+  await this.checkRaceCompletion?.();
+}
+
         await this.loadSubscriptionCard();
         this.updateHeaderStats();
 
