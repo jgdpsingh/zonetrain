@@ -889,6 +889,20 @@ attachModalListeners() {
         const container = document.getElementById(containerId);
         if(!container) return;
 
+        const raceDate = this.userProfile?.raceDate ? this.parseDate(this.userProfile.raceDate) : null;
+  if (!raceDate || isNaN(raceDate.getTime())) {
+    container.innerHTML = `
+      <div style="padding:26px;text-align:center;">
+        <h3 style="margin:0;color:#111827;">Performance Analytics</h3>
+        <p style="margin:10px 0 0 0;color:#6b7280;">Set a race goal to display performance insights.</p>
+        <button onclick="openSetNewRaceModal()"
+          style="margin-top:14px;padding:10px 14px;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer;">
+          Set Race Goal
+        </button>
+      </div>`;
+    return;
+  }
+
         // Unique "Coach" view vs Raw "Data" view
         container.innerHTML = `
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
