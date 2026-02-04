@@ -176,7 +176,7 @@ function signUserToken(user, extraClaims = {}) {
     ...extraClaims,
   };
 
-  return jwt.sign(payload, process.env.JWTSECRET, { expiresIn: "7d" });
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
 }
 
 
