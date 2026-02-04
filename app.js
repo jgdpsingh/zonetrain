@@ -4096,6 +4096,10 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         const profile = profileDoc.data();
         const currentGoals = profile.raceHistory.targetRace;
 
+        if (!currentGoals || !currentGoals.raceDate) {
+      return res.json({ success: true, raceGoal: null, message: "No active race goal" });
+    }
+
         // ✅ FIX: Check if date is a Firestore Timestamp and convert it
         let raceDateStr = currentGoals.raceDate || null;
     if (raceDateStr && typeof raceDateStr.toDate === 'function') {
@@ -4695,39 +4699,99 @@ const verifyToken = (req, res, next) => {
 };
 
 // 1. Check Status
-app.get('/api/race/status', verifyToken, async (req, res) => {
-    const user = await db.collection('users').doc(req.user.uid).get();
-    const userData = user.data();
-    
-    // Check if race date has passed
-    if (userData.raceDate) {
-        const raceDate = new Date(userData.raceDate);
-        const today = new Date();
-        // Reset times for comparison
-        raceDate.setHours(0,0,0,0);
-        today.setHours(0,0,0,0);
+// Helpers (put near your other helpers)
+function toJsDate(v) {
+  if (!v) return null;
+  if (typeof v.toDate === "function") return v.toDate(); // Firestore Timestamp
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
-        // If today is AFTER race date
-        if (today > raceDate) {
-             // Check if active plan exists
-             const activePlan = await trainingPlanService.getCurrentPlan(req.user.uid);
-             
-             if (activePlan) {
-                 // PLAN EXISTS + DATE PASSED = NEEDS FEEDBACK
-                 return res.json({ success: true, needsFeedback: true });
-             } else {
-                 // NO ACTIVE PLAN + DATE PASSED = ALREADY COMPLETED (Show Banner)
-                 return res.json({ 
-                     success: true, 
-                     raceCompleted: true, 
-                     completedRaceName: userData.lastCompletedRaceName || 'Race' 
-                 });
-             }
-        }
+app.get("/api/race/status", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // User doc (banner fields live here in your codebase)
+    const userSnap = await db.collection("users").doc(userId).get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+
+    // AI profile doc (race goal date is stored here by onboarding/goals logic)
+    const profileSnap = await db.collection("aiprofiles").doc(userId).get();
+    const profile = profileSnap.exists ? profileSnap.data() : null;
+
+    // Prefer AI targetRace.raceDate; fallback to legacy userData.raceDate if you still keep it
+    const raceDateRaw =
+      profile?.raceHistory?.targetRace?.raceDate ||
+      userData.raceDate ||
+      null;
+
+    const raceName =
+      profile?.raceHistory?.targetRace?.name ||
+      userData.raceName ||
+      userData.currentRace?.name ||
+      null;
+
+    const raceDate = toJsDate(raceDateRaw);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (raceDate) raceDate.setHours(0, 0, 0, 0);
+
+    // Only consider an ACTIVE *RACE* plan for "needsFeedback"
+    const activeRacePlanSnap = await db
+      .collection("trainingplans")
+      .where("userId", "==", userId)
+      .where("isActive", "==", true)
+      .where("planType", "==", "race")
+      .limit(1)
+      .get();
+
+    const hasActiveRacePlan = !activeRacePlanSnap.empty;
+
+    // 1) Race date exists and is in the past
+    if (raceDate && today > raceDate) {
+      if (hasActiveRacePlan) {
+        return res.json({
+          success: true,
+          needsFeedback: true,
+          raceCompleted: false,
+          completedRaceName: raceName || userData.lastCompletedRaceName || "Race",
+        });
+      }
+
+      return res.json({
+        success: true,
+        needsFeedback: false,
+        raceCompleted: true,
+        completedRaceName: userData.lastCompletedRaceName || raceName || "Race",
+        postRaceDismissed: userData.postRaceDismissed === true,
+      });
     }
-    
-    res.json({ success: true, needsFeedback: false, raceCompleted: false });
+
+    // 2) No raceDate (or not passed): optionally show banner for a recent completion
+    const lastCompletedAt = toJsDate(userData.lastRaceCompletedAt);
+    const RECENT_DAYS = 14;
+    const isRecent =
+      lastCompletedAt &&
+      (Date.now() - lastCompletedAt.getTime()) <= RECENT_DAYS * 24 * 60 * 60 * 1000;
+
+    if (isRecent && userData.postRaceDismissed !== true) {
+      return res.json({
+        success: true,
+        needsFeedback: false,
+        raceCompleted: true,
+        completedRaceName: userData.lastCompletedRaceName || "Race",
+        postRaceDismissed: false,
+      });
+    }
+
+    // Default
+    return res.json({ success: true, needsFeedback: false, raceCompleted: false });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
 });
+
 
 // 2. Submit Feedback & Archive (CORRECTED)
 app.post('/api/race/complete', authenticateToken, async (req, res) => {
@@ -7482,7 +7546,7 @@ app.get('/api/race/status', authenticateToken, async (req, res) => {
         const userId = req.user.userId;
         
         const userDoc = await db.collection('users').doc(userId).get();
-        const user = userDoc.data();
+        const user = userDoc.exists ? userDoc.data() : {};
         
         let raceCompleted = false;
         let completedRaceName = '';
@@ -11279,6 +11343,75 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     const planId = planDoc.docs[0].id;
     const plan = planDoc.docs[0].data();
 
+    // ✅ POST-RACE GUARD: if race date is in the past, don't show weekly workouts
+{
+  const toJsDateQuick = (v) => (v?.toDate ? v.toDate() : (v ? new Date(v) : null));
+
+  // 1) Try plan doc / planData
+  let raceDateRaw =
+    plan?.raceDate ||
+    plan?.planData?.raceDate ||
+    plan?.planData?.targetRace?.raceDate ||
+    plan?.planData?.targetRace?.date ||
+    null;
+
+  // 2) Fallback: aiprofiles is authoritative for race goal
+  if (!raceDateRaw) {
+    const profileDoc = await db.collection("aiprofiles").doc(userId).get();
+    if (profileDoc.exists) {
+      raceDateRaw = profileDoc.data()?.raceHistory?.targetRace?.raceDate || null;
+    }
+  }
+
+  const raceDate = toJsDateQuick(raceDateRaw);
+  if (raceDate && !Number.isNaN(raceDate.getTime())) {
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+
+    raceDate.setHours(0, 0, 0, 0);
+
+    // If race date has passed AND plan is still active => stop schedule + prompt feedback
+    if (today0 > raceDate) {
+      const daysOfWeek = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+      return res.json({
+        success: true,
+        postRace: true,
+        needsFeedback: true,
+        plan: {
+          id: planId,
+          planType: plan.planType,
+          coachType: plan.planData?.coachType || 'race',
+          createdAt: plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt
+        },
+        weeklyPlan: {
+          weekNumber: null,
+          totalWeeks: null,
+          phase: "Post-race",
+          phaseWeekNumber: null,
+          phaseTotalWeeks: null,
+          days: daysOfWeek.map(label => ({
+            label,
+            date: null,
+            workout: {
+              id: `postrace-${label}`,
+              title: "Plan complete",
+              description: "Your race is done. Submit feedback to archive the plan and set a new goal.",
+              duration: 0,
+              distance: 0,
+              intensity: "rest",
+              zones: null,
+              completed: false,
+              type: "rest"
+            }
+          }))
+        }
+      });
+    }
+  }
+}
+
+
     // 2) Compute requested week (Mon–Sun)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -11578,6 +11711,19 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
 app.get('/api/training/today-workout', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+
+    const { raceDate } = await getRaceGoalFromDb(db, userId);
+const today = new Date(); today.setHours(0,0,0,0);
+
+if (raceDate && today > raceDate) {
+  return res.json({
+    success: true,
+    postRace: true,
+    workout: null,
+    recommendation: "Race completed. Please submit your race feedback to archive the plan and reset your dashboard."
+  });
+}
+
     const hrvParam = req.query.hrv || null; 
 
     // 1. Get Plan & Workouts (Your existing logic)
@@ -15224,6 +15370,38 @@ function normalizePlanFromContent(plan) {
 
     return plan;
 }
+
+
+async function getRaceGoalFromDb(db, userId) {
+  const profileDoc = await db.collection("aiprofiles").doc(userId).get();
+  const profile = profileDoc.exists ? profileDoc.data() : null;
+
+  const userDoc = await db.collection("users").doc(userId).get();
+  const user = userDoc.exists ? userDoc.data() : null;
+
+  // Prefer AI profile targetRace (your dashboard header uses /api/race-goals/current)
+  let raceDateRaw = profile?.raceHistory?.targetRace?.raceDate || null;
+  let raceName =
+    profile?.raceHistory?.targetRace?.name ||
+    user?.activeRace?.name ||
+    user?.raceName ||
+    null;
+
+  // Fallbacks (legacy)
+  if (!raceDateRaw) raceDateRaw = user?.activeRace?.date || user?.raceDate || null;
+
+  const raceDate = toJsDate(raceDateRaw);
+  if (raceDate) raceDate.setHours(0, 0, 0, 0);
+
+  return {
+    raceDate,
+    raceName,
+    lastCompletedRaceName: user?.lastCompletedRaceName || null,
+    lastRaceCompletedAt: toJsDate(user?.lastRaceCompletedAt),
+    postRaceDismissed: user?.postRaceDismissed === true
+  };
+}
+
 
 
 // ============================================

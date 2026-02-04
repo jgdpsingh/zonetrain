@@ -1435,10 +1435,16 @@ if (currentRaceGoal.date) {
   today.setHours(0,0,0,0);
   days = Math.ceil((raceDate - today) / (1000*60*60*24));
 }
-    countdownEl.textContent =
-  days != null
-    ? (days === 1 ? days + ' day' : days + ' days')
-    : '-- days';
+    if (days != null && days < 0) {
+  countdownEl.textContent = "--";
+  subtitleEl.textContent = "Race complete";
+  metaEl.textContent = "Submit feedback to archive your plan.";
+} else {
+  countdownEl.textContent =
+    days != null
+      ? (days === 1 ? `${days} day` : `${days} days`)
+      : "--";
+}
 
     let dateStr = 'date TBC';
 if (currentRaceGoal.date) {
@@ -1697,6 +1703,8 @@ async function enforceRaceSubscription() {
         console.error("Subscription check failed", e);
     }
 }
+
+
 
 // Run immediately on load
 document.addEventListener('DOMContentLoaded', enforceRaceSubscription);

@@ -1033,11 +1033,25 @@ async regenerateScheduleFromDate(userId, planId, startDate) {
 
         // 4. Update User Profile (Clear current race target)
         const userRef = this.db.collection('users').doc(userId);
-        batch.update(userRef, {
-            currentRace: null, // Clear these so UI prompts for new goal
-            raceDate: null,
-            raceName: null
-        });
+        const raceName =
+  plan?.planData?.targetRace?.name ||
+  plan?.raceName ||
+  "Race";
+
+batch.update(userRef, {
+  currentRace: null,
+  raceDate: null,
+  raceName: null,
+  lastCompletedRaceName: raceName,
+  lastRaceCompletedAt: new Date(),
+  postRaceDismissed: false
+});
+
+// 5. Clear AI profile target race so /api/race-goals/current returns null (header resets)
+const aiRef = this.db.collection("aiprofiles").doc(userId);
+batch.set(aiRef, {
+  "raceHistory.targetRace": null
+}, { merge: true });
 
         await batch.commit();
         console.log('✅ Plan completed, feedback saved, and user reset.');

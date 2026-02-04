@@ -9,6 +9,9 @@ class RaceDashboardWidgets {
         this.currentWeekOffset = 0;
         this.userProfile = null;
         this.hubLoaded = false;
+
+        this.raceGoal = null;
+  this.raceStatus = null;
         
         // Bind methods to window for HTML onclick events
         window.dashboardWidgets = this;
@@ -34,6 +37,30 @@ class RaceDashboardWidgets {
         };
     }
 
+    async loadRaceGoal() {
+  try {
+    const res = await fetch("/api/race-goals/current", {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await res.json();
+    this.raceGoal = data?.success ? (data.raceGoal || null) : null;
+  } catch (e) {
+    this.raceGoal = null;
+  }
+}
+
+async loadRaceStatus() {
+  try {
+    const res = await fetch("/api/race/status", {
+      headers: { Authorization: `Bearer ${this.token}` }
+    });
+    const data = await res.json();
+    this.raceStatus = data?.success ? data : null;
+  } catch (e) {
+    this.raceStatus = null;
+  }
+}
+
 async loadUserProfile() {
         try {
             const res = await fetch('/api/user/access-status', { // Or your profile endpoint
@@ -55,6 +82,9 @@ async loadUserProfile() {
         console.log('🏎️ Starting Race Execution Dashboard...');
         await this.loadUserProfile();
 
+        await this.loadRaceGoal();
+  await this.loadRaceStatus();
+
         this.attachModalListeners();
 
         await this.checkRaceCompletion();
@@ -71,41 +101,39 @@ async loadUserProfile() {
         this.renderRacePlanningWidget('race-planning-container'),
         this.renderPerformanceAnalytics('performance-analytics-container'), // New function
         this.renderSubscriptionControls ? this.renderSubscriptionControls('subscription-controls-container') : Promise.resolve()
+
+        
     ];
 
+    await this.applyPostRaceUX();   // NEW (banner + modal)
+  this.updateHeaderStats();
         // Wait for all to finish (success or fail) without crashing
         await Promise.allSettled(widgetPromises);
         console.log('✅ Dashboard Widgets Loaded');
     }
 
-async checkRaceCompletion() {
-    // 1. Get Race Date
-    if (!this.userProfile?.raceDate) return;
-    
-    const raceDate = this.parseDate(this.userProfile.raceDate);
-    const today = new Date();
-    
-    // 2. Normalize (Compare dates only, ignore time)
-    raceDate.setHours(0,0,0,0);
-    today.setHours(0,0,0,0);
+async applyPostRaceUX() {
+  const status = this.raceStatus;
+  if (!status) return;
 
-    // 3. THE TRIGGER: If today is AFTER race date
-    if (today > raceDate) {
-        console.log("🏁 Race date passed. Opening existing HTML modal.");
-        
-        // Target the EXISTING modal in your HTML
-        const existingModal = document.getElementById('raceFeedbackModal');
-        
-        if (existingModal) {
-            existingModal.style.display = 'flex';
-            document.body.style.overflow = 'hidden'; // Stop scrolling
-            
-            // Optional: Pre-fill or setup listeners if not already handled in HTML
-        } else {
-            console.warn("⚠️ Feedback modal ID 'raceFeedbackModal' not found in DOM");
-        }
+  // 1) Needs feedback => open modal
+  if (status.needsFeedback) {
+    const modal = document.getElementById("raceFeedbackModal");
+    if (modal) {
+      modal.style.display = "flex";
+      document.body.style.overflow = "hidden";
     }
+  }
+
+  // 2) Post-race banner (either already archived, or recently completed)
+  if (status.raceCompleted && !status.postRaceDismissed) {
+    const banner = document.getElementById("post-race-banner");
+    const nameEl = document.getElementById("completed-race-name");
+    if (nameEl) nameEl.textContent = status.completedRaceName || "your race";
+    if (banner) banner.style.display = "block";
+  }
 }
+
 
 attachModalListeners() {
         const form = document.getElementById('raceFeedbackForm');
@@ -156,43 +184,93 @@ attachModalListeners() {
 
 
 
-   updateHeaderStats() {
-        // ✅ FIX: Target correct IDs (next-race-countdown OR race-countdown-text)
-        const el = document.getElementById('race-countdown-text') || document.getElementById('next-race-countdown');
-        
-        if(el && this.userProfile?.raceDate) {
-            const raceDate = this.parseDate(this.userProfile.raceDate); // Use helper
-            const today = new Date();
-            
-            if (!raceDate || isNaN(raceDate.getTime())) return;
+  updateHeaderStats() {
+  // Elements in dashboard-race.html header
+  const countdownNumberEl = document.getElementById('next-race-countdown');
+  const subtitleEl = document.getElementById('next-race-subtitle');
+  const metaEl = document.getElementById('next-race-meta');
 
-            raceDate.setHours(0,0,0,0);
-            today.setHours(0,0,0,0);
+  // Backward-compat element used in some older layouts
+  const raceTextEl = document.getElementById('race-countdown-text');
 
-            const diffTime = raceDate - today;
-            const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  // Pick whichever exists (your current code does this)
+  const el = raceTextEl || countdownNumberEl;
+  if (!el) return;
 
-            let statusHtml = '';
-            
-            if (days > 1) {
-                statusHtml = `<span style="color:#4f46e5">${days} Days To Go</span>`;
-            } else if (days === 1) {
-                statusHtml = `<span style="color:#f59e0b; font-weight:800;">TOMORROW!</span>`;
-            } else if (days === 0) {
-                statusHtml = `<span style="color:#10b981; font-weight:800;">RACE DAY! 🏃</span>`;
-            } else if (days < 0) {
-                statusHtml = `<span style="color:#6b7280">Race Completed</span>`;
-            }
+  // Prefer race goal date (from /api/race-goals/current), fallback to user profile (useraccess-status)
+  const raceDateRaw = this.raceGoal?.date || this.userProfile?.raceDate || null;
+  const raceName = this.raceGoal?.name || this.userProfile?.raceName || 'Race';
 
-            // Update content based on which element was found
-            if (el.id === 'next-race-countdown') {
-                el.innerHTML = days > 0 ? days : '0'; 
-                // You might need to hide "DAYS TO GO" text separately if race is done
-            } else {
-                el.innerHTML = `Training for <strong>${this.userProfile.raceName || 'Race'}</strong> • ${statusHtml}`;
-            }
-        }
+  const raceDate = raceDateRaw ? this.parseDate(raceDateRaw) : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Status from /api/race/status (if you added it); safe fallback if not present
+  const needsFeedback = this.raceStatus?.needsFeedback === true;
+  const raceCompleted = this.raceStatus?.raceCompleted === true;
+
+  // --------- BLANK SLATE (no race set) ----------
+  const setBlankSlate = (reasonText) => {
+    if (countdownNumberEl) countdownNumberEl.textContent = '--';
+    if (subtitleEl) subtitleEl.textContent = 'No Race Set';
+    if (metaEl) metaEl.textContent = reasonText || 'Set a goal to generate your plan';
+
+    if (raceTextEl) {
+      raceTextEl.innerHTML = `Set a Race Goal • <span style="color:#6b7280;">${reasonText || 'Create a new plan to continue.'}</span>`;
     }
+  };
+
+  // If no valid date at all => show blank slate
+  if (!raceDate || Number.isNaN(raceDate.getTime())) {
+    setBlankSlate('Set a goal to generate your plan');
+    return;
+  }
+
+  raceDate.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((raceDate - today) / (1000 * 60 * 60 * 24));
+
+  // --------- POST RACE ----------
+  // If race date has passed:
+  // - If feedback pending => show “Race complete” + prompt feedback
+  // - Else => reset header to blank slate
+  if (diffDays < 0) {
+    if (needsFeedback && !raceCompleted) {
+      if (countdownNumberEl) countdownNumberEl.textContent = '--';
+      if (subtitleEl) subtitleEl.textContent = 'Race complete';
+      if (metaEl) metaEl.textContent = 'Submit feedback to archive the plan';
+
+      if (raceTextEl) {
+        raceTextEl.innerHTML = `Completed <strong>${raceName}</strong> • <span style="color:#6b7280;">Feedback pending</span>`;
+      }
+      return;
+    }
+
+    // Already archived (or status unknown) => behave like no active goal
+    setBlankSlate('Set a Race Goal to start a new plan');
+    return;
+  }
+
+  // --------- PRE RACE / RACE DAY ----------
+  let statusHtml = '';
+  if (diffDays > 1) {
+    statusHtml = `<span style="color:#4f46e5;">${diffDays} Days To Go</span>`;
+  } else if (diffDays === 1) {
+    statusHtml = `<span style="color:#f59e0b; font-weight:800;">TOMORROW!</span>`;
+  } else {
+    // diffDays === 0
+    statusHtml = `<span style="color:#10b981; font-weight:800;">RACE DAY!</span>`;
+  }
+
+  if (countdownNumberEl) countdownNumberEl.textContent = String(diffDays); // 0 or positive only
+
+  if (subtitleEl) subtitleEl.textContent = `${this.raceGoal?.distance ? `${this.raceGoal.distance} km • ` : ''}${raceDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  if (metaEl) metaEl.textContent = this.raceGoal?.targetTime ? `Target ${this.raceGoal.targetTime}` : 'Target time: TBD';
+
+  if (raceTextEl) {
+    raceTextEl.innerHTML = `Training for <strong>${raceName}</strong> • ${statusHtml}`;
+  }
+}
+
 
     // =========================================================
     // 1. TODAY'S WORKOUT (Your Robust Logic + HRV)
@@ -207,6 +285,30 @@ attachModalListeners() {
                 headers: { 'Authorization': `Bearer ${this.token}` }
             });
             const data = await res.json();
+
+             if (data?.postRace) {
+      container.innerHTML = `
+        <div style="padding:30px; text-align:center; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+          <div style="font-size:42px; margin-bottom:10px;">🏁</div>
+          <h3 style="margin:0;">Plan complete</h3>
+          <p style="color:#6b7280; max-width:320px;">
+            ${data.recommendation || "Your race is done. Submit feedback to archive your plan and set a new goal."}
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:14px;">
+            <button
+              onclick="document.getElementById('raceFeedbackModal') && (document.getElementById('raceFeedbackModal').style.display='flex')"
+              style="padding:10px 14px; background:#10b981; color:white; border:none; border-radius:8px; font-weight:700; cursor:pointer;">
+              Submit race feedback
+            </button>
+            <button
+              onclick="openSetNewRaceModal()"
+              style="padding:10px 14px; background:white; border:1px solid #d1d5db; border-radius:8px; font-weight:700; cursor:pointer;">
+              Set a race goal
+            </button>
+          </div>
+        </div>`;
+      return;
+    }
 
             if (data.success && data.workout) {
                 container.innerHTML = this.todayWorkoutTemplate(data);
@@ -278,6 +380,15 @@ attachModalListeners() {
                 headers: { Authorization: `Bearer ${this.token}` }
             });
             const data = await response.json();
+
+            if (data?.postRace) {
+  container.innerHTML = `
+    <div style="padding:20px;text-align:center;color:#6b7280;">
+      <h3 style="margin:0;color:#111827;">Plan ended</h3>
+      <p style="margin-top:8px;">Your race is done. Submit feedback to archive this plan and set a new goal.</p>
+    </div>`;
+  return;
+}
 
             if (data.success && data.weeklyPlan) {
                 // Consistency Score
