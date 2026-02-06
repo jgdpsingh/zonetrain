@@ -7743,7 +7743,7 @@ async function applyRaceTargetAndRegeneratePlan({
 
 
 // Shared race-name catalog (case-insensitive de-dupe via nameLower doc id)
-const admin = require("firebase-admin");
+
 const { FieldValue } = admin.firestore;
 
 function normalizeRaceName(rawName) {
