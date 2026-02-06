@@ -629,6 +629,17 @@ body {
                         </div>
 
                         <div style="margin-bottom: 24px;">
+  <label style="display:block;font-weight:700;margin-bottom:8px;color:#1f2937;font-size:14px;">
+    Race Location (optional)
+  </label>
+  <input type="text"
+         id="new-race-location"
+         placeholder="e.g., Delhi, India"
+         style="width:100%;padding:14px 16px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;transition:all 0.2s;font-family:inherit;">
+</div>
+
+
+                        <div style="margin-bottom: 24px;">
                             <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #1f2937; font-size: 14px;">Race Date *</label>
                             <input type="date" id="new-race-date" required style="width: 100%; padding: 14px 16px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 15px; transition: all 0.2s; font-family: inherit;">
                         </div>
@@ -902,11 +913,12 @@ document.getElementById('new-race-form').addEventListener('submit', async functi
         } else {
             url = '/api/race/create';
             body = JSON.stringify({
-                name: document.getElementById('new-race-name').value,
-                date: payload.targetDate,
-                distance: payload.targetDistance,
-                goalTime: payload.targetTime
-            });
+  name: document.getElementById('new-race-name').value,
+  date: payload.targetDate,
+  distance: payload.targetDistance,
+  goalTime: payload.targetTime,
+  location: document.getElementById('new-race-location')?.value || null
+});
         }
 
         const response = await fetch(url, {
@@ -1335,6 +1347,50 @@ if (currentRaceGoal.date) {
     }
 }
 
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+(() => {
+  const input = document.getElementById("new-race-name");
+  const datalist = document.getElementById("raceNameSuggestions");
+  if (!input || !datalist) return;
+
+  let timer = null;
+
+  input.addEventListener("input", () => {
+    const q = input.value.trim();
+    if (q.length < 2) {
+      datalist.innerHTML = "";
+      return;
+    }
+
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem("userToken");
+        const res = await fetch(`/api/races/suggest?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!data.success || !Array.isArray(data.suggestions)) return;
+
+        datalist.innerHTML = data.suggestions
+          .map(name => `<option value="${escapeHtml(name)}"></option>`)
+          .join("");
+      } catch (e) {
+        // ignore suggestions failures
+      }
+    }, 250);
+  });
+})();
+
+
 
 function openUpdateRaceGoalModal() {
   if (!currentRaceGoal) {
@@ -1349,6 +1405,8 @@ function openUpdateRaceGoalModal() {
   document.getElementById('new-race-name').value = '';  // optional: keep free text
   document.getElementById('new-race-date').value =
     currentRaceGoal.date ? currentRaceGoal.date.substring(0, 10) : '';
+    document.getElementById('new-race-location').value = currentRaceGoal.location || "";
+
 
   const distanceSelect = document.getElementById('new-race-distance');
   const customField = document.getElementById('custom-distance-field');

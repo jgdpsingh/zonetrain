@@ -3664,274 +3664,88 @@ app.get('/api/training-plan/exists', authenticateToken, async (req, res) => {
  */
 // In app.js
 
-app.post('/api/race-goals/update', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { targetDistance, targetDate, targetTime, newGoals, constraints } = req.body;
-        
-        console.log('🎯 Updating race goals for user:', userId);
+app.post("/api/race-goals/update", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { targetDistance, targetDate, targetTime, constraints, raceName, location } = req.body;
 
-        // --- RATE LIMIT CHECK: Max 2 updates per calendar month ---
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of current month
-        
-        const recentUpdates = await db.collection('trainingplans')
-            .where('userId', '==', userId)
-            .where('reason', '==', 'Goals updated') // Must match the reason string used below
-            .where('createdAt', '>=', startOfMonth)
-            .get();
-
-        if (recentUpdates.size >= 2) {
-            return res.status(403).json({
-                success: false,
-                message: "Update limit reached. You can only update your race goals twice per month to ensure training consistency."
-            });
-        }
-        // --- END RATE LIMIT CHECK ---
-        
-        // Validate at least one field is provided
-        if (!targetDistance && !targetDate && !targetTime && !newGoals) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide at least one field to update (targetDistance, targetDate, targetTime, or newGoals)'
-            });
-        }
-        
-        // Get current AI profile
-        const profileDoc = await db.collection('aiprofiles').doc(userId).get();
-        
-        if (!profileDoc.exists) {
-            return res.status(404).json({
-                success: false,
-                message: 'AI profile not found. Please complete onboarding first.'
-            });
-        }
-        
-        const currentProfile = profileDoc.data();
-        
-        // ========== STEP 1: UPDATE AI PROFILE WITH NEW GOALS ==========
-        const updatedProfile = {
-            ...currentProfile,
-            raceHistory: {
-                ...currentProfile.raceHistory,
-                targetRace: {
-                    ...currentProfile.raceHistory.targetRace,
-                    distance: targetDistance || currentProfile.raceHistory.targetRace.distance,
-                    targetTime: targetTime || currentProfile.raceHistory.targetRace.targetTime,
-                    raceDate: targetDate || currentProfile.raceHistory.targetRace.raceDate,
-                    daysToRace: targetDate ? calculateDaysToRace(targetDate) : currentProfile.raceHistory.targetRace.daysToRace
-                }
-            },
-            trainingStructure: {
-                ...currentProfile.trainingStructure,
-                constraints: constraints || currentProfile.trainingStructure.constraints
-            },
-            updatedAt: new Date()
-        };
-        
-        // Save updated profile
-        await db.collection('aiprofiles').doc(userId).update(updatedProfile);
-        console.log('✅ Race goals updated');
-        
-  
-               // ========== STEP 2: REGENERATE TRAINING PLAN ==========
-        console.log('🤖 Regenerating training plan with updated goals...');
-        
-        // Get current plan type
-        const currentPlanDoc = await db.collection('trainingplans')
-            .where('userId', '==', userId)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-        
-        const planType = currentPlanDoc.empty ? 'race' : currentPlanDoc.docs[0].data().planType;
-        
-        let newTrainingPlan;
-        try {
-            // This function now has internal retries (as per previous fix).
-            // If it throws here, it means the AI is truly down after multiple attempts.
-            newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, planType, false);
-        } catch (planError) {
-            console.error('❌ Plan regeneration failed (Max Retries Exceeded):', planError.message);
-            
-            // STOP HERE! Do not save a fallback plan.
-            // Return a 503 Service Unavailable error to the client.
-            return res.status(503).json({ 
-       success: false, 
-       message: "AI Service is currently overloaded. Please try again." 
-   });
-        }
-
-        
-        // ========== STEP 3: DEACTIVATE OLD PLAN ==========
-        if (!currentPlanDoc.empty) {
-            await db.collection('trainingplans')
-                .doc(currentPlanDoc.docs[0].id)
-                .update({
-                    isActive: false,
-                    deactivatedAt: new Date(),
-                    deactivationReason: 'Goals updated'
-                });
-            console.log('✅ Old plan deactivated');
-        }
-        
-        // ========== STEP 4: SAVE NEW PLAN ==========
-        const newPlanDoc = await db.collection('trainingplans').add({
-            userId: userId,
-            profileId: userId,
-            planType: planType,
-            planData: newTrainingPlan,
-            isActive: true,
-            createdAt: new Date(),
-            version: 'v1',
-            reason: 'Goals updated', // Match this string for rate limiting query
-            previousGoals: {
-                distance: currentProfile.raceHistory.targetRace.distance,
-                date: currentProfile.raceHistory.targetRace.raceDate,
-                daysToRace: currentProfile.raceHistory.targetRace.daysToRace
-            },
-            newGoals: {
-                distance: updatedProfile.raceHistory.targetRace.distance,
-                date: updatedProfile.raceHistory.targetRace.raceDate,
-                daysToRace: updatedProfile.raceHistory.targetRace.daysToRace
-            }
-        });
-        
-        console.log('✅ New training plan generated:', newPlanDoc.id);
-
-                // --- FIX START: Parse AI content if it's trapped in a string (COPIED FROM ONBOARDING) ---
-        if ((!newTrainingPlan.weeks || newTrainingPlan.weeks.length === 0) && newTrainingPlan.content) {
-            try {
-                console.log("Attempting to parse trapped JSON content in UPDATE...");
-                // 1. Remove Markdown code blocks (```json ... ```)
-                let cleanJson = newTrainingPlan.content.replace(/```json\s?|```/g, '').trim();
-                
-                // 2. Parse the cleaned string
-                const parsedPlan = JSON.parse(cleanJson);
-                
-                // 3. Assign the weeks to the main object
-                if (parsedPlan.weeks) {
-                    newTrainingPlan.weeks = parsedPlan.weeks; // Update the local object
-                    console.log("Successfully extracted weeks from content string in UPDATE!");
-                    
-                    // OPTIONAL: Update the saved doc with the parsed structure for future reference
-                    await newPlanDoc.update({ planData: newTrainingPlan });
-                }
-            } catch (e) {
-                console.error("Failed to parse trapped plan content in UPDATE:", e.message);
-            }
-        }
-        // --- FIX END ---
-
-        // --- EXPLOSION LOGIC: Create Workouts ---
-        if (newTrainingPlan.weeks && Array.isArray(newTrainingPlan.weeks)) {
-            console.log('🚀 Exploding UPDATED plan into individual workouts...');
-            const batch = db.batch();
-            const planStartDate = new Date(); 
-            let workoutCount = 0;
-            
-            newTrainingPlan.weeks.forEach((week, weekIndex) => {
-                if (week.days && Array.isArray(week.days)) {
-                    week.days.forEach((day, dayIndex) => {
-                        const workoutDate = new Date(planStartDate);
-                        workoutDate.setDate(workoutDate.getDate() + (weekIndex * 7) + dayIndex);
-                        
-                        const workoutRef = db.collection('workouts').doc();
-                        batch.set(workoutRef, {
-                            userId: userId,
-                            planId: newPlanDoc.id,
-                            weekNumber: week.weekNumber || (weekIndex + 1),
-                            dayName: day.dayName,
-                            type: day.type || 'rest',
-                            title: day.type || 'Workout',
-                            description: day.description || '',
-                            distance: day.distanceKm || 0,
-                            duration: day.durationMin || 0,
-                            intensity: day.intensity || 'easy',
-                            scheduledDate: workoutDate,
-                            completed: false,
-                            createdAt: new Date()
-                        });
-                        workoutCount++;
-                    });
-                }
-            });
-
-            await batch.commit();
-            console.log(`✅ Saved ${workoutCount} updated workouts to collection`);
-        } else {
-             console.warn('⚠️ No weeks array found in UPDATED training plan to explode.');
-        }
-
-        
-        // ========== STEP 5: SEND NOTIFICATION ==========
-        try {
-            const notificationService = new NotificationService(db);
-            await notificationService.createNotification(
-                userId,
-                'race_goals_updated',
-                '🎯 Training Plan Updated',
-                `Your race goals have been updated! New training plan generated for ${updatedProfile.raceHistory.targetRace.distance}km race in ${updatedProfile.raceHistory.targetRace.daysToRace} days.`,
-                '/dashboard',
-                {
-                    oldGoals: currentProfile.raceHistory.targetRace.distance,
-                    newGoals: targetDistance
-                }
-            );
-        } catch (notificationError) {
-            console.warn('⚠️ Notification failed (non-critical):', notificationError.message);
-        }
-        
-        // ========== STEP 6: TRACK ANALYTICS ==========
-        try {
-            await db.collection('analytics_events').add({
-                event: 'race_goals_updated',
-                userId: userId,
-                oldGoals: {
-                    distance: currentProfile.raceHistory.targetRace.distance,
-                    daysToRace: currentProfile.raceHistory.targetRace.daysToRace
-                },
-                newGoals: {
-                    distance: updatedProfile.raceHistory.targetRace.distance,
-                    daysToRace: updatedProfile.raceHistory.targetRace.daysToRace
-                },
-                timestamp: new Date(),
-                source: 'race_goals_update'
-            });
-        } catch (analyticsError) {
-            console.warn('⚠️ Analytics tracking failed (non-critical):', analyticsError.message);
-        }
-        
-        console.log('✅ Race goals update completed');
-        
-        res.json({
-            success: true,
-            message: 'Race goals updated successfully! New training plan generated.',
-            previousPlan: {
-                distance: currentProfile.raceHistory.targetRace.distance,
-                daysToRace: currentProfile.raceHistory.targetRace.daysToRace
-            },
-            newPlan: {
-                id: newPlanDoc.id,
-                distance: updatedProfile.raceHistory.targetRace.distance,
-                daysToRace: updatedProfile.raceHistory.targetRace.daysToRace,
-                type: planType
-            },
-            recommendations: {
-                weeksToPeak: Math.floor(updatedProfile.raceHistory.targetRace.daysToRace / 7),
-                periodization: generatePeriodizationSummary(updatedProfile)
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Race goals update error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update race goals',
-            error: error.message
-        });
+    if (
+      !targetDistance && !targetDate && !targetTime &&
+      !raceName && !location && constraints === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide at least one field to update.",
+      });
     }
+
+    // Rate limit: relies on reason === "Goals updated" [file:58]
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const recentUpdates = await db.collection("trainingplans")
+      .where("userId", "==", userId)
+      .where("reason", "==", "Goals updated")
+      .where("createdAt", ">=", startOfMonth)
+      .get();
+
+    if (recentUpdates.size >= 2) {
+      return res.status(403).json({
+        success: false,
+        message: "Update limit reached. You can only update your race goals twice per month to ensure training consistency.",
+      });
+    }
+
+    // Build patch (only provided fields)
+    const patchTargetRace = {};
+
+    if (raceName) patchTargetRace.name = toSafeStr(raceName);
+    if (location) patchTargetRace.location = toSafeStr(location);
+
+    if (targetDistance !== undefined && targetDistance !== null && targetDistance !== "") {
+      const d = Number(targetDistance);
+      if (!Number.isFinite(d) || d <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid targetDistance" });
+      }
+      patchTargetRace.distance = d;
+    }
+
+    if (targetTime) patchTargetRace.targetTime = toSafeStr(targetTime);
+
+    if (targetDate) {
+      const rd = toSafeStr(targetDate);
+      patchTargetRace.raceDate = rd;
+      patchTargetRace.daysToRace = calculateDaysToRace(rd);
+    }
+
+    const result = await applyRaceTargetAndRegeneratePlan({
+      db,
+      userId,
+      patchTargetRace,
+      constraints,                  // merged into trainingStructure if provided
+      reason: "Goals updated",      // keep exact string for limiter [file:58]
+      includeGoalSnapshots: true,
+    });
+
+    // Catalog upsert AFTER success (non-blocking)
+    if (patchTargetRace.name) {
+      upsertRaceCatalog(db, patchTargetRace.name).catch((e) =>
+        console.warn("Race catalog upsert failed (non-blocking):", e.message)
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: "Race goals updated successfully! New training plan generated.",
+      newPlan: { id: result.newPlanId, type: "race" },
+      archivedPlans: result.archivedPlans,
+    });
+  } catch (e) {
+    const status = e.status || 500;
+    return res.status(status).json({ success: false, message: e.message });
+  }
 });
+
 
 
 // ==================== HELPER FUNCTIONS ====================
@@ -7596,142 +7410,83 @@ app.post('/api/race/dismiss-banner', authenticateToken, async (req, res) => {
 
 // app.js
 
-app.post('/api/race/create', authenticateToken, async (req, res) => {
+app.post("/api/race/create", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { name, date, distance, goalTime, location } = req.body;
 
-    // --- Validate input ---
     if (!name || !date || distance === undefined || distance === null) {
       return res.status(400).json({
         success: false,
-        message: "name, date, distance are required"
+        message: "name, date, distance are required",
       });
     }
 
+    const raceName = String(name).trim();
+    const raceDate = String(date).trim();
     const distKm = parseFloat(distance);
+
     if (!Number.isFinite(distKm) || distKm <= 0) {
       return res.status(400).json({ success: false, message: "Invalid distance" });
     }
 
-    // --- 1) Update user's activeRace (keeps your existing behavior) ---
-    const raceData = {
-      name,
-      date, // expected YYYY-MM-DD from input[type=date]
+    const patchTargetRace = {
+      name: raceName,
+      raceDate,
       distance: distKm,
-      goalTime: goalTime || null,
-      location: location || null,
-      createdAt: new Date(),
-      status: 'active'
+      targetTime: goalTime ? String(goalTime).trim() : null,
+      location: location ? String(location).trim() : null,
+      daysToRace: calculateDaysToRace(raceDate),
     };
 
-    await db.collection('users').doc(userId).update({
-      activeRace: raceData,
-      postRaceDismissed: false
+    const result = await applyRaceTargetAndRegeneratePlan({
+      db,
+      userId,
+      patchTargetRace,
+      constraints: undefined,
+      reason: "Race created",
+      includeGoalSnapshots: false,
     });
 
-    // --- 2) Load AI profile (required in your current system) ---
-    const profileRef = db.collection('aiprofiles').doc(userId);
-    const profileDoc = await profileRef.get();
-    if (!profileDoc.exists) {
-      // Matches your race-goals/update expectation: onboarding must exist [file:58]
-      return res.status(404).json({
-        success: false,
-        message: "AI profile not found. Please complete onboarding first."
-      });
+    // Catalog upsert AFTER success (non-blocking)
+    if (raceName) {
+      upsertRaceCatalog(db, raceName).catch((e) =>
+        console.warn("Race catalog upsert failed (non-blocking):", e.message)
+      );
     }
 
-    const currentProfile = profileDoc.data();
-
-    // --- 3) Update AI profile target race (so generation uses latest goal) ---
-    const daysToRace = calculateDaysToRace(date); // helper exists in app.js [file:58]
-
-    const updatedProfile = {
-      ...currentProfile,
-      raceHistory: {
-        ...(currentProfile.raceHistory || {}),
-        targetRace: {
-          ...((currentProfile.raceHistory && currentProfile.raceHistory.targetRace) || {}),
-          distance: distKm,
-          targetTime: goalTime || (currentProfile.raceHistory?.targetRace?.targetTime ?? null),
-          raceDate: date,
-          location: location || (currentProfile.raceHistory?.targetRace?.location ?? null),
-          daysToRace
-        }
-      },
-      updatedAt: new Date()
-    };
-
-    await profileRef.update(updatedProfile);
-
-    // --- 4) Deactivate old ACTIVE race plans + delete their future workouts ---
-    const oldRacePlanIds = await deactivateActiveRacePlans(userId, "Replaced by new race goal");
-    await deleteFutureWorkoutsForPlanIds(userId, oldRacePlanIds);
-
-    // --- 5) Generate new plan (same generator used elsewhere) ---
-    let newTrainingPlan;
-    try {
-      newTrainingPlan = await generateInitialTrainingPlan(updatedProfile, "race", false); // function exists in app.js [file:58]
-    } catch (err) {
-      // Do NOT create a "success" response if AI failed (same philosophy as goals/update) [file:58]
-      return res.status(503).json({
-        success: false,
-        message: "AI Service is currently overloaded. Please try again."
-      });
-    }
-
-    // If the AI returned JSON in plan.content, extract weeks (same fix you have) [file:58]
-    newTrainingPlan = parseTrappedPlanContentIfNeeded(newTrainingPlan);
-
-    // --- 6) Save NEW plan as the only active race plan ---
-    const newPlanDoc = await db.collection('trainingplans').add({
+    await db.collection("notifications").add({
       userId,
-      profileId: userId,
-      planType: 'race',
-      planData: newTrainingPlan,
-      isActive: true,
-      createdAt: new Date(),
-      version: 'v1',
-      reason: 'Race created',
-      raceName: name,
-      raceDate: date,
-      raceDistanceKm: distKm,
-      targetTime: goalTime || null,
-      replacedPlanIds: oldRacePlanIds
-    });
-
-    // --- 7) Explode workouts for the plan so widgets can render immediately ---
-    await explodePlanToWorkouts(userId, newPlanDoc.id, newTrainingPlan);
-
-    // --- 8) Notification (updated message: plan is ready, not "being generated") ---
-    await db.collection('notifications').add({
-      userId,
-      type: 'race',
-      title: 'New Race Goal Set',
-      message: `Training plan for ${name} has been generated. Your dashboard will update now.`,
+      type: "race",
+      title: "New Race Goal Set",
+      message: `Training plan for ${raceName} has been generated. Your dashboard will update now.`,
       read: false,
-      createdAt: new Date()
+      createdAt: new Date(),
     });
 
     return res.json({
       success: true,
-      trainingPlanId: newPlanDoc.id,
-      archivedPlans: oldRacePlanIds.length
+      trainingPlanId: result.newPlanId,
+      archivedPlans: result.archivedPlans,
     });
-  } catch (error) {
-    console.error("Race create error:", error);
-    return res.status(500).json({ success: false, message: error.message });
+  } catch (e) {
+    const status = e.status || 500;
+    return res.status(status).json({ success: false, message: e.message });
   }
 });
 
 function parseTrappedPlanContentIfNeeded(plan) {
-  // Copied logic style from your /api/race-goals/update fix [file:58]
-  if (plan && (!plan.weeks || plan.weeks.length === 0) && plan.content) {
+  if (!plan) return plan;
+
+  const hasWeeks = Array.isArray(plan.weeks) && plan.weeks.length > 0;
+  if (hasWeeks) return plan;
+
+  if (plan.content) {
     try {
       const cleanJson = String(plan.content).replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleanJson);
       if (parsed && Array.isArray(parsed.weeks)) {
-        plan.weeks = parsed.weeks;
+        return { ...plan, weeks: parsed.weeks };
       }
     } catch (e) {
       console.error("Failed to parse trapped plan content:", e.message);
@@ -7740,12 +7495,11 @@ function parseTrappedPlanContentIfNeeded(plan) {
   return plan;
 }
 
-async function deactivateActiveRacePlans(userId, reason = "Deactivated") {
-  // Similar to how you deactivate old plan in /api/race-goals/update [file:58]
+async function deactivateActiveRacePlans(userId, reason) {
   const snap = await db.collection("trainingplans")
     .where("userId", "==", userId)
-    .where("isActive", "==", true)
     .where("planType", "==", "race")
+    .where("isActive", "==", true)
     .get();
 
   if (snap.empty) return [];
@@ -7753,12 +7507,12 @@ async function deactivateActiveRacePlans(userId, reason = "Deactivated") {
   const batch = db.batch();
   const ids = [];
 
-  snap.forEach(doc => {
+  snap.forEach((doc) => {
     ids.push(doc.id);
     batch.update(doc.ref, {
       isActive: false,
       deactivatedAt: new Date(),
-      deactivationReason: reason
+      deactivationReason: reason || "Replaced"
     });
   });
 
@@ -7766,50 +7520,42 @@ async function deactivateActiveRacePlans(userId, reason = "Deactivated") {
   return ids;
 }
 
-async function deleteFutureWorkoutsForPlanIds(userId, planIds) {
-  if (!planIds || planIds.length === 0) return;
-
+async function deleteFutureWorkoutsForUser(userId) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Delete future workouts only for those old planIds (so you don't nuke other plan types)
-  for (const planId of planIds) {
-    const snap = await db.collection("workouts")
-      .where("userId", "==", userId)
-      .where("planId", "==", planId)
-      .where("scheduledDate", ">=", today)
-      .get();
+  const snap = await db.collection("workouts")
+    .where("userId", "==", userId)
+    .where("scheduledDate", ">=", today)
+    .get();
 
-    if (snap.empty) continue;
+  if (snap.empty) return;
 
-    // Batch delete in chunks to stay under limits
-    let batch = db.batch();
-    let ops = 0;
+  let batch = db.batch();
+  let count = 0;
 
-    for (const doc of snap.docs) {
-      batch.delete(doc.ref);
-      ops++;
-      if (ops >= 450) {
-        await batch.commit();
-        batch = db.batch();
-        ops = 0;
-      }
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+    count++;
+
+    if (count >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      count = 0;
     }
-
-    if (ops > 0) await batch.commit();
   }
+
+  if (count > 0) await batch.commit();
 }
 
 async function explodePlanToWorkouts(userId, planId, planData) {
-  // Mirrors your existing “explode workouts” approach in onboarding/update [file:58]
   if (!planData?.weeks || !Array.isArray(planData.weeks)) return;
 
   const planStartDate = new Date();
   planStartDate.setHours(0, 0, 0, 0);
 
-  // If you want to start next Monday instead of today, tell me and I’ll adjust.
-  const batch = db.batch();
-  let count = 0;
+  let batch = db.batch();
+  let writes = 0;
 
   for (let weekIndex = 0; weekIndex < planData.weeks.length; weekIndex++) {
     const week = planData.weeks[weekIndex];
@@ -7817,7 +7563,6 @@ async function explodePlanToWorkouts(userId, planId, planData) {
 
     for (let dayIndex = 0; dayIndex < week.days.length; dayIndex++) {
       const day = week.days[dayIndex];
-
       const workoutDate = new Date(planStartDate);
       workoutDate.setDate(workoutDate.getDate() + (weekIndex * 7) + dayIndex);
 
@@ -7838,14 +7583,267 @@ async function explodePlanToWorkouts(userId, planId, planData) {
         createdAt: new Date()
       });
 
-      count++;
-      // Typical plans won’t exceed 450 writes; if yours can, we’ll chunk commits.
+      writes++;
+      if (writes >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        writes = 0;
+      }
     }
   }
 
-  await batch.commit();
-  console.log(`Exploded ${count} workouts for plan ${planId}`);
+  if (writes > 0) await batch.commit();
 }
+
+async function applyRaceTargetAndRegeneratePlan({
+  db,
+  userId,
+  patchTargetRace,        // { name, raceDate, distance, targetTime, location, daysToRace }
+  constraints,            // optional
+  reason,                 // "Race created" | "Goals updated" etc.
+  includeGoalSnapshots,   // boolean: save previousGoals/newGoals in plan doc
+}) {
+  const profileRef = db.collection("aiprofiles").doc(userId);
+  const profileDoc = await profileRef.get();
+
+  if (!profileDoc.exists) {
+    const err = new Error("AI profile not found. Please complete onboarding first.");
+    err.status = 404;
+    throw err;
+  }
+
+  const currentProfile = profileDoc.data() || {};
+  const currentTarget = currentProfile?.raceHistory?.targetRace || {};
+
+  const nextTarget = {
+    ...currentTarget,
+    ...(patchTargetRace || {}),
+  };
+
+  // Build the "next profile" IN MEMORY (no Firestore writes yet)
+  const nextProfile = {
+    ...currentProfile,
+    raceHistory: {
+      ...(currentProfile.raceHistory || {}),
+      targetRace: nextTarget,
+    },
+    ...(constraints !== undefined
+      ? {
+          trainingStructure: {
+            ...(currentProfile.trainingStructure || {}),
+            constraints,
+          },
+        }
+      : {}),
+    updatedAt: new Date(),
+  };
+
+  // 1) Generate plan first (prevents partial state if AI fails)
+  let newTrainingPlan;
+  try {
+    newTrainingPlan = await generateInitialTrainingPlan(nextProfile, "race", false);
+  } catch (e) {
+    const err = new Error("AI Service is currently overloaded. Please try again.");
+    err.status = 503;
+    throw err;
+  }
+
+  newTrainingPlan = parseTrappedPlanContentIfNeeded(newTrainingPlan);
+
+  // 2) Cleanup old active race plans + future workouts (consistent everywhere)
+  const oldRacePlanIds = await deactivateActiveRacePlans(userId, reason || "Replaced");
+  await deleteFutureWorkoutsForUser(userId);
+
+  // 3) Save new plan
+  const planPayload = {
+    userId,
+    profileId: userId,
+    planType: "race",
+    planData: newTrainingPlan,
+    isActive: true,
+    createdAt: new Date(),
+    version: "v1",
+    reason: reason || "Race updated",
+    raceName: nextTarget.name ?? null,
+    raceDate: nextTarget.raceDate ?? null,
+    raceDistanceKm: nextTarget.distance ?? null,
+    targetTime: nextTarget.targetTime ?? null,
+    replacedPlanIds: oldRacePlanIds,
+  };
+
+  if (includeGoalSnapshots) {
+    planPayload.previousGoals = {
+      name: currentTarget.name ?? null,
+      distance: currentTarget.distance ?? null,
+      date: currentTarget.raceDate ?? null,
+      targetTime: currentTarget.targetTime ?? null,
+      location: currentTarget.location ?? null,
+      daysToRace: currentTarget.daysToRace ?? null,
+    };
+    planPayload.newGoals = {
+      name: nextTarget.name ?? null,
+      distance: nextTarget.distance ?? null,
+      date: nextTarget.raceDate ?? null,
+      targetTime: nextTarget.targetTime ?? null,
+      location: nextTarget.location ?? null,
+      daysToRace: nextTarget.daysToRace ?? null,
+    };
+  }
+
+  const newPlanDoc = await db.collection("trainingplans").add(planPayload);
+
+  // 4) Explode workouts
+  await explodePlanToWorkouts(userId, newPlanDoc.id, newTrainingPlan);
+
+  // 5) Persist AI profile changes SAFELY (set raceHistory once; avoids duplicate key issues)
+  await profileRef.set(
+    {
+      raceHistory: {
+        ...(currentProfile.raceHistory || {}),
+        targetRace: nextTarget,
+      },
+      ...(constraints !== undefined
+        ? {
+            trainingStructure: {
+              ...(currentProfile.trainingStructure || {}),
+              constraints,
+            },
+          }
+        : {}),
+      updatedAt: new Date(),
+    },
+    { merge: true }
+  );
+
+  // 6) Keep users.activeRace in sync
+  await db.collection("users").doc(userId).set(
+    {
+      activeRace: {
+        name: nextTarget.name ?? null,
+        date: nextTarget.raceDate ?? null,
+        distance: nextTarget.distance ?? null,
+        goalTime: nextTarget.targetTime ?? null,
+        location: nextTarget.location ?? null,
+        status: "active",
+        updatedAt: new Date(),
+      },
+      postRaceDismissed: false,
+    },
+    { merge: true }
+  );
+
+  return {
+    newPlanId: newPlanDoc.id,
+    archivedPlans: oldRacePlanIds.length,
+    oldRacePlanIds,
+    currentTarget,
+    nextTarget,
+  };
+}
+
+
+// Shared race-name catalog (case-insensitive de-dupe via nameLower doc id)
+const admin = require("firebase-admin");
+const { FieldValue } = admin.firestore;
+
+function normalizeRaceName(rawName) {
+  const displayName = toSafeStr(rawName).replace(/\s+/g, " ");
+  const nameLower = displayName.toLowerCase();
+  return { displayName, nameLower };
+}
+
+function raceCatalogDocId(nameLower) {
+  return encodeURIComponent(nameLower); // safe for Firestore doc IDs
+}
+
+async function upsertRaceCatalog(db, rawName) {
+  const { displayName, nameLower } = normalizeRaceName(rawName);
+  if (!nameLower) return null;
+
+  const ref = db.collection("raceCatalog").doc(raceCatalogDocId(nameLower));
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+
+    if (!snap.exists) {
+      tx.set(ref, {
+        displayName,
+        nameLower,
+        usageCount: 1,
+        createdAt: new Date(),
+        lastUsedAt: new Date()
+      });
+    } else {
+      tx.set(ref, {
+        displayName,               // keep latest "pretty" casing
+        nameLower,
+        usageCount: FieldValue.increment(1),
+        lastUsedAt: new Date(),
+        updatedAt: new Date()
+      }, { merge: true });
+    }
+  });
+
+  return { displayName, nameLower };
+}
+
+
+function toSafeStr(v) {
+  return (v ?? "").toString().trim();
+}
+
+
+app.get("/api/races/suggest", authenticateToken, async (req, res) => {
+  try {
+    const qRaw = (req.query.q || "").toString();
+    const q = qRaw.trim().toLowerCase();
+
+    const limit = Math.min(parseInt(req.query.limit || "10", 10) || 10, 25);
+
+    if (q.length < 2) {
+      return res.json({ success: true, suggestions: [] });
+    }
+
+    // Prefix search on nameLower
+    const snap = await db.collection("raceCatalog")
+      .where("nameLower", ">=", q)
+      .where("nameLower", "<=", q + "\uf8ff")
+      .orderBy("nameLower")
+      .limit(limit)
+      .get();
+
+    const suggestions = snap.docs
+      .map(d => d.data()?.displayName)
+      .filter(Boolean);
+
+    return res.json({ success: true, suggestions });
+  } catch (e) {
+    console.error("Race suggest error:", e);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.get("/api/races/popular", authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || "20", 10) || 20, 50);
+
+    const snap = await db.collection("raceCatalog")
+      .orderBy("usageCount", "desc")
+      .limit(limit)
+      .get();
+
+    const races = snap.docs.map(d => ({
+      displayName: d.data()?.displayName,
+      usageCount: d.data()?.usageCount || 0
+    })).filter(r => r.displayName);
+
+    return res.json({ success: true, races });
+  } catch (e) {
+    console.error("Popular races error:", e);
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 
 
 
