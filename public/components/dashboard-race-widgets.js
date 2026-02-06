@@ -430,49 +430,105 @@ attachModalListeners() {
         }
     }
 
-    raceWeeklyTemplate(planMap, meta) {
-        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        
-        const items = days.map(day => {
-            // Robust mapping (Handle "Mon" vs "Monday")
-            const key = Object.keys(planMap).find(k => k.toLowerCase().startsWith(day.toLowerCase().substring(0,3)));
-            const data = planMap[key] || {};
-            const workout = data.workout || {};
-            const isRest = !workout.title || workout.title.toLowerCase().includes('rest');
-            const isDone = workout.completed;
-            
-            const color = isDone ? '#10b981' : (isRest ? '#9ca3af' : '#3b82f6');
-            const bg = isDone ? '#ecfdf5' : '#fff';
-            
-            return `
-                <div onclick="${!isRest && workout.id ? `window.openWorkoutModal('${workout.id}')` : ''}" 
-                     style="background:${bg}; border:1px solid ${isDone ? '#10b981' : '#e5e7eb'}; border-radius:8px; padding:8px; min-height:80px; cursor:${!isRest?'pointer':'default'}; display:flex; flex-direction:column; position:relative;">
-                    
-                    <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase;">${day.substring(0,3)}</div>
-                    
-                    <div style="font-size:12px; font-weight:600; margin-top:4px; color:#111827; line-height:1.2;">
-                        ${workout.title || 'Rest'}
-                    </div>
+   raceWeeklyTemplate(planMap, meta) {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const safePlanMap = planMap || {};
+  const ended = !!meta?.ended;
 
-                    ${!isRest ? `
-                    <div style="margin-top:auto; font-size:10px; color:${color}; font-weight:600; background:${color}15; padding:2px 6px; border-radius:4px; align-self:flex-start;">
-                        ${workout.distance ? workout.distance+'km' : (workout.duration ? workout.duration+'m' : 'Workout')}
-                    </div>` : ''}
+  const items = days.map(day => {
+    const key = Object.keys(safePlanMap).find(k =>
+      String(k).toLowerCase().startsWith(day.toLowerCase().substring(0, 3))
+    );
 
-                    ${isDone ? `<div style="position:absolute; top:6px; right:6px; font-size:12px;">✅</div>` : ''}
-                </div>
-            `;
-        }).join('');
+    const data = (key && safePlanMap[key]) ? safePlanMap[key] : {};
+    const workout = ended ? null : (data.workout || null);
 
-        return `
-            <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; overflow-x:auto;">${items}</div>
-            <div style="text-align:center; margin-top:10px;">
-                <button onclick="window.dashboardWidgets.changeWeek(-1, '${meta.containerId}')" style="border:none; background:none; cursor:pointer;">&larr;</button>
-                <span style="font-size:12px; font-weight:600; margin:0 10px;">Week ${meta.weekNumber || 1}</span>
-                <button onclick="window.dashboardWidgets.changeWeek(1, '${meta.containerId}')" style="border:none; background:none; cursor:pointer;">&rarr;</button>
-            </div>
-        `;
-    }
+    const titleStr = ended
+      ? 'Nil'
+      : (
+          (typeof workout?.title === 'string' && workout.title.trim())
+            ? workout.title.trim()
+            : 'Rest'
+        );
+
+    const isRest = ended ? true : titleStr.toLowerCase().includes('rest');
+    const isDone = ended ? false : !!workout?.completed;
+
+    const color = ended
+      ? '#9ca3af'
+      : (isDone ? '#10b981' : (isRest ? '#9ca3af' : '#3b82f6'));
+
+    const bg = ended ? '#f9fafb' : (isDone ? '#ecfdf5' : '#fff');
+
+    const canOpen = !ended && !isRest && workout?.id;
+
+    return `
+      <div onclick="${canOpen ? `window.openWorkoutModal('${workout.id}')` : ''}"
+           style="background:${bg}; border:1px solid ${isDone ? '#10b981' : '#e5e7eb'}; border-radius:8px; padding:8px; min-height:80px;
+                  cursor:${canOpen ? 'pointer' : 'default'}; display:flex; flex-direction:column; position:relative; opacity:${ended ? '0.85' : '1'};">
+
+        <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase;">
+          ${day.substring(0,3)}
+        </div>
+
+        <div style="font-size:12px; font-weight:600; margin-top:4px; color:#111827; line-height:1.2;">
+          ${titleStr}
+        </div>
+
+        ${(!isRest && !ended) ? `
+          <div style="margin-top:auto; font-size:10px; color:${color}; font-weight:600; background:${color}15; padding:2px 6px; border-radius:4px; align-self:flex-start;">
+            ${workout?.distance ? (workout.distance + 'km') : (workout?.duration ? (workout.duration + 'm') : 'Workout')}
+          </div>
+        ` : ''}
+
+        ${ended ? `
+          <div style="margin-top:auto; font-size:10px; color:#9ca3af; font-weight:700;">
+            Plan completed
+          </div>
+        ` : ''}
+
+        ${isDone ? `<div style="position:absolute; top:6px; right:6px; font-size:12px;">✅</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const footerLabel = ended ? 'Plan completed' : `Week ${meta.weekNumber || 1}`;
+
+  // Disable right arrow on ended weeks
+  const rightDisabled = ended;
+
+  const rightBtnStyle = [
+    'border:none',
+    'background:none',
+    `cursor:${rightDisabled ? 'not-allowed' : 'pointer'}`,
+    `opacity:${rightDisabled ? '0.35' : '1'}`,
+    `pointer-events:${rightDisabled ? 'none' : 'auto'}`
+  ].join('; ');
+
+  const leftBtnStyle = 'border:none; background:none; cursor:pointer;';
+
+  return `
+    <div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; overflow-x:auto;">
+      ${items}
+    </div>
+
+    <div style="text-align:center; margin-top:10px;">
+      <button onclick="window.dashboardWidgets.changeWeek(-1, '${meta.containerId}')"
+              style="${leftBtnStyle}">&larr;</button>
+
+      <span style="font-size:12px; font-weight:600; margin:0 10px;">
+        ${footerLabel}
+      </span>
+
+      <button ${rightDisabled ? 'disabled' : ''}
+              onclick="${rightDisabled ? '' : `window.dashboardWidgets.changeWeek(1, '${meta.containerId}')`}"
+              style="${rightBtnStyle}">&rarr;</button>
+    </div>
+  `;
+}
+
+
+
 
     changeWeek(delta, containerId) {
         this.currentWeekOffset += delta;
@@ -889,7 +945,8 @@ attachModalListeners() {
         const container = document.getElementById(containerId);
         if(!container) return;
 
-        const raceDate = this.userProfile?.raceDate ? this.parseDate(this.userProfile.raceDate) : null;
+       const raceDateRaw = this.raceGoal?.date || this.userProfile?.raceDate || null;
+const raceDate = raceDateRaw ? this.parseDate(raceDateRaw) : null;
   if (!raceDate || isNaN(raceDate.getTime())) {
     container.innerHTML = `
       <div style="padding:26px;text-align:center;">

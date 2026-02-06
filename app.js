@@ -3940,6 +3940,7 @@ app.get('/api/race-goals/current', authenticateToken, async (req, res) => {
         return res.json({
       success: true,
       raceGoal: {
+        name: currentGoals.name ?? null,
         distance: currentGoals.distance ?? null,
         date: raceDateStr, // string
         targetTime: currentGoals.targetTime ?? null,
@@ -4544,15 +4545,17 @@ app.get("/api/race/status", authenticateToken, async (req, res) => {
 
     // Prefer AI targetRace.raceDate; fallback to legacy userData.raceDate if you still keep it
     const raceDateRaw =
-      profile?.raceHistory?.targetRace?.raceDate ||
-      userData.raceDate ||
-      null;
+  profile?.raceHistory?.targetRace?.raceDate ||
+  userData.activeRace?.date ||          // add this
+  userData.raceDate ||
+  null;
 
-    const raceName =
-      profile?.raceHistory?.targetRace?.name ||
-      userData.raceName ||
-      userData.currentRace?.name ||
-      null;
+const raceName =
+  profile?.raceHistory?.targetRace?.name ||
+  userData.activeRace?.name ||          // add this
+  userData.raceName ||
+  userData.currentRace?.name ||
+  null;
 
     const raceDate = toJsDate(raceDateRaw);
     const today = new Date();
@@ -4570,6 +4573,15 @@ app.get("/api/race/status", authenticateToken, async (req, res) => {
 
     const hasActiveRacePlan = !activeRacePlanSnap.empty;
 
+    let resolvedRaceName = raceName;
+
+// Fallback: pull from the active plan doc (most reliable)
+if (!resolvedRaceName && hasActiveRacePlan) {
+  const planData = activeRacePlanSnap.docs[0].data();
+  resolvedRaceName = planData.raceName || planData.newGoals?.name || null;
+}
+
+
     // 1) Race date exists and is in the past
     if (raceDate && today > raceDate) {
       if (hasActiveRacePlan) {
@@ -4577,7 +4589,7 @@ app.get("/api/race/status", authenticateToken, async (req, res) => {
           success: true,
           needsFeedback: true,
           raceCompleted: false,
-          completedRaceName: raceName || userData.lastCompletedRaceName || "Race",
+          completedRaceName: resolvedRaceName || userData.lastCompletedRaceName || "Race",
         });
       }
 
@@ -4585,7 +4597,7 @@ app.get("/api/race/status", authenticateToken, async (req, res) => {
         success: true,
         needsFeedback: false,
         raceCompleted: true,
-        completedRaceName: userData.lastCompletedRaceName || raceName || "Race",
+        completedRaceName: userData.lastCompletedRaceName || resolvedRaceName || "Race",
         postRaceDismissed: userData.postRaceDismissed === true,
       });
     }
@@ -11585,51 +11597,33 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
   }
 
   const raceDate = toJsDateQuick(raceDateRaw);
-  if (raceDate && !Number.isNaN(raceDate.getTime())) {
-    const today0 = new Date();
-    today0.setHours(0, 0, 0, 0);
+  // If requested week starts AFTER race day => return NIL week (not postRace)
+if (raceDate && !Number.isNaN(raceDate.getTime())) {
+  const race0 = new Date(raceDate); race0.setHours(0,0,0,0);
+  const weekStart0 = new Date(weekStart); weekStart0.setHours(0,0,0,0);
 
-    raceDate.setHours(0, 0, 0, 0);
-
-    // If race date has passed AND plan is still active => stop schedule + prompt feedback
-    if (today0 > raceDate) {
-      const daysOfWeek = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-
-      return res.json({
-        success: true,
-        postRace: true,
-        needsFeedback: true,
-        plan: {
-          id: planId,
-          planType: plan.planType,
-          coachType: plan.planData?.coachType || 'race',
-          createdAt: plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt
-        },
-        weeklyPlan: {
-          weekNumber: null,
-          totalWeeks: null,
-          phase: "Post-race",
-          phaseWeekNumber: null,
-          phaseTotalWeeks: null,
-          days: daysOfWeek.map(label => ({
-            label,
-            date: null,
-            workout: {
-              id: `postrace-${label}`,
-              title: "Plan complete",
-              description: "Your race is done. Submit feedback to archive the plan and set a new goal.",
-              duration: 0,
-              distance: 0,
-              intensity: "rest",
-              zones: null,
-              completed: false,
-              type: "rest"
-            }
-          }))
-        }
-      });
-    }
+  if (weekStart0 > race0) {
+    const daysOfWeek = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+    return res.json({
+      success: true,
+      plan: { id: planId, planType: plan.planType },
+      weeklyPlan: {
+        ended: true,
+        weekNumber: null,
+        totalWeeks: null,
+        phase: "Completed",
+        phaseWeekNumber: null,
+        phaseTotalWeeks: null,
+        days: daysOfWeek.map(label => ({
+          label,
+          date: null,
+          workout: null
+        }))
+      }
+    });
   }
+}
+
 }
 
 
@@ -11651,6 +11645,35 @@ app.get('/api/race/weekly-plan', authenticateToken, async (req, res) => {
     const daysOfWeek = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
     const toJsDate = (v) => (v?.toDate ? v.toDate() : (v ? new Date(v) : null));
     const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    // After you compute weekStart/weekEnd and raceDate (already in the route)
+if (raceDate && !Number.isNaN(raceDate.getTime())) {
+  const race0 = new Date(raceDate); race0.setHours(0,0,0,0);
+  const weekStart0 = new Date(weekStart); weekStart0.setHours(0,0,0,0);
+
+  // If the requested week starts AFTER the race day, return NIL schedule
+  if (weekStart0 > race0) {
+    const daysOfWeek = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+    return res.json({
+      success: true,
+      ended: true,
+      plan: { id: planId, planType: plan.planType, createdAt: plan.createdAt?.toDate ? plan.createdAt.toDate().toISOString() : plan.createdAt },
+      weeklyPlan: {
+        weekNumber: null,
+        totalWeeks: null,
+        phase: "Completed",
+        phaseWeekNumber: null,
+        phaseTotalWeeks: null,
+        days: daysOfWeek.map(label => ({
+          label,
+          date: null,
+          workout: { id: `nil-${label}`, title: "Nil", description: "No workouts scheduled.", type: "none", distance: 0, duration: 0, intensity: "none", completed: false }
+        }))
+      }
+    });
+  }
+}
+
 
     // 3) Compute meta (weekNumber, totalWeeks, phase, optional phase week-of)
     const weeksArr = plan.planData?.weeks || [];
